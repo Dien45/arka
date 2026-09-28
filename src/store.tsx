@@ -1,4 +1,4 @@
-import { createContext, useContext, useReducer, ReactNode, Dispatch } from 'react';
+import { createContext, useContext, useReducer, ReactNode, Dispatch, useEffect } from 'react';
 import { ProviderConfig, Session, Agent, View, Message, GitHubRepo } from './types';
 
 interface AppState {
@@ -75,18 +75,62 @@ const defaultAgents: Agent[] = [
   },
 ];
 
-const initialState: AppState = {
-  currentView: 'chat',
-  sessions: [],
-  currentSessionId: null,
-  agents: defaultAgents,
-  providers: defaultProviders,
-  githubToken: '',
-  githubRepos: [],
-  githubConnected: false,
-  sidebarOpen: false,
-  isLoading: false,
+// Load state from localStorage
+const loadState = (): AppState => {
+  try {
+    const saved = localStorage.getItem('arka-state');
+    if (saved) {
+      const parsed = JSON.parse(saved);
+      return {
+        currentView: 'chat',
+        sessions: parsed.sessions || [],
+        currentSessionId: parsed.currentSessionId || null,
+        agents: parsed.agents || defaultAgents,
+        providers: parsed.providers || defaultProviders,
+        githubToken: parsed.githubToken || '',
+        githubRepos: parsed.githubRepos || [],
+        githubConnected: parsed.githubConnected || false,
+        sidebarOpen: false,
+        isLoading: false,
+      };
+    }
+  } catch (error) {
+    console.error('Failed to load state from localStorage:', error);
+  }
+  
+  return {
+    currentView: 'chat',
+    sessions: [],
+    currentSessionId: null,
+    agents: defaultAgents,
+    providers: defaultProviders,
+    githubToken: '',
+    githubRepos: [],
+    githubConnected: false,
+    sidebarOpen: false,
+    isLoading: false,
+  };
 };
+
+// Save state to localStorage
+const saveState = (state: AppState) => {
+  try {
+    const toSave = {
+      sessions: state.sessions,
+      currentSessionId: state.currentSessionId,
+      agents: state.agents,
+      providers: state.providers,
+      githubToken: state.githubToken,
+      githubRepos: state.githubRepos,
+      githubConnected: state.githubConnected,
+    };
+    localStorage.setItem('arka-state', JSON.stringify(toSave));
+  } catch (error) {
+    console.error('Failed to save state to localStorage:', error);
+  }
+};
+
+const initialState: AppState = loadState();
 
 function reducer(state: AppState, action: Action): AppState {
   switch (action.type) {
@@ -154,6 +198,12 @@ const AppContext = createContext<{ state: AppState; dispatch: Dispatch<Action> }
 
 export function AppProvider({ children }: { children: ReactNode }) {
   const [state, dispatch] = useReducer(reducer, initialState);
+  
+  // Save state to localStorage whenever it changes
+  useEffect(() => {
+    saveState(state);
+  }, [state]);
+  
   return <AppContext.Provider value={{ state, dispatch }}>{children}</AppContext.Provider>;
 }
 

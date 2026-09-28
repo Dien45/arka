@@ -93,13 +93,30 @@ export default function GitHubPanel() {
     if (!files) return;
 
     const newWorkspaceFiles = new Map<string, string>();
+    let rootFolder = '';
+
+    // Detect root folder name from first file
+    for (let i = 0; i < files.length; i++) {
+      const path = files[i].webkitRelativePath || files[i].name;
+      const parts = path.split('/');
+      if (parts.length > 1) {
+        rootFolder = parts[0];
+        break;
+      }
+    }
 
     for (let i = 0; i < files.length; i++) {
       const file = files[i];
-      const path = file.webkitRelativePath || file.name;
+      let path = file.webkitRelativePath || file.name;
       
-      // Skip binary files and node_modules
-      if (path.includes('node_modules') || path.includes('.git')) continue;
+      // Strip root folder from path
+      if (rootFolder && path.startsWith(rootFolder + '/')) {
+        path = path.substring(rootFolder.length + 1);
+      }
+      
+      // Skip binary files, node_modules, and .git
+      if (path.includes('node_modules') || path.includes('.git') || path.startsWith('.')) continue;
+      if (/\.(png|jpg|jpeg|gif|ico|svg|woff|woff2|ttf|eot|pdf|zip|rar)$/i.test(path)) continue;
       
       try {
         const content = await file.text();

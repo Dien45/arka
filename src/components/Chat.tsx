@@ -1,8 +1,9 @@
 import { useState, useRef, useEffect } from 'react';
-import { Send, Paperclip, Sparkles, User, Bot, Loader2, Code, Terminal, FileCode, Eye, ChevronDown, Check } from 'lucide-react';
+import { Send, Paperclip, Sparkles, User, Bot, Loader2, Code, Terminal, FileCode, Eye, ChevronDown, Check, AlertCircle } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import { useApp } from '../store';
 import { Message, ToolCall } from '../types';
+import { callAIProvider } from '../aiService';
 
 function FilePreview({ fileName, content }: { fileName: string; content: string }) {
   const [expanded, setExpanded] = useState(false);
@@ -223,90 +224,38 @@ export default function Chat() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [currentSession?.messages]);
 
-  const simulateResponse = (userMessage: string, sessionId: string) => {
+  const getAIResponse = async (userMessage: string, sessionId: string) => {
     setIsTyping(true);
     dispatch({ type: 'SET_LOADING', payload: true });
 
-    setTimeout(() => {
-      if (!sessionId) return;
-
-      // Generate contextual response based on user message
-      const lowerMessage = userMessage.toLowerCase();
-      let responseContent = '';
-
-      // Contextual responses
-      if (lowerMessage.includes('siapa') || lowerMessage.includes('kamu') || lowerMessage.includes('apa')) {
-        responseContent = `Halo! Saya **Arka**, AI coding assistant yang siap membantu Anda menulis, debug, dan memahami kode.
-
-Saya bisa:
-- 📝 Menulis dan mengedit kode
-- 🐛 Mencari dan memperbaiki bug
-- 📖 Menjelaskan kode yang rumit
-- 🏗️ Merancang arsitektur aplikasi
-- 🔍 Mencari file dan fungsi dalam project
-
-Ada yang bisa saya bantu hari ini?`;
-      } else if (lowerMessage.includes('halo') || lowerMessage.includes('hai') || lowerMessage.includes('hello') || lowerMessage.includes('hi')) {
-        responseContent = `Halo juga! 👋 Senang bertemu dengan Anda.
-
-Saya Arka, AI coding assistant. Mau ngapain hari ini? Saya bisa bantu:
-- Buat project baru
-- Debug kode yang error
-- Jelaskan konsep programming
-- Atau ngobrol santai tentang coding
-
-Silakan tanya apa saja! 😊`;
-      } else if (lowerMessage.includes('buat') || lowerMessage.includes('create') || lowerMessage.includes('new')) {
-        responseContent = `Baik, saya akan bantu buatkan!
-
-Bisa kasih detail lebih lanjut? Misalnya:
-- Project apa yang mau dibuat? (React app, API, dll)
-- Fitur apa saja yang dibutuhkan?
-- Ada preferensi teknologi? (TypeScript, JavaScript, dll)
-
-Semakin detail, semakin bagus hasilnya! 🚀`;
-      } else if (lowerMessage.includes('error') || lowerMessage.includes('bug') || lowerMessage.includes('masalah') || lowerMessage.includes('fix')) {
-        responseContent = `Oke, saya bantu debug ya!
-
-Bisa kasih info:
-1. Error message-nya apa?
-2. Kodenya seperti apa? (paste di chat)
-3. Apa yang seharusnya terjadi vs yang sebenarnya terjadi?
-
-Dengan info itu, saya bisa bantu cari solusinya lebih cepat! 🔍`;
-      } else if (lowerMessage.includes('jelaskan') || lowerMessage.includes('explain') || lowerMessage.includes('apa itu')) {
-        responseContent = `Tentu, saya jelaskan!
-
-Kode apa yang mau dijelaskan? Bisa:
-- Paste kodenya di chat
-- Sebutkan file-nya (saya bisa baca dari workspace)
-- Atau tanya konsep tertentu (misal: "jelaskan async/await")
-
-Saya akan jelaskan dengan bahasa yang mudah dipahami! 📚`;
-      } else if (lowerMessage.includes('terima kasih') || lowerMessage.includes('makasih') || lowerMessage.includes('thanks')) {
-        responseContent = `Sama-sama! 😊 Senang bisa membantu.
-
-Kalau ada pertanyaan lain atau butuh bantuan lagi, jangan ragu untuk tanya ya. Saya selalu siap membantu! 🚀`;
-      } else if (lowerMessage.includes('bagaimana') || lowerMessage.includes('how') || lowerMessage.includes('cara')) {
-        responseContent = `Pertanyaan bagus!
-
-Untuk memberikan jawaban yang paling akurat, bisa kasih konteks lebih lanjut? Misalnya:
-- Apa yang ingin Anda capai?
-- Teknologi apa yang sedang dipakai?
-- Ada contoh kode atau error yang dihadapi?
-
-Dengan info itu, saya bisa bantu lebih spesifik! 💡`;
-      } else {
-        // Default response for other questions
-        responseContent = `Menarik! Saya paham pertanyaan Anda.
-
-Untuk memberikan jawaban yang paling membantu, bisa kasih konteks lebih lanjut? Misalnya:
-- Project apa yang sedang dikerjakan?
-- Teknologi apa yang dipakai?
-- Apa goal akhirnya?
-
-Dengan info itu, saya bisa bantu lebih spesifik dan actionable! 💡`;
+    try {
+      // Find the provider for the selected model
+      const provider = state.providers.find(p => p.model === selectedModel && p.enabled);
+      
+      if (!provider) {
+        throw new Error('Provider tidak ditemukan atau belum diaktifkan. Buka Settings untuk setup.');
       }
+
+      // Build message history from current session
+      const session = state.sessions.find(s => s.id === sessionId);
+      const messageHistory = session?.messages
+        .filter(m => m.role === 'user' || m.role === 'assistant')
+        .map(m => ({
+          role: m.role as 'user' | 'assistant',
+          content: m.content,
+        })) || [];
+
+      // Add system prompt
+      const messagesWithSystem = [
+        {
+          role: 'system' as const,
+          content: 'You are Arka, an AI coding assistant. Help users with coding tasks, debugging, code explanation, and software development. Respond in Indonesian unless asked otherwise. Be concise, helpful, and use markdown formatting when appropriate.',
+        },
+        ...messageHistory,
+      ];
+
+      // Call the AI provider
+      const responseContent = await callAIProvider(provider, messagesWithSystem);
 
       const response: Message = {
         id: Date.now().toString(),
@@ -316,9 +265,21 @@ Dengan info itu, saya bisa bantu lebih spesifik dan actionable! 💡`;
       };
 
       dispatch({ type: 'ADD_MESSAGE', payload: { sessionId, message: response } });
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Terjadi kesalahan saat menghubungi AI';
+      
+      const response: Message = {
+        id: Date.now().toString(),
+        role: 'assistant',
+        content: `❌ **Error:** ${errorMessage}\n\nPastikan:\n- API Key sudah benar di Settings\n- Provider sudah diaktifkan\n- Koneksi internet stabil`,
+        timestamp: new Date(),
+      };
+
+      dispatch({ type: 'ADD_MESSAGE', payload: { sessionId, message: response } });
+    } finally {
       setIsTyping(false);
       dispatch({ type: 'SET_LOADING', payload: false });
-    }, 1000);
+    }
   };
 
   const handleSend = () => {
@@ -348,7 +309,7 @@ Dengan info itu, saya bisa bantu lebih spesifik dan actionable! 💡`;
 
     dispatch({ type: 'ADD_MESSAGE', payload: { sessionId, message: userMessage } });
     setInput('');
-    simulateResponse(input, sessionId);
+    getAIResponse(input, sessionId);
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
