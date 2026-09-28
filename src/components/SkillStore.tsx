@@ -161,19 +161,48 @@ export default function SkillStore() {
   const { state } = useApp();
   const [skills, setSkills] = useState<Skill[]>(() => {
     const saved = localStorage.getItem('arka-skills');
-    if (saved) {
+    const savedCustom = localStorage.getItem('arka-custom-skills');
+    
+    let result = [...availableSkills];
+    
+    // Load custom skills
+    if (savedCustom) {
       try {
-        const savedSkills = JSON.parse(saved);
-        return availableSkills.map(skill => ({
-          ...skill,
-          installed: savedSkills.includes(skill.id)
-        }));
+        const customSkills = JSON.parse(savedCustom);
+        result = [...customSkills, ...result];
       } catch {
-        return availableSkills;
+        // ignore
       }
     }
-    return availableSkills;
+    
+    // Mark installed skills
+    if (saved) {
+      try {
+        const installedIds = JSON.parse(saved);
+        result = result.map(skill => ({
+          ...skill,
+          installed: installedIds.includes(skill.id)
+        }));
+      } catch {
+        // ignore
+      }
+    }
+    
+    return result;
   });
+  
+  const [skillConfigs, setSkillConfigs] = useState<Record<string, any>>(() => {
+    const saved = localStorage.getItem('arka-skill-configs');
+    if (saved) {
+      try {
+        return JSON.parse(saved);
+      } catch {
+        return {};
+      }
+    }
+    return {};
+  });
+  
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedSource, setSelectedSource] = useState<'all' | 'github' | 'openclaw' | 'hermes'>('all');
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
@@ -182,11 +211,22 @@ export default function SkillStore() {
   const [customRepo, setCustomRepo] = useState('');
   const [configuringSkill, setConfiguringSkill] = useState<Skill | null>(null);
 
-  // Save skills to localStorage whenever they change
+  // Save installed skill IDs to localStorage
   useEffect(() => {
     const installedIds = skills.filter(s => s.installed).map(s => s.id);
     localStorage.setItem('arka-skills', JSON.stringify(installedIds));
   }, [skills]);
+  
+  // Save custom skills to localStorage
+  useEffect(() => {
+    const customSkills = skills.filter(s => s.id.startsWith('custom-'));
+    localStorage.setItem('arka-custom-skills', JSON.stringify(customSkills));
+  }, [skills]);
+  
+  // Save skill configurations to localStorage
+  useEffect(() => {
+    localStorage.setItem('arka-skill-configs', JSON.stringify(skillConfigs));
+  }, [skillConfigs]);
 
   const categories = ['all', ...new Set(skills.map(s => s.category))];
 
@@ -508,15 +548,54 @@ export default function SkillStore() {
                 <label className="text-xs font-medium text-[#64748b] block mb-1">Skill Settings</label>
                 <div className="space-y-2">
                   <label className="flex items-center gap-2">
-                    <input type="checkbox" defaultChecked className="rounded border-[#b8c9db] text-[#7c9cbf] focus:ring-[#7c9cbf]" />
+                    <input 
+                      type="checkbox" 
+                      checked={skillConfigs[configuringSkill.id]?.autoSuggestions ?? true}
+                      onChange={(e) => {
+                        setSkillConfigs(prev => ({
+                          ...prev,
+                          [configuringSkill.id]: {
+                            ...prev[configuringSkill.id],
+                            autoSuggestions: e.target.checked
+                          }
+                        }));
+                      }}
+                      className="rounded border-[#b8c9db] text-[#7c9cbf] focus:ring-[#7c9cbf]" 
+                    />
                     <span className="text-xs text-[#334155]">Enable auto-suggestions</span>
                   </label>
                   <label className="flex items-center gap-2">
-                    <input type="checkbox" defaultChecked className="rounded border-[#b8c9db] text-[#7c9cbf] focus:ring-[#7c9cbf]" />
+                    <input 
+                      type="checkbox" 
+                      checked={skillConfigs[configuringSkill.id]?.notifications ?? true}
+                      onChange={(e) => {
+                        setSkillConfigs(prev => ({
+                          ...prev,
+                          [configuringSkill.id]: {
+                            ...prev[configuringSkill.id],
+                            notifications: e.target.checked
+                          }
+                        }));
+                      }}
+                      className="rounded border-[#b8c9db] text-[#7c9cbf] focus:ring-[#7c9cbf]" 
+                    />
                     <span className="text-xs text-[#334155]">Show notifications</span>
                   </label>
                   <label className="flex items-center gap-2">
-                    <input type="checkbox" className="rounded border-[#b8c9db] text-[#7c9cbf] focus:ring-[#7c9cbf]" />
+                    <input 
+                      type="checkbox" 
+                      checked={skillConfigs[configuringSkill.id]?.advancedMode ?? false}
+                      onChange={(e) => {
+                        setSkillConfigs(prev => ({
+                          ...prev,
+                          [configuringSkill.id]: {
+                            ...prev[configuringSkill.id],
+                            advancedMode: e.target.checked
+                          }
+                        }));
+                      }}
+                      className="rounded border-[#b8c9db] text-[#7c9cbf] focus:ring-[#7c9cbf]" 
+                    />
                     <span className="text-xs text-[#334155]">Advanced mode</span>
                   </label>
                 </div>

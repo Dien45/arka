@@ -187,10 +187,17 @@ export default function Chat() {
   const { state, dispatch } = useApp();
   const [input, setInput] = useState('');
   const [isTyping, setIsTyping] = useState(false);
-  const [selectedModel, setSelectedModel] = useState('gpt-4o');
+  const [selectedModel, setSelectedModel] = useState(() => {
+    return localStorage.getItem('arka-selected-model') || 'gpt-4o';
+  });
   const [showModelSelector, setShowModelSelector] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+
+  // Save selected model to localStorage
+  useEffect(() => {
+    localStorage.setItem('arka-selected-model', selectedModel);
+  }, [selectedModel]);
 
   const currentSession = state.sessions.find(s => s.id === state.currentSessionId);
   
@@ -483,7 +490,7 @@ Keep responses short and actionable.${skillEnhancements}`,
   return (
     <div className="flex flex-col h-full overflow-visible">
       {/* Chat Header */}
-      <div className="px-4 py-3 border-b border-[#b8c9db] bg-white/50 backdrop-blur-sm overflow-visible">
+      <div className="px-4 py-3 border-b border-[#b8c9db] bg-white/50 backdrop-blur-sm overflow-visible relative z-50">
         <div className="flex items-center gap-3">
           <Sparkles size={18} className="text-[#7c9cbf]" />
           <div className="flex-1">
@@ -620,7 +627,7 @@ Keep responses short and actionable.${skillEnhancements}`,
       </div>
 
       {/* Messages */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-4">
+      <div className="flex-1 overflow-y-auto p-4 space-y-4 relative z-0">
         {!currentSession || currentSession.messages.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-full text-center px-4">
             <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-[#7c9cbf] to-[#93b5d3] flex items-center justify-center mb-4 shadow-lg">
