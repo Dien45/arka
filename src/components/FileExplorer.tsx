@@ -1031,10 +1031,24 @@ export default function FileExplorer() {
               </div>
 
               {/* Browse Button */}
-              <button className="w-full flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg border border-[#b8c9db] text-sm text-[#64748b] hover:bg-[#f8fafc] transition-colors">
+              <label className="w-full flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg border border-[#b8c9db] text-sm text-[#64748b] hover:bg-[#f8fafc] transition-colors cursor-pointer">
                 <FolderOpen size={14} />
                 Browse Folder...
-              </button>
+                <input
+                  type="file"
+                  className="hidden"
+                  onChange={(e) => {
+                    const files = e.target.files;
+                    if (files && files.length > 0) {
+                      const firstFile = files[0];
+                      const path = firstFile.webkitRelativePath || firstFile.name;
+                      const folderPath = path.split('/')[0];
+                      setWorkspacePath(`/${folderPath}`);
+                    }
+                  }}
+                  {...({ webkitdirectory: 'true', directory: 'true' } as any)}
+                />
+              </label>
 
               {/* Action Buttons */}
               <div className="flex gap-2">

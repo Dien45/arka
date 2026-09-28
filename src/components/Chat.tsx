@@ -223,109 +223,95 @@ export default function Chat() {
     setTimeout(() => {
       if (!sessionId) return;
 
-      // Simulate tool call with file content
-      const fileContent = `import React from 'react';
-import { Header } from './Header';
-import { Sidebar } from './Sidebar';
+      // Generate contextual response based on user message
+      const lowerMessage = userMessage.toLowerCase();
+      let responseContent = '';
 
-export default function App() {
-  const [count, setCount] = React.useState(0);
+      // Contextual responses
+      if (lowerMessage.includes('siapa') || lowerMessage.includes('kamu') || lowerMessage.includes('apa')) {
+        responseContent = `Halo! Saya **Arka**, AI coding assistant yang siap membantu Anda menulis, debug, dan memahami kode.
 
-  return (
-    <div className="app">
-      <Header />
-      <div className="flex">
-        <Sidebar />
-        <main className="flex-1 p-6">
-          <h1>Hello World</h1>
-          <p>Count: {count}</p>
-          <button onClick={() => setCount(c => c + 1)}>
-            Increment
-          </button>
-        </main>
-      </div>
-    </div>
-  );
-}`;
+Saya bisa:
+- 📝 Menulis dan mengedit kode
+- 🐛 Mencari dan memperbaiki bug
+- 📖 Menjelaskan kode yang rumit
+- 🏗️ Merancang arsitektur aplikasi
+- 🔍 Mencari file dan fungsi dalam project
 
-      const toolMessage: Message = {
-        id: Date.now().toString() + '_tool',
-        role: 'tool',
-        content: '',
+Ada yang bisa saya bantu hari ini?`;
+      } else if (lowerMessage.includes('halo') || lowerMessage.includes('hai') || lowerMessage.includes('hello') || lowerMessage.includes('hi')) {
+        responseContent = `Halo juga! 👋 Senang bertemu dengan Anda.
+
+Saya Arka, AI coding assistant. Mau ngapain hari ini? Saya bisa bantu:
+- Buat project baru
+- Debug kode yang error
+- Jelaskan konsep programming
+- Atau ngobrol santai tentang coding
+
+Silakan tanya apa saja! 😊`;
+      } else if (lowerMessage.includes('buat') || lowerMessage.includes('create') || lowerMessage.includes('new')) {
+        responseContent = `Baik, saya akan bantu buatkan!
+
+Bisa kasih detail lebih lanjut? Misalnya:
+- Project apa yang mau dibuat? (React app, API, dll)
+- Fitur apa saja yang dibutuhkan?
+- Ada preferensi teknologi? (TypeScript, JavaScript, dll)
+
+Semakin detail, semakin bagus hasilnya! 🚀`;
+      } else if (lowerMessage.includes('error') || lowerMessage.includes('bug') || lowerMessage.includes('masalah') || lowerMessage.includes('fix')) {
+        responseContent = `Oke, saya bantu debug ya!
+
+Bisa kasih info:
+1. Error message-nya apa?
+2. Kodenya seperti apa? (paste di chat)
+3. Apa yang seharusnya terjadi vs yang sebenarnya terjadi?
+
+Dengan info itu, saya bisa bantu cari solusinya lebih cepat! 🔍`;
+      } else if (lowerMessage.includes('jelaskan') || lowerMessage.includes('explain') || lowerMessage.includes('apa itu')) {
+        responseContent = `Tentu, saya jelaskan!
+
+Kode apa yang mau dijelaskan? Bisa:
+- Paste kodenya di chat
+- Sebutkan file-nya (saya bisa baca dari workspace)
+- Atau tanya konsep tertentu (misal: "jelaskan async/await")
+
+Saya akan jelaskan dengan bahasa yang mudah dipahami! 📚`;
+      } else if (lowerMessage.includes('terima kasih') || lowerMessage.includes('makasih') || lowerMessage.includes('thanks')) {
+        responseContent = `Sama-sama! 😊 Senang bisa membantu.
+
+Kalau ada pertanyaan lain atau butuh bantuan lagi, jangan ragu untuk tanya ya. Saya selalu siap membantu! 🚀`;
+      } else if (lowerMessage.includes('bagaimana') || lowerMessage.includes('how') || lowerMessage.includes('cara')) {
+        responseContent = `Pertanyaan bagus!
+
+Untuk memberikan jawaban yang paling akurat, bisa kasih konteks lebih lanjut? Misalnya:
+- Apa yang ingin Anda capai?
+- Teknologi apa yang sedang dipakai?
+- Ada contoh kode atau error yang dihadapi?
+
+Dengan info itu, saya bisa bantu lebih spesifik! 💡`;
+      } else {
+        // Default response for other questions
+        responseContent = `Menarik! Saya paham pertanyaan Anda.
+
+Untuk memberikan jawaban yang paling membantu, bisa kasih konteks lebih lanjut? Misalnya:
+- Project apa yang sedang dikerjakan?
+- Teknologi apa yang dipakai?
+- Apa goal akhirnya?
+
+Dengan info itu, saya bisa bantu lebih spesifik dan actionable! 💡`;
+      }
+
+      const response: Message = {
+        id: Date.now().toString(),
+        role: 'assistant',
+        content: responseContent,
         timestamp: new Date(),
-        toolCalls: [
-          {
-            id: 'tc_1',
-            name: 'read_file',
-            input: { path: 'src/App.tsx' },
-            output: fileContent,
-            status: 'completed',
-          },
-        ],
       };
-      dispatch({ type: 'ADD_MESSAGE', payload: { sessionId, message: toolMessage } });
 
-      // Simulate a write_file tool call after a short delay
-      setTimeout(() => {
-        const writeToolMessage: Message = {
-          id: Date.now().toString() + '_tool2',
-          role: 'tool',
-          content: '',
-          timestamp: new Date(),
-          toolCalls: [
-            {
-              id: 'tc_2',
-              name: 'write_file',
-              input: { path: 'src/utils/helpers.ts' },
-              output: `export function formatDate(date: Date): string {
-  return date.toLocaleDateString('id-ID', {
-    year: 'numeric',
-    month: 'long',
-    day: 'numeric',
-  });
-}
-
-export function debounce<T extends (...args: any[]) => void>(
-  fn: T,
-  ms: number
-) {
-  let timer: ReturnType<typeof setTimeout>;
-  return (...args: Parameters<T>) => {
-    clearTimeout(timer);
-    timer = setTimeout(() => fn(...args), ms);
-  };
-}
-
-export function classNames(...classes: (string | boolean | undefined)[]) {
-  return classes.filter(Boolean).join(' ');
-}`,
-              status: 'completed',
-            },
-          ],
-        };
-        dispatch({ type: 'ADD_MESSAGE', payload: { sessionId, message: writeToolMessage } });
-      }, 1200);
-
-      setTimeout(() => {
-        const responses = [
-          `Baik, saya akan membantu Anda dengan itu. Berikut analisis saya:\n\n\`\`\`typescript\n// Contoh kode yang saya buat\nfunction solve(input: string): string {\n  return input.split('').reverse().join('');\n}\n\`\`\`\n\nPenjelasan:\n- Fungsi ini menerima string sebagai input\n- Memecah string menjadi array karakter\n- Membalik urutan array\n- Menggabungkan kembali menjadi string\n\nAda yang perlu saya jelaskan lebih lanjut?`,
-          `Saya sudah menganalisis kode Anda. Berikut temuan saya:\n\n**Masalah yang ditemukan:**\n1. ⚠️ Variable \`count\` tidak diinisialisasi\n2. ⚠️ Missing error handling pada async function\n3. ✅ Struktur komponen sudah baik\n\n**Saran perbaikan:**\n\`\`\`typescript\n// Sebelum\nconst data = await fetchData();\n\n// Sesudah\ntry {\n  const data = await fetchData();\n} catch (error) {\n  console.error('Fetch failed:', error);\n}\n\`\`\``,
-          `Tentu! Mari kita mulai. Saya akan membuat struktur project yang clean:\n\n📁 **Struktur Project:**\n\`\`\`\nsrc/\n├── components/\n│   ├── ui/\n│   └── layouts/\n├── hooks/\n├── utils/\n├── types/\n├── App.tsx\n└── main.tsx\n\`\`\`\n\nSaya sudah menyiapkan konfigurasi dasar. Mau saya lanjutkan dengan setup routing dan state management?`,
-        ];
-
-        const response: Message = {
-          id: Date.now().toString(),
-          role: 'assistant',
-          content: responses[Math.floor(Math.random() * responses.length)] + 
-            `\n\n---\n*🤖 Response by ${currentProvider?.name || 'AI'} • ${selectedModel}*`,
-          timestamp: new Date(),
-        };
-
-        dispatch({ type: 'ADD_MESSAGE', payload: { sessionId, message: response } });
-        setIsTyping(false);
-        dispatch({ type: 'SET_LOADING', payload: false });
-      }, 1500);
-    }, 800);
+      dispatch({ type: 'ADD_MESSAGE', payload: { sessionId, message: response } });
+      setIsTyping(false);
+      dispatch({ type: 'SET_LOADING', payload: false });
+    }, 1000);
   };
 
   const handleSend = () => {
@@ -388,22 +374,22 @@ export function classNames(...classes: (string | boolean | undefined)[]) {
             </button>
             
             {showModelSelector && (
-              <div className="absolute right-0 top-full mt-2 w-64 bg-white rounded-xl border border-[#b8c9db] shadow-lg z-10 overflow-hidden">
+              <div className="absolute right-0 top-full mt-2 w-72 bg-white rounded-xl border border-[#b8c9db] shadow-lg z-10 overflow-hidden">
                 <div className="p-2 border-b border-[#b8c9db] bg-[#f8fafc]">
-                  <p className="text-[10px] font-semibold text-[#64748b] uppercase">Pilih Model</p>
+                  <p className="text-[10px] font-semibold text-[#64748b] uppercase">Pilih Model AI</p>
                 </div>
-                <div className="max-h-80 overflow-y-auto">
+                <div className="max-h-96 overflow-y-auto">
                   {enabledProviders.length === 0 ? (
                     <div className="p-4 text-center">
-                      <p className="text-xs text-[#94a3b8]">Belum ada provider aktif</p>
+                      <p className="text-xs text-[#94a3b8] mb-2">Belum ada provider aktif</p>
                       <button
                         onClick={() => {
                           dispatch({ type: 'SET_VIEW', payload: 'settings' });
                           setShowModelSelector(false);
                         }}
-                        className="mt-2 text-xs text-[#5a7fa0] font-medium hover:underline"
+                        className="text-xs text-[#5a7fa0] font-medium hover:underline"
                       >
-                        Buka Settings
+                        Buka Settings untuk setup
                       </button>
                     </div>
                   ) : (
@@ -413,20 +399,34 @@ export function classNames(...classes: (string | boolean | undefined)[]) {
                           <span className="text-sm">{provider.icon}</span>
                           <span className="text-xs font-medium text-[#334155]">{provider.name}</span>
                         </div>
-                        <button
-                          onClick={() => {
-                            setSelectedModel(provider.model);
-                            setShowModelSelector(false);
-                          }}
-                          className={`w-full px-3 py-2 text-left text-xs hover:bg-[#f0f4f8] transition-colors ${
-                            selectedModel === provider.model ? 'bg-[#7c9cbf]/10 text-[#5a7fa0] font-medium' : 'text-[#64748b]'
-                          }`}
-                        >
-                          <div className="flex items-center gap-2">
-                            <span className="font-mono">{provider.model}</span>
-                            {selectedModel === provider.model && <Check size={12} className="ml-auto" />}
+                        {provider.model ? (
+                          <button
+                            onClick={() => {
+                              setSelectedModel(provider.model);
+                              setShowModelSelector(false);
+                            }}
+                            className={`w-full px-3 py-2.5 text-left hover:bg-[#f0f4f8] transition-colors ${
+                              selectedModel === provider.model ? 'bg-[#7c9cbf]/10' : ''
+                            }`}
+                          >
+                            <div className="flex items-center gap-2">
+                              <div className="flex-1">
+                                <p className={`text-xs font-mono ${
+                                  selectedModel === provider.model ? 'text-[#5a7fa0] font-medium' : 'text-[#334155]'
+                                }`}>
+                                  {provider.model}
+                                </p>
+                              </div>
+                              {selectedModel === provider.model && (
+                                <Check size={14} className="text-[#7c9cbf]" />
+                              )}
+                            </div>
+                          </button>
+                        ) : (
+                          <div className="px-3 py-2 text-[10px] text-[#94a3b8] italic">
+                            Model belum dikonfigurasi
                           </div>
-                        </button>
+                        )}
                       </div>
                     ))
                   )}
