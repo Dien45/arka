@@ -27,6 +27,8 @@ export async function callAIProvider(
         return await callOpenRouter(provider, messages);
       case 'ollama':
         return await callOllama(provider, messages);
+      case 'custom':
+        return await callCustom(provider, messages);
       default:
         throw new Error(`Provider ${provider.id} belum didukung`);
     }
@@ -188,4 +190,49 @@ async function callOllama(provider: ProviderConfig, messages: ChatMessage[]): Pr
 
   const data = await response.json();
   return data.message.content;
+}
+
+async function callCustom(provider: ProviderConfig, messages: ChatMessage[]): Promise<string> {
+  // Custom provider biasanya OpenAI-compatible
+  const response = await fetch(`${provider.baseUrl}/chat/completions`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${provider.apiKey}`,
+    },
+    body: JSON.stringify({
+      model: provider.model,
+      messages: messages,
+      temperature: 0.7,
+    }),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    let errorMessage = `Custom API error: ${response.statusText}`;
+    
+    try {
+      const errorJson = JSON.parse(errorText);
+      if (errorJson.error?.message) {
+        errorMessage = errorJson.error.message;
+      }
+    } catch {
+      // Use default error message
+    }
+    
+    throw new Error(errorMessage);
+  }
+
+  const data = await response.json();
+  
+  // Handle different response formats
+  if (data.choices && data.choices[0]) {
+    return data.choices[0].message.content;
+  } else if (data.response) {
+    return data.response;
+  } else if (data.content) {
+    return data.content;
+  }
+  
+  throw new Error('Format response tidak dikenali');
 }
