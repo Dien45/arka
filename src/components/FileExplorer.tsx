@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { 
   FolderOpen, File, ChevronRight, ChevronDown, FileCode, FileText, 
   Image, Copy, Check, Plus, Trash2, Edit2, X, Download, 
-  FileJson, FileSpreadsheet, Hash, Braces, Type
+  FileJson, FileSpreadsheet, Hash, Braces, Type, Folder
 } from 'lucide-react';
 
 interface FileNode {
@@ -666,6 +666,8 @@ export default function FileExplorer() {
   const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set(['root', 'src']));
   const [searchQuery, setSearchQuery] = useState('');
   const [showActions, setShowActions] = useState(false);
+  const [workspacePath, setWorkspacePath] = useState<string>('/home/user/projects/arka-project');
+  const [showFolderPicker, setShowFolderPicker] = useState(false);
 
   const toggleFolder = (id: string) => {
     const newExpanded = new Set(expandedFolders);
@@ -710,13 +712,27 @@ export default function FileExplorer() {
   return (
     <div className="flex flex-col h-full">
       {/* Header */}
-      <div className="px-4 py-3 border-b border-[#b8c9db] bg-white/50 backdrop-blur-sm flex items-center gap-3">
-        <FolderOpen size={18} className="text-[#7c9cbf]" />
-        <div className="flex-1">
-          <h2 className="font-semibold text-[#334155] text-sm">Workspace</h2>
-          <p className="text-[10px] text-[#94a3b8]">
-            {activeTab ? `${activeTab.name} • ${activeTab.size} • ${activeTab.modified}` : 'Pilih file untuk melihat'}
-          </p>
+      <div className="px-4 py-3 border-b border-[#b8c9db] bg-white/50 backdrop-blur-sm">
+        <div className="flex items-center gap-3">
+          <FolderOpen size={18} className="text-[#7c9cbf]" />
+          <div className="flex-1">
+            <h2 className="font-semibold text-[#334155] text-sm">Workspace</h2>
+            <p className="text-[10px] text-[#94a3b8]">
+              {activeTab ? `${activeTab.name} • ${activeTab.size} • ${activeTab.modified}` : 'Pilih file untuk melihat'}
+            </p>
+          </div>
+          <button
+            onClick={() => setShowFolderPicker(true)}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#7c9cbf]/10 text-[#5a7fa0] text-xs font-medium hover:bg-[#7c9cbf]/20 transition-colors"
+          >
+            <Folder size={12} />
+            Pilih Folder
+          </button>
+        </div>
+        {/* Workspace Path */}
+        <div className="mt-2 flex items-center gap-2 px-2 py-1.5 rounded-lg bg-[#f8fafc] border border-[#b8c9db]">
+          <span className="text-[10px] text-[#64748b] font-medium">📁</span>
+          <span className="text-xs text-[#334155] font-mono truncate">{workspacePath}</span>
         </div>
       </div>
 
@@ -944,6 +960,101 @@ export default function FileExplorer() {
           )}
         </div>
       </div>
+
+      {/* Folder Picker Modal */}
+      {showFolderPicker && (
+        <div 
+          className="fixed inset-0 bg-black/30 z-50 flex items-center justify-center p-4"
+          onClick={() => setShowFolderPicker(false)}
+        >
+          <div 
+            className="bg-white rounded-2xl w-full max-w-md shadow-xl"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="p-4 border-b border-[#b8c9db] flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Folder size={16} className="text-[#7c9cbf]" />
+                <h3 className="font-bold text-[#334155] text-sm">Pilih Folder Workspace</h3>
+              </div>
+              <button 
+                onClick={() => setShowFolderPicker(false)}
+                className="p-1 rounded hover:bg-[#e8eef4]"
+              >
+                <X size={18} className="text-[#64748b]" />
+              </button>
+            </div>
+            
+            <div className="p-4 space-y-4">
+              {/* Current Path */}
+              <div>
+                <label className="text-xs font-medium text-[#64748b] block mb-1">Path Folder</label>
+                <input
+                  type="text"
+                  value={workspacePath}
+                  onChange={e => setWorkspacePath(e.target.value)}
+                  placeholder="/home/user/projects/my-project"
+                  className="w-full px-3 py-2.5 rounded-lg border border-[#b8c9db] text-sm font-mono focus:border-[#7c9cbf] focus:outline-none"
+                />
+              </div>
+
+              {/* Quick Select */}
+              <div>
+                <label className="text-xs font-medium text-[#64748b] block mb-2">Pilih Cepat</label>
+                <div className="space-y-2">
+                  {[
+                    { path: '/home/user/projects/arka-project', name: 'Arka Project' },
+                    { path: '/home/user/projects/web-app', name: 'Web App' },
+                    { path: '/home/user/projects/mobile-app', name: 'Mobile App' },
+                    { path: '/home/user/Desktop', name: 'Desktop' },
+                    { path: '/home/user/Documents', name: 'Documents' },
+                  ].map(folder => (
+                    <button
+                      key={folder.path}
+                      onClick={() => setWorkspacePath(folder.path)}
+                      className={`w-full flex items-center gap-3 p-3 rounded-lg border transition-all text-left ${
+                        workspacePath === folder.path
+                          ? 'border-[#7c9cbf] bg-[#7c9cbf]/5'
+                          : 'border-[#b8c9db] hover:border-[#7c9cbf]/50 hover:bg-[#f8fafc]'
+                      }`}
+                    >
+                      <Folder size={16} className="text-[#d4a574] shrink-0" />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium text-[#334155] truncate">{folder.name}</p>
+                        <p className="text-xs text-[#94a3b8] font-mono truncate">{folder.path}</p>
+                      </div>
+                      {workspacePath === folder.path && (
+                        <Check size={16} className="text-[#7c9cbf] shrink-0" />
+                      )}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Browse Button */}
+              <button className="w-full flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg border border-[#b8c9db] text-sm text-[#64748b] hover:bg-[#f8fafc] transition-colors">
+                <FolderOpen size={14} />
+                Browse Folder...
+              </button>
+
+              {/* Action Buttons */}
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setShowFolderPicker(false)}
+                  className="flex-1 px-3 py-2.5 rounded-lg border border-[#b8c9db] text-sm text-[#64748b] hover:bg-[#f8fafc] transition-colors"
+                >
+                  Batal
+                </button>
+                <button
+                  onClick={() => setShowFolderPicker(false)}
+                  className="flex-1 px-3 py-2.5 rounded-lg bg-[#7c9cbf] text-white text-sm font-medium hover:bg-[#5a7fa0] transition-colors"
+                >
+                  Pilih
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

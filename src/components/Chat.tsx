@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
-import { Send, Paperclip, Sparkles, User, Bot, Loader2, Code, Terminal, FileCode, Eye } from 'lucide-react';
+import { Send, Paperclip, Sparkles, User, Bot, Loader2, Code, Terminal, FileCode, Eye, ChevronDown, Check } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import { useApp } from '../store';
 import { Message, ToolCall } from '../types';
@@ -122,7 +122,7 @@ function WorkspaceChangesSummary({ toolCalls }: { toolCalls: ToolCall[] }) {
   );
 }
 
-function MessageBubble({ message }: { message: Message }) {
+function MessageBubble({ message, selectedModel }: { message: Message; selectedModel?: string }) {
   const isUser = message.role === 'user';
   const isTool = message.role === 'tool';
 
@@ -160,9 +160,16 @@ function MessageBubble({ message }: { message: Message }) {
             </div>
           )}
         </div>
-        <p className={`text-[10px] text-[#94a3b8] mt-1 px-1 ${isUser ? 'text-right' : ''}`}>
-          {new Date(message.timestamp).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })}
-        </p>
+        <div className={`flex items-center gap-2 mt-1 px-1 ${isUser ? 'justify-end' : ''}`}>
+          <p className="text-[10px] text-[#94a3b8]">
+            {new Date(message.timestamp).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })}
+          </p>
+          {!isUser && message.role === 'assistant' && (
+            <p className="text-[10px] text-[#94a3b8]">
+              • {selectedModel}
+            </p>
+          )}
+        </div>
       </div>
     </div>
   );
@@ -179,10 +186,31 @@ export default function Chat() {
   const { state, dispatch } = useApp();
   const [input, setInput] = useState('');
   const [isTyping, setIsTyping] = useState(false);
+  const [selectedModel, setSelectedModel] = useState('gpt-4o');
+  const [showModelSelector, setShowModelSelector] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
   const currentSession = state.sessions.find(s => s.id === state.currentSessionId);
+  
+  // Get enabled providers and their models
+  const enabledProviders = state.providers.filter(p => p.enabled);
+  const currentProvider = enabledProviders.find(p => p.model === selectedModel) || enabledProviders[0];
+
+  // Close model selector when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      const target = event.target as HTMLElement;
+      if (!target.closest('[data-model-selector]')) {
+        setShowModelSelector(false);
+      }
+    };
+
+    if (showModelSelector) {
+      document.addEventListener('click', handleClickOutside);
+      return () => document.removeEventListener('click', handleClickOutside);
+    }
+  }, [showModelSelector]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -288,7 +316,8 @@ export function classNames(...classes: (string | boolean | undefined)[]) {
         const response: Message = {
           id: Date.now().toString(),
           role: 'assistant',
-          content: responses[Math.floor(Math.random() * responses.length)],
+          content: responses[Math.floor(Math.random() * responses.length)] + 
+            `\n\n---\n*🤖 Response by ${currentProvider?.name || 'AI'} • ${selectedModel}*`,
           timestamp: new Date(),
         };
 
@@ -339,15 +368,84 @@ export function classNames(...classes: (string | boolean | undefined)[]) {
   return (
     <div className="flex flex-col h-full">
       {/* Chat Header */}
-      <div className="px-4 py-3 border-b border-[#b8c9db] bg-white/50 backdrop-blur-sm flex items-center gap-3">
-        <Sparkles size={18} className="text-[#7c9cbf]" />
-        <div>
-          <h2 className="font-semibold text-[#334155] text-sm">
-            {currentSession ? currentSession.title : 'Chat Baru'}
-          </h2>
-          <p className="text-[10px] text-[#94a3b8]">
-            {state.providers.find(p => p.enabled)?.name || 'Pilih provider di Settings'}
-          </p>
+      <div className="px-4 py-3 border-b border-[#b8c9db] bg-white/50 backdrop-blur-sm">
+        <div className="flex items-center gap-3">
+          <Sparkles size={18} className="text-[#7c9cbf]" />
+          <div className="flex-1">
+            <h2 className="font-semibold text-[#334155] text-sm">
+              {currentSession ? currentSession.title : 'Chat Baru'}
+            </h2>
+          </div>
+          
+          {/* Model Selector */}
+          <div className="relative" data-model-selector>
+            <button
+              onClick={() => setShowModelSelector(!showModelSelector)}
+              className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-[#7c9cbf]/10 text-[#5a7fa0] text-xs font-medium hover:bg-[#7c9cbf]/20 transition-colors"
+            >
+              <span className="truncate max-w-[120px]">{selectedModel}</span>
+              <ChevronDown size={12} />
+            </button>
+            
+            {showModelSelector && (
+              <div className="absolute right-0 top-full mt-2 w-64 bg-white rounded-xl border border-[#b8c9db] shadow-lg z-10 overflow-hidden">
+                <div className="p-2 border-b border-[#b8c9db] bg-[#f8fafc]">
+                  <p className="text-[10px] font-semibold text-[#64748b] uppercase">Pilih Model</p>
+                </div>
+                <div className="max-h-80 overflow-y-auto">
+                  {enabledProviders.length === 0 ? (
+                    <div className="p-4 text-center">
+                      <p className="text-xs text-[#94a3b8]">Belum ada provider aktif</p>
+                      <button
+                        onClick={() => {
+                          dispatch({ type: 'SET_VIEW', payload: 'settings' });
+                          setShowModelSelector(false);
+                        }}
+                        className="mt-2 text-xs text-[#5a7fa0] font-medium hover:underline"
+                      >
+                        Buka Settings
+                      </button>
+                    </div>
+                  ) : (
+                    enabledProviders.map(provider => (
+                      <div key={provider.id} className="border-b border-[#e8eef4] last:border-b-0">
+                        <div className="px-3 py-2 bg-[#f8fafc] flex items-center gap-2">
+                          <span className="text-sm">{provider.icon}</span>
+                          <span className="text-xs font-medium text-[#334155]">{provider.name}</span>
+                        </div>
+                        <button
+                          onClick={() => {
+                            setSelectedModel(provider.model);
+                            setShowModelSelector(false);
+                          }}
+                          className={`w-full px-3 py-2 text-left text-xs hover:bg-[#f0f4f8] transition-colors ${
+                            selectedModel === provider.model ? 'bg-[#7c9cbf]/10 text-[#5a7fa0] font-medium' : 'text-[#64748b]'
+                          }`}
+                        >
+                          <div className="flex items-center gap-2">
+                            <span className="font-mono">{provider.model}</span>
+                            {selectedModel === provider.model && <Check size={12} className="ml-auto" />}
+                          </div>
+                        </button>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+        
+        {/* Provider Info */}
+        <div className="mt-2 flex items-center gap-2">
+          {currentProvider && (
+            <>
+              <span className="text-sm">{currentProvider.icon}</span>
+              <span className="text-[10px] text-[#64748b]">
+                {currentProvider.name} • {selectedModel}
+              </span>
+            </>
+          )}
         </div>
       </div>
 
@@ -381,7 +479,7 @@ export function classNames(...classes: (string | boolean | undefined)[]) {
         ) : (
           <>
             {currentSession.messages.map(msg => (
-              <MessageBubble key={msg.id} message={msg} />
+              <MessageBubble key={msg.id} message={msg} selectedModel={selectedModel} />
             ))}
             {isTyping && (
               <div className="flex gap-3 animate-fade-in">
