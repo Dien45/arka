@@ -84,87 +84,39 @@ export const availableTools: Tool[] = [
       return `Command executed: ${params.command}\nOutput:\n$ Mock output\n\nNote: This is a mock implementation. In production, integrate with a secure command execution system.`;
     },
   },
+  // Hermes-style Memory Tool
   {
-    name: 'memory_save',
-    description: 'Save information to memory for later use.',
+    name: 'memory',
+    description: 'Manage persistent memory. Actions: add (add new entry), replace (update existing entry using substring match), remove (delete entry using substring match). Target can be "memory" (agent notes) or "user" (user profile).',
     parameters: {
-      key: { type: 'string', description: 'The key to save under' },
-      value: { type: 'string', description: 'The value to save' },
+      action: { type: 'string', enum: ['add', 'replace', 'remove'], description: 'Action to perform' },
+      target: { type: 'string', enum: ['memory', 'user'], description: 'Memory store to target' },
+      content: { type: 'string', description: 'Content for add/replace actions' },
+      old_text: { type: 'string', description: 'Substring to match for replace/remove actions' },
     },
-    execute: async (params: { key: string; value: string }) => {
-      try {
-        const memories = JSON.parse(localStorage.getItem('arka-memories') || '{}');
-        memories[params.key] = params.value;
-        localStorage.setItem('arka-memories', JSON.stringify(memories));
-        return `Saved to memory: ${params.key}`;
-      } catch (error) {
-        return `Error saving to memory: ${error instanceof Error ? error.message : 'Unknown error'}`;
+    execute: async (params: any) => {
+      const { memoryManager } = await import('./memorySystem');
+      const { action, target, content, old_text } = params;
+      
+      if (action === 'add') {
+        if (!content) return JSON.stringify({ success: false, error: 'content is required for add action' });
+        const result = memoryManager.add(target, content);
+        return JSON.stringify(result);
       }
-    },
-  },
-  {
-    name: 'memory_search',
-    description: 'Search for information in memory.',
-    parameters: {
-      query: { type: 'string', description: 'The search query' },
-    },
-    execute: async (params: { query: string }) => {
-      try {
-        const memories = JSON.parse(localStorage.getItem('arka-memories') || '{}');
-        const results = Object.entries(memories).filter(([key, value]) => 
-          key.toLowerCase().includes(params.query.toLowerCase()) ||
-          String(value).toLowerCase().includes(params.query.toLowerCase())
-        );
-        
-        if (results.length === 0) {
-          return `No memories found matching "${params.query}"`;
-        }
-        
-        return `Found ${results.length} memories:\n${results.map(([key, value]) => `- ${key}: ${value}`).join('\n')}`;
-      } catch (error) {
-        return `Error searching memory: ${error instanceof Error ? error.message : 'Unknown error'}`;
+      
+      if (action === 'replace') {
+        if (!old_text || !content) return JSON.stringify({ success: false, error: 'old_text and content are required for replace action' });
+        const result = memoryManager.replace(target, old_text, content);
+        return JSON.stringify(result);
       }
-    },
-  },
-  {
-    name: 'memory_update',
-    description: 'Update an existing memory entry.',
-    parameters: {
-      key: { type: 'string', description: 'The key to update' },
-      value: { type: 'string', description: 'The new value' },
-    },
-    execute: async (params: { key: string; value: string }) => {
-      try {
-        const memories = JSON.parse(localStorage.getItem('arka-memories') || '{}');
-        if (!memories[params.key]) {
-          return `Memory key "${params.key}" not found`;
-        }
-        memories[params.key] = params.value;
-        localStorage.setItem('arka-memories', JSON.stringify(memories));
-        return `Updated memory: ${params.key}`;
-      } catch (error) {
-        return `Error updating memory: ${error instanceof Error ? error.message : 'Unknown error'}`;
+      
+      if (action === 'remove') {
+        if (!old_text) return JSON.stringify({ success: false, error: 'old_text is required for remove action' });
+        const result = memoryManager.remove(target, old_text);
+        return JSON.stringify(result);
       }
-    },
-  },
-  {
-    name: 'memory_delete',
-    description: 'Delete a memory entry.',
-    parameters: {
-      key: { type: 'string', description: 'The key to delete' },
-    },
-    execute: async (params: { key: string }) => {
-      try {
-        const memories = JSON.parse(localStorage.getItem('arka-memories') || '{}');
-        if (!memories[params.key]) {
-          return `Memory key "${params.key}" not found`;
-        }
-        delete memories[params.key];
-        localStorage.setItem('arka-memories', JSON.stringify(memories));
-        return `Deleted memory: ${params.key}`;
-      } catch (error) {
-        return `Error deleting memory: ${error instanceof Error ? error.message : 'Unknown error'}`;
-      }
+      
+      return JSON.stringify({ success: false, error: 'Invalid action' });
     },
   },
 ];

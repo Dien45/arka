@@ -1,4 +1,5 @@
 import { ProviderConfig } from './types';
+import { memoryManager } from './memorySystem';
 
 export interface ChatMessage {
   role: 'user' | 'assistant' | 'system' | 'tool';

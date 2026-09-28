@@ -5,6 +5,7 @@ import { useApp } from '../store';
 import { Message, ToolCall } from '../types';
 import { callAIProvider, ToolDefinition, ChatMessage } from '../aiService';
 import { availableTools, executeTool, getToolsList } from '../tools';
+import { memoryManager } from '../memorySystem';
 
 function FilePreview({ fileName, content }: { fileName: string; content: string }) {
   const [expanded, setExpanded] = useState(false);
@@ -455,12 +456,15 @@ When developing mobile apps, you MUST:
       // Get available tools list
       const toolsList = getToolsList();
       
+      // Get memory content
+      const memoryContent = memoryManager.getFormatted();
+      
       // Add system prompt
       const messagesWithSystem = [
         {
           role: 'system' as const,
           content: `You are Arka, a friendly AI coding assistant with access to various tools.
-
+${memoryContent}
 AVAILABLE TOOLS:
 ${toolsList}
 
@@ -471,6 +475,16 @@ When you need to use a tool, respond with a tool call in this format:
 [/TOOL_CALL]
 
 After the tool executes, you'll receive the result and can continue the conversation.
+
+MEMORY MANAGEMENT:
+You have persistent memory that persists across sessions. Use the 'memory' tool to:
+- Save important facts about the user, their preferences, projects, and environment
+- Update existing memories when information changes
+- Remove outdated memories
+- Memory has character limits (2,200 chars for agent notes, 1,375 chars for user profile)
+- When memory is full, consolidate or remove old entries before adding new ones
+- Save proactively: user preferences, environment facts, corrections, conventions, completed work
+- Skip: trivial info, easily re-discovered facts, raw data dumps, session-specific ephemera
 
 IMPORTANT RULES:
 - Respond in Indonesian (Bahasa Indonesia) unless asked otherwise
@@ -484,6 +498,7 @@ IMPORTANT RULES:
 - NEVER invent or hallucinate features/capabilities that don't exist
 - If you don't know something, say so honestly
 - For skills/tools, only claim capabilities that are explicitly defined
+- Use memory tool to remember important information for future sessions
 
 Keep responses short and actionable.${skillEnhancements}`,
         },
