@@ -238,12 +238,18 @@ export default function Chat() {
 
       // Build message history from current session
       const session = state.sessions.find(s => s.id === sessionId);
-      const messageHistory = session?.messages
+      const previousMessages = session?.messages
         .filter(m => m.role === 'user' || m.role === 'assistant')
         .map(m => ({
           role: m.role as 'user' | 'assistant',
           content: m.content,
         })) || [];
+
+      // Add current user message to history
+      const messageHistory = [
+        ...previousMessages,
+        { role: 'user' as const, content: userMessage }
+      ];
 
       // Add system prompt
       const messagesWithSystem = [
