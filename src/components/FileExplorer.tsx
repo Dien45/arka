@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { 
   FolderOpen, File, ChevronRight, ChevronDown, FileCode, FileText, 
   Image, Copy, Check, Plus, Trash2, Edit2, X, Download, 
@@ -668,6 +668,33 @@ export default function FileExplorer() {
   const [showActions, setShowActions] = useState(false);
   const [workspacePath, setWorkspacePath] = useState<string>('/home/user/projects/arka-project');
   const [showFolderPicker, setShowFolderPicker] = useState(false);
+  const [virtualFiles, setVirtualFiles] = useState<Record<string, any>>({});
+
+  // Load virtual files from localStorage
+  useEffect(() => {
+    const loadVirtualFiles = () => {
+      try {
+        const files = JSON.parse(localStorage.getItem('arka-virtual-files') || '{}');
+        setVirtualFiles(files);
+      } catch (error) {
+        console.error('Failed to load virtual files:', error);
+      }
+    };
+
+    loadVirtualFiles();
+
+    // Listen for storage changes
+    const handleStorageChange = () => loadVirtualFiles();
+    window.addEventListener('storage', handleStorageChange);
+    
+    // Also check periodically for changes from other components
+    const interval = setInterval(loadVirtualFiles, 1000);
+
+    return () => {
+      window.removeEventListener('storage', handleStorageChange);
+      clearInterval(interval);
+    };
+  }, []);
 
   const toggleFolder = (id: string) => {
     const newExpanded = new Set(expandedFolders);
@@ -708,6 +735,55 @@ export default function FileExplorer() {
   const getLineCount = (content: string) => {
     return content.split('\n').length;
   };
+
+  // Convert virtual files to FileNode format
+  const getVirtualFileNodes = (): FileNode[] => {
+    return Object.entries(virtualFiles).map(([path, file]) => {
+      const extension = path.split('.').pop() || '';
+      const languageMap: Record<string, string> = {
+        'ts': 'typescript',
+        'tsx': 'typescript',
+        'js': 'javascript',
+        'jsx': 'javascript',
+        'html': 'html',
+        'css': 'css',
+        'json': 'json',
+        'md': 'markdown',
+      };
+      
+      return {
+        id: `virtual-${path}`,
+        name: path.split('/').pop() || path,
+        type: 'file' as const,
+        content: file.content,
+        language: languageMap[extension] || 'text',
+        size: `${(file.size / 1024).toFixed(1)} KB`,
+        modified: new Date(file.modified).toLocaleString('id-ID'),
+        gitStatus: 'untracked' as const,
+      };
+    });
+  };
+
+  // Merge mock workspace with virtual files
+  const getMergedWorkspace = (): FileNode[] => {
+    const virtualNodes = getVirtualFileNodes();
+    
+    if (virtualNodes.length === 0) {
+      return mockWorkspace;
+    }
+
+    // Create a virtual workspace folder
+    const virtualWorkspace: FileNode = {
+      id: 'virtual-root',
+      name: '📦 Virtual Workspace',
+      type: 'folder',
+      children: virtualNodes,
+    };
+
+    return [virtualWorkspace, ...mockWorkspace];
+  };
+
+  const mergedWorkspace = getMergedWorkspace();
 
   return (
     <div className="flex flex-col h-full">
@@ -790,7 +866,7 @@ export default function FileExplorer() {
                 <p className="text-[10px] text-[#94a3b8] px-2 py-1">
                   Hasil pencarian "{searchQuery}"
                 </p>
-                {mockWorkspace[0].children?.flatMap(function collectFiles(node: FileNode): FileNode[] {
+                {mergedWorkspace.flatMap(function collectFiles(node: FileNode): FileNode[] {
                   if (node.type === 'file' && node.name.toLowerCase().includes(searchQuery.toLowerCase())) {
                     return [node];
                   }
@@ -812,7 +888,7 @@ export default function FileExplorer() {
                 ))}
               </div>
             ) : (
-              mockWorkspace.map(node => (
+              mergedWorkspace.map(node => (
                 <FileTreeItem 
                   key={node.id} 
                   node={node} 

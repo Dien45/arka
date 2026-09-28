@@ -10,45 +10,60 @@ export interface Tool {
 export const availableTools: Tool[] = [
   {
     name: 'web_fetch',
-    description: 'Fetch content from a URL. Returns the text content of the webpage. Supports CORS proxy for external sites and GitHub API for repositories.',
+    description: 'Fetch content from a URL. Returns the text content of the webpage. Automatically handles GitHub repositories and uses CORS proxy for external sites.',
     parameters: {
       url: { type: 'string', description: 'The URL to fetch' },
     },
     execute: async (params: { url: string }) => {
       try {
-        let url = params.url;
+        const url = params.url;
         
         // Check if it's a GitHub repository URL
-        const githubRepoMatch = url.match(/github\.com\/([^\/]+\/[^\/]+)/);
+        const githubRepoMatch = url.match(/github\.com\/([^\/\?#]+\/[^\/\?#]+)/);
         if (githubRepoMatch) {
-          // Use GitHub API to fetch README
-          const repoPath = githubRepoMatch[1].replace(/\.git$/, '');
-          const apiUrl = `https://api.github.com/repos/${repoPath}/readme`;
+          const repoPath = githubRepoMatch[1].replace(/\.git$/, '').replace(/\/$/, '');
           
-          const response = await fetch(apiUrl, {
-            headers: {
-              'Accept': 'application/vnd.github.v3.raw',
-            },
-          });
-          
-          if (response.ok) {
-            const text = await response.text();
-            return `# GitHub Repository: ${repoPath}\n\n${text.substring(0, 10000)}`;
+          // Try GitHub API first
+          try {
+            const apiUrl = `https://api.github.com/repos/${repoPath}/readme`;
+            const response = await fetch(apiUrl, {
+              headers: {
+                'Accept': 'application/vnd.github.v3.raw',
+              },
+            });
+            
+            if (response.ok) {
+              const text = await response.text();
+              return `# GitHub Repository: ${repoPath}\n\n${text.substring(0, 10000)}`;
+            }
+          } catch (apiError) {
+            console.log('GitHub API failed, trying CORS proxy');
           }
         }
         
-        // For other URLs, use CORS proxy
-        const corsProxy = 'https://api.allorigins.win/raw?url=';
-        const proxyUrl = corsProxy + encodeURIComponent(url);
+        // For other URLs or if GitHub API failed, use multiple CORS proxies
+        const corsProxies = [
+          'https://api.allorigins.win/raw?url=',
+          'https://corsproxy.io/?',
+          'https://api.codetabs.com/v1/proxy?quest=',
+        ];
         
-        const response = await fetch(proxyUrl);
-        if (!response.ok) {
-          throw new Error(`HTTP error! status: ${response.status}`);
+        for (const proxy of corsProxies) {
+          try {
+            const proxyUrl = proxy + encodeURIComponent(url);
+            const response = await fetch(proxyUrl);
+            
+            if (response.ok) {
+              const text = await response.text();
+              return text.substring(0, 10000);
+            }
+          } catch (proxyError) {
+            console.log(`Proxy ${proxy} failed, trying next...`);
+            continue;
+          }
         }
         
-        const text = await response.text();
-        // Limit response size
-        return text.substring(0, 10000);
+        throw new Error('All CORS proxies failed');
       } catch (error) {
         return `Error fetching URL: ${error instanceof Error ? error.message : 'Unknown error'}\n\nNote: Some websites may block automated access. Try a different URL or check if the site is accessible.`;
       }
@@ -67,36 +82,87 @@ export const availableTools: Tool[] = [
   },
   {
     name: 'read_file',
-    description: 'Read the content of a file from the workspace.',
+    description: 'Read the content of a file from the virtual workspace.',
     parameters: {
       path: { type: 'string', description: 'The file path to read' },
     },
     execute: async (params: { path: string }) => {
-      // This would integrate with the file system
-      return `File content for ${params.path}:\n// File content would be loaded here\n// This is a mock implementation`;
+      try {
+        // Get virtual files from localStorage
+        const virtualFiles = JSON.parse(localStorage.getItem('arka-virtual-files') || '{}');
+        
+        if (virtualFiles[params.path]) {
+          const file = virtualFiles[params.path];
+          return `# File: ${params.path}\n\n${file.content}`;
+        }
+        
+        return `❌ File "${params.path}" tidak ditemukan di virtual workspace. File yang tersedia: ${Object.keys(virtualFiles).join(', ') || '(kosong)'}`;
+      } catch (error) {
+        return `❌ Error membaca file: ${error instanceof Error ? error.message : 'Unknown error'}`;
+      }
     },
   },
   {
     name: 'write_file',
-    description: 'Write content to a file in the workspace.',
+    description: 'Write content to a file in the virtual workspace. Files are stored in browser memory and can be viewed in the Files tab.',
     parameters: {
-      path: { type: 'string', description: 'The file path to write' },
+      path: { type: 'string', description: 'The file path to write (e.g., "index.html" or "src/App.tsx")' },
       content: { type: 'string', description: 'The content to write' },
     },
     execute: async (params: { path: string; content: string }) => {
-      // This would integrate with the file system
-      return `Successfully wrote ${params.content.length} characters to ${params.path}`;
+      try {
+        // Get existing virtual files
+        const virtualFiles = JSON.parse(localStorage.getItem('arka-virtual-files') || '{}');
+        
+        // Write file to virtual workspace
+        virtualFiles[params.path] = {
+          content: params.content,
+          modified: new Date().toISOString(),
+          size: params.content.length,
+        };
+        
+        // Save back to localStorage
+        localStorage.setItem('arka-virtual-files', JSON.stringify(virtualFiles));
+        
+        return `✅ File "${params.path}" berhasil dibuat di virtual workspace (${params.content.length} bytes). Buka tab "Files" untuk melihat dan edit file.`;
+      } catch (error) {
+        return `❌ Error menulis file: ${error instanceof Error ? error.message : 'Unknown error'}`;
+      }
     },
   },
   {
     name: 'list_files',
-    description: 'List files in a directory.',
+    description: 'List files in the virtual workspace.',
     parameters: {
-      path: { type: 'string', description: 'The directory path to list' },
+      path: { type: 'string', description: 'The directory path to list (use "/" for root)' },
     },
     execute: async (params: { path: string }) => {
-      // This would integrate with the file system
-      return `Files in ${params.path}:\n- file1.ts\n- file2.tsx\n- file3.css\n\nNote: This is a mock implementation.`;
+      try {
+        // Get virtual files from localStorage
+        const virtualFiles = JSON.parse(localStorage.getItem('arka-virtual-files') || '{}');
+        const files = Object.keys(virtualFiles);
+        
+        if (files.length === 0) {
+          return '📁 Virtual workspace kosong. Belum ada file yang dibuat.';
+        }
+        
+        // Filter files by path if specified
+        let filteredFiles = files;
+        if (params.path && params.path !== '/') {
+          const normalizedPath = params.path.replace(/\/$/, '');
+          filteredFiles = files.filter(f => f.startsWith(normalizedPath + '/') || f === normalizedPath);
+        }
+        
+        const fileList = filteredFiles.map(f => {
+          const file = virtualFiles[f];
+          const modified = new Date(file.modified).toLocaleString('id-ID');
+          return `- ${f} (${file.size} bytes, modified: ${modified})`;
+        }).join('\n');
+        
+        return `📁 Files in virtual workspace (${filteredFiles.length} files):\n\n${fileList}`;
+      } catch (error) {
+        return `❌ Error listing files: ${error instanceof Error ? error.message : 'Unknown error'}`;
+      }
     },
   },
   {
