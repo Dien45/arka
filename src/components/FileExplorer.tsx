@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { 
   FolderOpen, File, ChevronRight, ChevronDown, FileCode, FileText, 
   Image, Copy, Check, Plus, Trash2, Edit2, X, Download, 
@@ -663,38 +663,50 @@ export default function FileExplorer() {
   const [openTabs, setOpenTabs] = useState<FileNode[]>([]);
   const [activeTab, setActiveTab] = useState<FileNode | null>(null);
   const [copied, setCopied] = useState(false);
-  const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set(['root', 'src']));
+  const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set(['root', 'src', 'virtual-root']));
   const [searchQuery, setSearchQuery] = useState('');
   const [showActions, setShowActions] = useState(false);
-  const [workspacePath, setWorkspacePath] = useState<string>('/home/user/projects/arka-project');
+  const [workspacePath, setWorkspacePath] = useState<string>('Virtual Workspace');
   const [showFolderPicker, setShowFolderPicker] = useState(false);
   const [virtualFiles, setVirtualFiles] = useState<Record<string, any>>({});
+  const [refreshKey, setRefreshKey] = useState(0);
 
   // Load virtual files from localStorage
-  useEffect(() => {
-    const loadVirtualFiles = () => {
-      try {
-        const files = JSON.parse(localStorage.getItem('arka-virtual-files') || '{}');
-        setVirtualFiles(files);
-      } catch (error) {
-        console.error('Failed to load virtual files:', error);
-      }
-    };
+  const loadVirtualFiles = useCallback(() => {
+    try {
+      const files = JSON.parse(localStorage.getItem('arka-virtual-files') || '{}');
+      setVirtualFiles(files);
+    } catch (error) {
+      console.error('Failed to load virtual files:', error);
+    }
+  }, []);
 
+  useEffect(() => {
     loadVirtualFiles();
 
-    // Listen for storage changes
-    const handleStorageChange = () => loadVirtualFiles();
+    // Listen for storage changes from other tabs/windows
+    const handleStorageChange = (e: StorageEvent) => {
+      if (e.key === 'arka-virtual-files') {
+        loadVirtualFiles();
+      }
+    };
     window.addEventListener('storage', handleStorageChange);
     
-    // Also check periodically for changes from other components
-    const interval = setInterval(loadVirtualFiles, 1000);
+    // Listen for custom event from tools (same tab)
+    const handleVirtualFilesUpdated = () => {
+      loadVirtualFiles();
+    };
+    window.addEventListener('virtual-files-updated', handleVirtualFilesUpdated);
+    
+    // Check periodically for changes from same tab (tools, etc)
+    const interval = setInterval(loadVirtualFiles, 500);
 
     return () => {
       window.removeEventListener('storage', handleStorageChange);
+      window.removeEventListener('virtual-files-updated', handleVirtualFilesUpdated);
       clearInterval(interval);
     };
-  }, []);
+  }, [loadVirtualFiles]);
 
   const toggleFolder = (id: string) => {
     const newExpanded = new Set(expandedFolders);
@@ -737,7 +749,7 @@ export default function FileExplorer() {
   };
 
   // Convert virtual files to FileNode format
-  const getVirtualFileNodes = (): FileNode[] => {
+  const getVirtualFileNodes = useCallback((): FileNode[] => {
     return Object.entries(virtualFiles).map(([path, file]) => {
       const extension = path.split('.').pop() || '';
       const languageMap: Record<string, string> = {
@@ -762,26 +774,32 @@ export default function FileExplorer() {
         gitStatus: 'untracked' as const,
       };
     });
-  };
+  }, [virtualFiles]);
 
   // Merge mock workspace with virtual files
-  const getMergedWorkspace = (): FileNode[] => {
+  const getMergedWorkspace = useCallback((): FileNode[] => {
     const virtualNodes = getVirtualFileNodes();
     
-    if (virtualNodes.length === 0) {
-      return mockWorkspace;
-    }
-
-    // Create a virtual workspace folder
+    // Always show virtual workspace, even if empty
     const virtualWorkspace: FileNode = {
       id: 'virtual-root',
       name: '📦 Virtual Workspace',
       type: 'folder',
-      children: virtualNodes,
+      children: virtualNodes.length > 0 ? virtualNodes : [
+        {
+          id: 'virtual-empty',
+          name: '(kosong - AI akan buat file di sini)',
+          type: 'file' as const,
+          content: '',
+          language: 'text',
+          size: '0 KB',
+          modified: '-',
+        }
+      ],
     };
 
     return [virtualWorkspace, ...mockWorkspace];
-  };
+  }, [getVirtualFileNodes]);
 
   const mergedWorkspace = getMergedWorkspace();
 

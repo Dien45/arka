@@ -124,7 +124,10 @@ export const availableTools: Tool[] = [
         // Save back to localStorage
         localStorage.setItem('arka-virtual-files', JSON.stringify(virtualFiles));
         
-        return `✅ File "${params.path}" berhasil dibuat di virtual workspace (${params.content.length} bytes). Buka tab "Files" untuk melihat dan edit file.`;
+        // Trigger custom event for File Explorer to refresh
+        window.dispatchEvent(new CustomEvent('virtual-files-updated'));
+        
+        return `✅ File "${params.path}" berhasil dibuat di virtual workspace (${params.content.length} bytes). File otomatis muncul di tab "Files".`;
       } catch (error) {
         return `❌ Error menulis file: ${error instanceof Error ? error.message : 'Unknown error'}`;
       }
