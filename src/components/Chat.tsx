@@ -391,10 +391,10 @@ When developing mobile apps, you MUST:
               }
             };
             
-            // Add ponytail skill
+            // Add ponytail skill with proper enhancement
             skillDefinitions['ponytail'] = {
               name: 'Ponytail',
-              enhancement: `\n\n🐴 PONYTAIL SKILL ACTIVE:\nThis is a fun skill that adds playful, creative responses:\n- Use creative metaphors and analogies\n- Add humor and personality to responses\n- Make coding fun and engaging\n- Use emoji and playful language\n- Create memorable coding experiences`
+              enhancement: `\n\n🐴 PONYTAIL SKILL ACTIVE (Lazy Senior Dev Approach):\n\nWhen writing code, ALWAYS follow the 7-rung ladder (check each rung before writing):\n1. YAGNI - Does this need to exist? → no: skip it\n2. Already in codebase? → reuse it, don't rewrite\n3. Stdlib does it? → use it\n4. Native platform feature? → use it (e.g., <input type="date"> instead of date picker library)\n5. Installed dependency? → use it\n6. One line? → one line\n7. Only then: the minimum that works\n\nCRITICAL RULES:\n- Write ONLY what the task needs\n- NEVER cut validation, error handling, security, or accessibility\n- Code ends up small because it's NECESSARY, not golfed\n- Lazy about the solution, NEVER about reading the code\n- Trust-boundary validation, data-loss handling, security, accessibility are NEVER on the chopping block\n\nRESULTS: ~54% fewer LOC, ~20% cheaper, ~27% faster, 100% safe\n\nEXAMPLE:\n❌ Bad: Install flatpickr, write wrapper component, add stylesheet, discuss timezones\n✅ Good: <input type="date"> (browser already has one)\n\nWhen user asks you to write code, APPLY THIS APPROACH IMMEDIATELY. Don't just mention it - USE IT!`
             };
             
             // Load custom skills from localStorage and auto-register
@@ -473,6 +473,10 @@ CRITICAL: Only use the tools listed above. DO NOT use old tool names like:
 - ❌ memory_search (USE: memory with action="search" - not implemented yet)
 - ❌ memory_update (USE: memory with action="replace")
 - ❌ memory_delete (USE: memory with action="remove")
+
+SKILLS ARE ACTIVE APPROACHES, NOT JUST DESCRIPTIONS:
+When a skill is installed and active, you MUST APPLY its principles to your code generation. Don't just mention the skill - USE IT!
+For example, if "ponytail" skill is active, ALWAYS write minimal code following the 7-rung ladder when generating code.
 
 TOOL USAGE:
 When you need to use a tool, respond with a tool call in this format:

@@ -71,13 +71,39 @@ export const availableTools: Tool[] = [
   },
   {
     name: 'web_search',
-    description: 'Search the web for information. Returns search results.',
+    description: 'Search GitHub repositories and the web. Returns relevant results with descriptions.',
     parameters: {
       query: { type: 'string', description: 'The search query' },
     },
     execute: async (params: { query: string }) => {
-      // Mock implementation - in real app, this would use a search API
-      return `Search results for "${params.query}":\n- Result 1: Example result\n- Result 2: Another example\n- Result 3: More examples\n\nNote: This is a mock implementation. In production, integrate with a real search API.`;
+      try {
+        // Search GitHub repositories
+        const githubUrl = `https://api.github.com/search/repositories?q=${encodeURIComponent(params.query)}&sort=stars&order=desc&per_page=10`;
+        
+        const response = await fetch(githubUrl, {
+          headers: {
+            'Accept': 'application/vnd.github.v3+json',
+          },
+        });
+        
+        if (!response.ok) {
+          throw new Error(`GitHub API error: ${response.status}`);
+        }
+        
+        const data = await response.json();
+        
+        if (!data.items || data.items.length === 0) {
+          return `Tidak ada hasil untuk "${params.query}" di GitHub.`;
+        }
+        
+        const results = data.items.map((repo: any, index: number) => {
+          return `${index + 1}. **${repo.full_name}** ⭐ ${repo.stargazers_count.toLocaleString()}\n   ${repo.description || 'No description'}\n   URL: ${repo.html_url}\n   Language: ${repo.language || 'N/A'} | Forks: ${repo.forks_count} | Issues: ${repo.open_issues_count}`;
+        }).join('\n\n');
+        
+        return `🔍 Hasil pencarian GitHub untuk "${params.query}":\n\n${results}\n\nTotal: ${data.total_count.toLocaleString()} repositories ditemukan.`;
+      } catch (error) {
+        return `❌ Error searching: ${error instanceof Error ? error.message : 'Unknown error'}\n\nNote: GitHub API mungkin rate-limited. Coba lagi nanti.`;
+      }
     },
   },
   {
