@@ -726,6 +726,39 @@ Keep responses short and actionable.${skillEnhancements}`,
     }
   };
 
+  const MAX_ATTACH_BYTES = 200 * 1024; // 200 KB per file, keeps prompt size sane
+
+  const handleAttachFile = () => {
+    const fileInput = document.createElement('input');
+    fileInput.type = 'file';
+    fileInput.multiple = true;
+    fileInput.accept = '.txt,.md,.json,.ts,.tsx,.js,.jsx,.css,.html,.yml,.yaml,.csv,.py,.java,.go,.rs,.c,.cpp,.h,.env,.log';
+    fileInput.onchange = async () => {
+      const files = Array.from(fileInput.files || []);
+      if (files.length === 0) return;
+
+      const blocks: string[] = [];
+      for (const file of files) {
+        if (file.size > MAX_ATTACH_BYTES) {
+          blocks.push(`[File "${file.name}" dilewati: ukuran ${(file.size / 1024).toFixed(0)} KB melebihi batas ${MAX_ATTACH_BYTES / 1024} KB]`);
+          continue;
+        }
+        try {
+          const text = await file.text();
+          const ext = file.name.split('.').pop() || '';
+          blocks.push(`**${file.name}**\n\`\`\`${ext}\n${text}\n\`\`\``);
+        } catch {
+          blocks.push(`[Gagal membaca file "${file.name}" — mungkin bukan file teks]`);
+        }
+      }
+
+      const attachment = blocks.join('\n\n');
+      setInput(prev => (prev.trim() ? `${prev}\n\n${attachment}` : attachment));
+      inputRef.current?.focus();
+    };
+    fileInput.click();
+  };
+
   const handleSend = () => {
     if (!input.trim()) return;
 
@@ -959,7 +992,11 @@ Keep responses short and actionable.${skillEnhancements}`,
       {/* Input Area */}
       <div className="p-3 border-t border-[#b8c9db] bg-white/50 backdrop-blur-sm">
         <div className="flex items-end gap-2 bg-white rounded-2xl border border-[#b8c9db] p-2 shadow-sm focus-within:border-[#7c9cbf] focus-within:shadow-md transition-all">
-          <button className="p-2 rounded-lg hover:bg-[#e8eef4] text-[#64748b] shrink-0">
+          <button
+            onClick={handleAttachFile}
+            title="Lampirkan file teks ke pesan"
+            className="p-2 rounded-lg hover:bg-[#e8eef4] text-[#64748b] shrink-0"
+          >
             <Paperclip size={18} />
           </button>
           <textarea

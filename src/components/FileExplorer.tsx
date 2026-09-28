@@ -708,6 +708,75 @@ export default function FileExplorer() {
     };
   }, [loadVirtualFiles]);
 
+  // Read-modify-write helper for the virtual filesystem, shared by New File / New Folder.
+  const writeVirtualFile = (path: string, content: string) => {
+    try {
+      const files = JSON.parse(localStorage.getItem('arka-virtual-files') || '{}');
+      files[path] = {
+        content,
+        modified: new Date().toISOString(),
+        size: content.length,
+      };
+      localStorage.setItem('arka-virtual-files', JSON.stringify(files));
+      window.dispatchEvent(new CustomEvent('virtual-files-updated'));
+      setVirtualFiles(files);
+      return true;
+    } catch (error) {
+      console.error('Gagal menulis file virtual:', error);
+      return false;
+    }
+  };
+
+  const handleCreateNewFile = () => {
+    setShowActions(false);
+    const name = window.prompt('Nama file baru (contoh: src/utils/helper.ts):', 'file-baru.txt');
+    if (!name || !name.trim()) return;
+    const path = name.trim().replace(/^\/+/, '');
+    if (path.includes('..')) {
+      window.alert('Nama file tidak boleh mengandung ".."');
+      return;
+    }
+    const currentFiles = JSON.parse(localStorage.getItem('arka-virtual-files') || '{}');
+    if (currentFiles[path]) {
+      window.alert(`File "${path}" sudah ada.`);
+      return;
+    }
+    if (writeVirtualFile(path, '')) {
+      const fileName = path.split('/').pop() || path;
+      const extension = fileName.split('.').pop() || '';
+      const languageMap: Record<string, string> = {
+        ts: 'typescript', tsx: 'typescript', js: 'javascript', jsx: 'javascript',
+        html: 'html', css: 'css', json: 'json', md: 'markdown',
+      };
+      const newNode: FileNode = {
+        id: `virtual-${path}`,
+        name: fileName,
+        type: 'file',
+        content: '',
+        language: languageMap[extension] || 'text',
+        size: '0.0 KB',
+        modified: new Date().toLocaleString('id-ID'),
+        gitStatus: 'untracked',
+      };
+      handleFileSelect(newNode);
+    }
+  };
+
+  const handleCreateNewFolder = () => {
+    setShowActions(false);
+    const name = window.prompt('Nama folder baru (contoh: src/components):', 'folder-baru');
+    if (!name || !name.trim()) return;
+    const path = name.trim().replace(/^\/+/, '').replace(/\/+$/, '');
+    if (path.includes('..')) {
+      window.alert('Nama folder tidak boleh mengandung ".."');
+      return;
+    }
+    // The virtual filesystem is a flat path->content map, so an empty folder is represented
+    // by a hidden ".gitkeep" placeholder file; the tree builder groups it into a real folder node.
+    writeVirtualFile(`${path}/.gitkeep`, '');
+    setExpandedFolders(prev => new Set(prev).add(`virtual/${path}`));
+  };
+
   const toggleFolder = (id: string) => {
     const newExpanded = new Set(expandedFolders);
     if (newExpanded.has(id)) {
@@ -744,36 +813,91 @@ export default function FileExplorer() {
     }
   };
 
+  const handleDownload = () => {
+    if (!activeTab || activeTab.content === undefined) return;
+    const blob = new Blob([activeTab.content], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = activeTab.name;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
   const getLineCount = (content: string) => {
     return content.split('\n').length;
   };
 
-  // Convert virtual files to FileNode format
+  // Convert virtual files (flat path -> content map) into a nested FileNode tree,
+  // so files like "src/components/Foo.tsx" render inside proper "src" / "components" folders
+  // instead of being dumped flat into the workspace root.
   const getVirtualFileNodes = useCallback((): FileNode[] => {
-    return Object.entries(virtualFiles).map(([path, file]) => {
-      const extension = path.split('.').pop() || '';
-      const languageMap: Record<string, string> = {
-        'ts': 'typescript',
-        'tsx': 'typescript',
-        'js': 'javascript',
-        'jsx': 'javascript',
-        'html': 'html',
-        'css': 'css',
-        'json': 'json',
-        'md': 'markdown',
-      };
-      
-      return {
+    const languageMap: Record<string, string> = {
+      'ts': 'typescript',
+      'tsx': 'typescript',
+      'js': 'javascript',
+      'jsx': 'javascript',
+      'html': 'html',
+      'css': 'css',
+      'json': 'json',
+      'md': 'markdown',
+    };
+
+    const root: FileNode = { id: 'virtual-root-tree', name: '', type: 'folder', children: [] };
+
+    Object.entries(virtualFiles).forEach(([path, file]) => {
+      const parts = path.split('/').filter(Boolean);
+      const fileName = parts[parts.length - 1];
+      // ".gitkeep" placeholders exist only so empty folders show up in the tree; don't list them as files.
+      const isPlaceholder = fileName === '.gitkeep';
+
+      let current = root;
+      const folderParts = isPlaceholder ? parts.slice(0, -1) : parts.slice(0, -1);
+      let idPath = 'virtual';
+      folderParts.forEach((part) => {
+        idPath += `/${part}`;
+        let folder = current.children?.find(c => c.type === 'folder' && c.name === part);
+        if (!folder) {
+          folder = { id: idPath, name: part, type: 'folder', children: [] };
+          current.children = current.children || [];
+          current.children.push(folder);
+        }
+        current = folder;
+      });
+
+      if (isPlaceholder) {
+        // Ensure the (possibly empty) folder exists; nothing else to add.
+        return;
+      }
+
+      const extension = fileName.split('.').pop() || '';
+      current.children = current.children || [];
+      current.children.push({
         id: `virtual-${path}`,
-        name: path.split('/').pop() || path,
+        name: fileName,
         type: 'file' as const,
         content: file.content,
         language: languageMap[extension] || 'text',
         size: `${(file.size / 1024).toFixed(1)} KB`,
         modified: new Date(file.modified).toLocaleString('id-ID'),
         gitStatus: 'untracked' as const,
-      };
+      });
     });
+
+    // Sort: folders first, then files, alphabetically within each group.
+    const sortTree = (node: FileNode) => {
+      if (!node.children) return;
+      node.children.sort((a, b) => {
+        if (a.type !== b.type) return a.type === 'folder' ? -1 : 1;
+        return a.name.localeCompare(b.name);
+      });
+      node.children.forEach(sortTree);
+    };
+    sortTree(root);
+
+    return root.children || [];
   }, [virtualFiles]);
 
   // Merge mock workspace with virtual files
@@ -864,11 +988,17 @@ export default function FileExplorer() {
               </button>
               {showActions && (
                 <div className="absolute right-0 top-full mt-1 bg-white rounded-lg border border-[#b8c9db] shadow-lg z-10 py-1 w-40">
-                  <button className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-[#334155] hover:bg-[#f0f4f8]">
+                  <button
+                    onClick={handleCreateNewFile}
+                    className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-[#334155] hover:bg-[#f0f4f8]"
+                  >
                     <File size={12} className="text-[#7c9cbf]" />
                     File Baru
                   </button>
-                  <button className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-[#334155] hover:bg-[#f0f4f8]">
+                  <button
+                    onClick={handleCreateNewFolder}
+                    className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-[#334155] hover:bg-[#f0f4f8]"
+                  >
                     <FolderOpen size={12} className="text-[#d4a574]" />
                     Folder Baru
                   </button>
@@ -987,7 +1117,11 @@ export default function FileExplorer() {
                     {copied ? 'Copied!' : 'Copy'}
                   </button>
                 )}
-                <button className="p-1 rounded hover:bg-[#e8eef4] text-[#64748b]">
+                <button
+                  onClick={handleDownload}
+                  className="p-1 rounded hover:bg-[#e8eef4] text-[#64748b]"
+                  title="Download file"
+                >
                   <Download size={14} />
                 </button>
               </div>
