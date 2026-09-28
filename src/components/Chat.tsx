@@ -4,6 +4,7 @@ import ReactMarkdown from 'react-markdown';
 import { useApp } from '../store';
 import { Message, ToolCall } from '../types';
 import { callAIProvider } from '../aiService';
+import { getToolsList, executeTool } from '../tools';
 
 function FilePreview({ fileName, content }: { fileName: string; content: string }) {
   const [expanded, setExpanded] = useState(false);
@@ -389,6 +390,36 @@ When developing mobile apps, you MUST:
               }
             };
             
+            // Add ponytail skill
+            skillDefinitions['ponytail'] = {
+              name: 'Ponytail',
+              enhancement: `\n\n🐴 PONYTAIL SKILL ACTIVE:\nThis is a fun skill that adds playful, creative responses:\n- Use creative metaphors and analogies\n- Add humor and personality to responses\n- Make coding fun and engaging\n- Use emoji and playful language\n- Create memorable coding experiences`
+            };
+            
+            // Load custom skills from localStorage and auto-register
+            try {
+              const savedCustomSkills = localStorage.getItem('arka-custom-skills');
+              if (savedCustomSkills) {
+                const customSkills = JSON.parse(savedCustomSkills);
+                customSkills.forEach((skill: any) => {
+                  if (!skillDefinitions[skill.id]) {
+                    // Use enhancement field if available, otherwise fallback to description
+                    const skillEnhancement = skill.enhancement || skill.description || 'Custom skill installed from URL';
+                    skillDefinitions[skill.id] = {
+                      name: skill.name,
+                      enhancement: `\n\n📦 CUSTOM SKILL "${skill.name}" ACTIVE:\n${skillEnhancement}\nUse this skill's capabilities when relevant.`
+                    };
+                    // Auto-add to installed list if not already there
+                    if (!installedSkillIds.includes(skill.id)) {
+                      installedSkillIds.push(skill.id);
+                    }
+                  }
+                });
+              }
+            } catch (error) {
+              console.error('Failed to load custom skills:', error);
+            }
+            
             const installedSkills = installedSkillIds
               .filter((id: string) => skillDefinitions[id])
               .map((id: string) => skillDefinitions[id]);
@@ -402,11 +433,25 @@ When developing mobile apps, you MUST:
         console.error('Failed to load skills:', error);
       }
 
+      // Get available tools list
+      const toolsList = getToolsList();
+      
       // Add system prompt
       const messagesWithSystem = [
         {
           role: 'system' as const,
-          content: `You are Arka, a friendly AI coding assistant. 
+          content: `You are Arka, a friendly AI coding assistant with access to various tools.
+
+AVAILABLE TOOLS:
+${toolsList}
+
+TOOL USAGE:
+When you need to use a tool, respond with a tool call in this format:
+[TOOL_CALL:tool_name]
+{"param1": "value1", "param2": "value2"}
+[/TOOL_CALL]
+
+After the tool executes, you'll receive the result and can continue the conversation.
 
 IMPORTANT RULES:
 - Respond in Indonesian (Bahasa Indonesia) unless asked otherwise
@@ -416,6 +461,7 @@ IMPORTANT RULES:
 - Just give the final answer directly
 - Use markdown for code blocks when showing code
 - Be helpful and friendly
+- Use tools when appropriate (web_fetch for URLs, read_file for files, etc.)
 
 Keep responses short and actionable.${skillEnhancements}`,
         },
@@ -423,7 +469,73 @@ Keep responses short and actionable.${skillEnhancements}`,
       ];
 
       // Call the AI provider
-      const responseContent = await callAIProvider(provider, messagesWithSystem);
+      let responseContent = await callAIProvider(provider, messagesWithSystem);
+      
+      // Check for tool calls in response
+      const toolCallRegex = /\[TOOL_CALL:(\w+)\]\n?([\s\S]*?)\n?\[\/TOOL_CALL\]/g;
+      let match;
+      let hasToolCalls = false;
+      
+      while ((match = toolCallRegex.exec(responseContent)) !== null) {
+        hasToolCalls = true;
+        const toolName = match[1];
+        const toolParams = match[2].trim();
+        
+        try {
+          const params = JSON.parse(toolParams);
+          
+          // Add tool call message
+          const toolCallMessage: Message = {
+            id: Date.now().toString() + '_tool',
+            role: 'tool',
+            content: '',
+            timestamp: new Date(),
+            toolCalls: [{
+              id: Date.now().toString(),
+              name: toolName,
+              input: params,
+              status: 'running',
+            }],
+          };
+          dispatch({ type: 'ADD_MESSAGE', payload: { sessionId, message: toolCallMessage } });
+          
+          // Execute tool
+          const toolResult = await executeTool(toolName, params);
+          
+          // Update tool call with result
+          const updatedToolCallMessage: Message = {
+            ...toolCallMessage,
+            toolCalls: [{
+              ...toolCallMessage.toolCalls![0],
+              output: toolResult,
+              status: 'completed',
+            }],
+          };
+          // Add new message with result instead of updating
+          dispatch({ type: 'ADD_MESSAGE', payload: { sessionId, message: updatedToolCallMessage } });
+          
+          // Add tool result to message history for next AI call
+          messageHistory.push({
+            role: 'assistant' as const,
+            content: `I used the ${toolName} tool.`,
+          });
+          messageHistory.push({
+            role: 'user' as const,
+            content: `Tool result: ${toolResult}`,
+          });
+          
+        } catch (error) {
+          console.error('Error executing tool:', error);
+        }
+      }
+      
+      // If there were tool calls, get final response from AI
+      if (hasToolCalls) {
+        responseContent = await callAIProvider(provider, [
+          messagesWithSystem[0],
+          ...messageHistory,
+        ]);
+      }
 
       const response: Message = {
         id: Date.now().toString(),

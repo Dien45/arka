@@ -13,6 +13,7 @@ interface Skill {
   installed: boolean;
   version: string;
   repo?: string;
+  enhancement?: string;
   config?: {
     modes?: string[];
     options?: Record<string, any>;
@@ -274,24 +275,87 @@ export default function SkillStore() {
     ));
   };
 
-  const handleInstallCustom = () => {
+  const handleInstallCustom = async () => {
     if (!customRepo.trim()) return;
-    const newSkill: Skill = {
-      id: `custom-${Date.now()}`,
-      name: customRepo.split('/').pop() || 'Custom Skill',
-      description: `Skill dari ${customRepo}`,
-      author: customRepo.split('/')[0] || 'unknown',
-      source: 'github',
-      icon: '📦',
-      category: 'Custom',
-      installed: false,
-      version: '1.0.0',
-      repo: customRepo,
-    };
-    setSkills(prev => [newSkill, ...prev]);
-    setShowInstallModal(false);
-    setCustomRepo('');
-    handleInstall(newSkill.id);
+    
+    setInstallingSkill('custom-loading');
+    
+    try {
+      // Parse repo URL or path
+      let repoPath = customRepo.trim();
+      
+      // Handle different formats
+      if (repoPath.includes('github.com')) {
+        // Extract from full URL
+        const match = repoPath.match(/github\.com\/([^\/]+\/[^\/]+)/);
+        if (match) repoPath = match[1];
+      }
+      
+      // Remove .git suffix if exists
+      repoPath = repoPath.replace(/\.git$/, '');
+      
+      // Try to fetch skill metadata from GitHub
+      let skillMetadata = null;
+      try {
+        const rawUrl = `https://raw.githubusercontent.com/${repoPath}/main/skill.json`;
+        const response = await fetch(rawUrl);
+        if (response.ok) {
+          skillMetadata = await response.json();
+        }
+      } catch (error) {
+        console.log('No skill.json found, using defaults');
+      }
+      
+      // Try to fetch enhancement prompt
+      let enhancement = '';
+      try {
+        const promptUrl = `https://raw.githubusercontent.com/${repoPath}/main/prompt.md`;
+        const response = await fetch(promptUrl);
+        if (response.ok) {
+          enhancement = await response.text();
+        }
+      } catch (error) {
+        console.log('No prompt.md found');
+      }
+      
+      const newSkill: Skill = {
+        id: `custom-${Date.now()}`,
+        name: skillMetadata?.name || repoPath.split('/').pop() || 'Custom Skill',
+        description: skillMetadata?.description || `Custom skill from ${repoPath}`,
+        author: skillMetadata?.author || repoPath.split('/')[0] || 'unknown',
+        source: 'github',
+        icon: skillMetadata?.icon || '📦',
+        category: skillMetadata?.category || 'Custom',
+        installed: true,
+        version: skillMetadata?.version || '1.0.0',
+        repo: repoPath,
+        enhancement: enhancement || skillMetadata?.enhancement || `Custom skill from ${repoPath}. Use this skill's capabilities when relevant.`,
+      };
+      
+      // Save to localStorage
+      const customSkills = JSON.parse(localStorage.getItem('arka-custom-skills') || '[]');
+      customSkills.push(newSkill);
+      localStorage.setItem('arka-custom-skills', JSON.stringify(customSkills));
+      
+      // Add to skills list
+      setSkills(prev => [newSkill, ...prev]);
+      
+      // Mark as installed
+      const installedIds = JSON.parse(localStorage.getItem('arka-skills') || '[]');
+      installedIds.push(newSkill.id);
+      localStorage.setItem('arka-skills', JSON.stringify(installedIds));
+      
+      setShowInstallModal(false);
+      setCustomRepo('');
+      setInstallingSkill(null);
+      
+      alert(`✅ Skill "${newSkill.name}" berhasil diinstall! AI sekarang bisa pake skill ini.`);
+      
+    } catch (error) {
+      console.error('Error installing custom skill:', error);
+      setInstallingSkill(null);
+      alert('❌ Gagal install skill. Cek URL dan coba lagi.');
+    }
   };
 
   const installedCount = skills.filter(s => s.installed).length;

@@ -30,9 +30,43 @@
   --arka-error: #c97878;
 }
 
-.dark body {
+.dark,
+.dark body,
+.dark #root {
   background-color: var(--arka-bg);
   color: var(--arka-text);
+}
+
+.dark .bg-white {
+  background-color: var(--arka-surface) !important;
+}
+
+.dark .bg-\[\/50\] {
+  background-color: rgba(30, 41, 59, 0.5) !important;
+}
+
+.dark .text-\[\#334155\] {
+  color: var(--arka-text) !important;
+}
+
+.dark .text-\[\#64748b\] {
+  color: var(--arka-text-muted) !important;
+}
+
+.dark .text-\[\#94a3b8\] {
+  color: var(--arka-text-muted) !important;
+}
+
+.dark .border-\[\#b8c9db\] {
+  border-color: var(--arka-border) !important;
+}
+
+.dark .bg-\[\#f8fafc\] {
+  background-color: var(--arka-surface-2) !important;
+}
+
+.dark .bg-\[\#f0f4f8\] {
+  background-color: var(--arka-surface) !important;
 }
 
 * {

@@ -1,5 +1,7 @@
+import { useEffect } from 'react';
 import { Menu } from 'lucide-react';
 import { AppProvider, useApp } from './store';
+import { LanguageProvider } from './LanguageContext';
 import Sidebar from './components/Sidebar';
 import Chat from './components/Chat';
 import AgentPanel from './components/AgentPanel';
@@ -10,6 +12,17 @@ import SkillStore from './components/SkillStore';
 
 function MainContent() {
   const { state, dispatch } = useApp();
+
+  // Listen for theme changes
+  useEffect(() => {
+    const handleThemeChange = (event: CustomEvent) => {
+      // Force re-render by triggering a state update
+      dispatch({ type: 'SET_LOADING', payload: false });
+    };
+
+    window.addEventListener('theme-changed', handleThemeChange as EventListener);
+    return () => window.removeEventListener('theme-changed', handleThemeChange as EventListener);
+  }, [dispatch]);
 
   const renderView = () => {
     switch (state.currentView) {
@@ -60,8 +73,10 @@ function MainContent() {
 
 export default function App() {
   return (
-    <AppProvider>
-      <MainContent />
-    </AppProvider>
+    <LanguageProvider>
+      <AppProvider>
+        <MainContent />
+      </AppProvider>
+    </LanguageProvider>
   );
 }

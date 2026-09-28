@@ -3,9 +3,11 @@ import { Settings as SettingsIcon, Key, Globe, Check, Eye, EyeOff, Save, Refresh
 import { useApp } from '../store';
 import { Provider } from '../types';
 import { fetchModelsFromProvider, ModelInfo } from '../modelFetcher';
+import { useTranslation } from '../LanguageContext';
 
 export default function Settings() {
   const { state, dispatch } = useApp();
+  const { language, setLanguage } = useTranslation();
   const [showKeys, setShowKeys] = useState<Record<string, boolean>>({});
   const [editingProvider, setEditingProvider] = useState<Provider | null>(null);
   const [editForm, setEditForm] = useState({ apiKey: '', baseUrl: '', model: '' });
@@ -15,32 +17,41 @@ export default function Settings() {
   const [fontSize, setFontSize] = useState<'small' | 'medium' | 'large'>(() => {
     return (localStorage.getItem('arka-font-size') as 'small' | 'medium' | 'large') || 'medium';
   });
-  const [language, setLanguage] = useState<'id' | 'en'>(() => {
-    return (localStorage.getItem('arka-language') as 'id' | 'en') || 'id';
-  });
 
   // Apply theme
   useEffect(() => {
     localStorage.setItem('arka-theme', theme);
     const root = document.documentElement;
+    const body = document.body;
     
     if (theme === 'dark') {
       root.classList.add('dark');
       root.classList.remove('light');
+      body.classList.add('dark');
+      body.classList.remove('light');
     } else if (theme === 'light') {
       root.classList.add('light');
       root.classList.remove('dark');
+      body.classList.add('light');
+      body.classList.remove('dark');
     } else {
       // Auto mode - check system preference
       const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
       if (prefersDark) {
         root.classList.add('dark');
         root.classList.remove('light');
+        body.classList.add('dark');
+        body.classList.remove('light');
       } else {
         root.classList.add('light');
         root.classList.remove('dark');
+        body.classList.add('light');
+        body.classList.remove('dark');
       }
     }
+    
+    // Dispatch custom event to notify app
+    window.dispatchEvent(new CustomEvent('theme-changed', { detail: { theme } }));
   }, [theme]);
 
   // Apply font size
@@ -50,10 +61,7 @@ export default function Settings() {
     root.style.fontSize = fontSize === 'small' ? '14px' : fontSize === 'medium' ? '16px' : '18px';
   }, [fontSize]);
 
-  // Apply language
-  useEffect(() => {
-    localStorage.setItem('arka-language', language);
-  }, [language]);
+  // Language is managed by LanguageContext
   const [modelMode, setModelMode] = useState<'auto' | 'manual'>('auto');
   const [availableModels, setAvailableModels] = useState<ModelInfo[]>([]);
   const [isLoadingModels, setIsLoadingModels] = useState(false);
