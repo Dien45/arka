@@ -251,6 +251,150 @@ export default function Chat() {
         { role: 'user' as const, content: userMessage }
       ];
 
+      // Load installed skills from localStorage and enhance AI behavior
+      let skillEnhancements = '';
+      try {
+        const savedSkills = localStorage.getItem('arka-skills');
+        if (savedSkills) {
+          const installedSkillIds = JSON.parse(savedSkills);
+          if (installedSkillIds.length > 0) {
+            // Skill definitions with actual behavior enhancements
+            const skillDefinitions: Record<string, { name: string; enhancement: string }> = {
+              'gh-code-review': {
+                name: 'Code Reviewer',
+                enhancement: `\n\n🔍 CODE REVIEWER SKILL ACTIVE:
+When reviewing code, you MUST:
+- Check for bugs, security issues, and performance problems
+- Suggest specific improvements with code examples
+- Rate code quality (1-10) and explain why
+- Provide before/after code comparisons
+- Use checklist format for review points`
+              },
+              'gh-test-gen': {
+                name: 'Test Generator',
+                enhancement: `\n\n🧪 TEST GENERATOR SKILL ACTIVE:
+When user asks for tests, you MUST:
+- Generate complete test files with proper imports
+- Include unit tests, integration tests, and edge cases
+- Use popular testing frameworks (Jest, Vitest, etc.)
+- Provide test coverage analysis
+- Show mock examples and test data`
+              },
+              'gh-doc-writer': {
+                name: 'Doc Writer',
+                enhancement: `\n\n📝 DOC WRITER SKILL ACTIVE:
+When documenting code, you MUST:
+- Generate JSDoc/TSDoc comments for functions
+- Create README files with proper structure
+- Write API documentation with examples
+- Include usage examples and code snippets
+- Add inline comments explaining complex logic`
+              },
+              'gh-refactor': {
+                name: 'Auto Refactor',
+                enhancement: `\n\n🔧 AUTO REFACTOR SKILL ACTIVE:
+When refactoring code, you MUST:
+- Apply SOLID principles
+- Use modern JavaScript/TypeScript features
+- Improve code readability and maintainability
+- Show before/after comparisons
+- Explain the benefits of each refactor`
+              },
+              'oc-react-expert': {
+                name: 'React Expert',
+                enhancement: `\n\n⚛️ REACT EXPERT SKILL ACTIVE:
+You are now a React specialist. You MUST:
+- Use modern React patterns (hooks, context, suspense)
+- Suggest performance optimizations (memo, useMemo, useCallback)
+- Recommend best practices for component structure
+- Provide complete React component examples
+- Explain React-specific concepts clearly`
+              },
+              'oc-api-designer': {
+                name: 'API Designer',
+                enhancement: `\n\n🌐 API DESIGNER SKILL ACTIVE:
+When designing APIs, you MUST:
+- Follow RESTful principles
+- Design proper endpoint structures
+- Include request/response examples
+- Suggest authentication and authorization
+- Provide OpenAPI/Swagger specifications`
+              },
+              'oc-db-optimizer': {
+                name: 'DB Optimizer',
+                enhancement: `\n\n🗄️ DB OPTIMIZER SKILL ACTIVE:
+When working with databases, you MUST:
+- Optimize SQL queries for performance
+- Suggest proper indexing strategies
+- Design efficient database schemas
+- Identify and fix N+1 query problems
+- Provide query execution analysis`
+              },
+              'oc-security': {
+                name: 'Security Scanner',
+                enhancement: `\n\n🛡️ SECURITY SCANNER SKILL ACTIVE:
+When reviewing code, you MUST:
+- Identify security vulnerabilities (XSS, SQL injection, CSRF, etc.)
+- Suggest secure coding practices
+- Recommend security libraries and tools
+- Provide secure code examples
+- Rate security level (Critical/High/Medium/Low)`
+              },
+              'hm-perf-analyzer': {
+                name: 'Performance Analyzer',
+                enhancement: `\n\n⚡ PERFORMANCE ANALYZER SKILL ACTIVE:
+When analyzing performance, you MUST:
+- Identify performance bottlenecks
+- Suggest optimization techniques
+- Provide before/after performance metrics
+- Recommend caching strategies
+- Analyze bundle size and load times`
+              },
+              'hm-ai-architect': {
+                name: 'AI Architect',
+                enhancement: `\n\n🧠 AI ARCHITECT SKILL ACTIVE:
+When designing AI systems, you MUST:
+- Design ML pipeline architectures
+- Suggest appropriate algorithms and models
+- Provide data preprocessing strategies
+- Recommend evaluation metrics
+- Include deployment and monitoring plans`
+              },
+              'hm-devops': {
+                name: 'DevOps Assistant',
+                enhancement: `\n\n🚀 DEVOPS ASSISTANT SKILL ACTIVE:
+When working with DevOps, you MUST:
+- Write Dockerfile and docker-compose.yml
+- Create CI/CD pipeline configurations
+- Suggest deployment strategies
+- Provide infrastructure as code examples
+- Recommend monitoring and logging tools`
+              },
+              'hm-mobile': {
+                name: 'Mobile Expert',
+                enhancement: `\n\n📱 MOBILE EXPERT SKILL ACTIVE:
+When developing mobile apps, you MUST:
+- Use React Native or Flutter best practices
+- Optimize for mobile performance
+- Suggest native module integrations
+- Provide platform-specific code examples
+- Recommend mobile UI/UX patterns`
+              }
+            };
+            
+            const installedSkills = installedSkillIds
+              .filter((id: string) => skillDefinitions[id])
+              .map((id: string) => skillDefinitions[id]);
+            
+            if (installedSkills.length > 0) {
+              skillEnhancements = `\n\n🎯 ACTIVE SKILLS (These skills are installed and ACTIVE - you MUST use their capabilities):\n${installedSkills.map((s: any) => `\n${s.enhancement}`).join('\n')}\n\nIMPORTANT: When user asks about installed skills or uses their capabilities, demonstrate the enhanced behavior immediately. Don't just mention the skill - USE it!`;
+            }
+          }
+        }
+      } catch (error) {
+        console.error('Failed to load skills:', error);
+      }
+
       // Add system prompt
       const messagesWithSystem = [
         {
@@ -266,7 +410,7 @@ IMPORTANT RULES:
 - Use markdown for code blocks when showing code
 - Be helpful and friendly
 
-Keep responses short and actionable.`,
+Keep responses short and actionable.${skillEnhancements}`,
         },
         ...messageHistory,
       ];
@@ -337,9 +481,9 @@ Keep responses short and actionable.`,
   };
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex flex-col h-full overflow-visible">
       {/* Chat Header */}
-      <div className="px-4 py-3 border-b border-[#b8c9db] bg-white/50 backdrop-blur-sm">
+      <div className="px-4 py-3 border-b border-[#b8c9db] bg-white/50 backdrop-blur-sm overflow-visible">
         <div className="flex items-center gap-3">
           <Sparkles size={18} className="text-[#7c9cbf]" />
           <div className="flex-1">
@@ -349,7 +493,7 @@ Keep responses short and actionable.`,
           </div>
           
           {/* Model Selector */}
-          <div className="relative z-50" data-model-selector>
+          <div className="relative z-[100]" data-model-selector>
             <button
               onClick={() => setShowModelSelector(!showModelSelector)}
               className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-[#7c9cbf]/10 text-[#5a7fa0] text-xs font-medium hover:bg-[#7c9cbf]/20 transition-colors"
@@ -359,11 +503,18 @@ Keep responses short and actionable.`,
             </button>
             
             {showModelSelector && (
-              <div className="absolute right-0 top-full mt-2 w-72 bg-white rounded-xl border border-[#b8c9db] shadow-lg z-[100] overflow-hidden">
-                <div className="p-2 border-b border-[#b8c9db] bg-[#f8fafc]">
-                  <p className="text-[10px] font-semibold text-[#64748b] uppercase">Pilih Model AI</p>
-                </div>
-                <div className="max-h-96 overflow-y-auto">
+              <>
+                {/* Backdrop to close dropdown */}
+                <div 
+                  className="fixed inset-0 z-[9998]" 
+                  onClick={() => setShowModelSelector(false)} 
+                />
+                {/* Dropdown */}
+                <div className="absolute right-0 top-full mt-2 w-72 bg-white rounded-xl border border-[#b8c9db] shadow-2xl z-[9999]">
+                  <div className="p-2 border-b border-[#b8c9db] bg-[#f8fafc]">
+                    <p className="text-[10px] font-semibold text-[#64748b] uppercase">Pilih Model AI</p>
+                  </div>
+                  <div className="max-h-96 overflow-y-auto">
                   {/* Default Models */}
                   <div className="border-b border-[#e8eef4]">
                     <div className="px-3 py-2 bg-[#f8fafc] flex items-center gap-2">
@@ -449,7 +600,8 @@ Keep responses short and actionable.`,
                     </button>
                   </div>
                 </div>
-              </div>
+                </div>
+              </>
             )}
           </div>
         </div>
