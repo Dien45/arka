@@ -275,27 +275,40 @@ export default function SkillStore() {
     ));
   };
 
-  const handleInstallCustom = async () => {
+  // Skills installed from arbitrary third-party repos are a prompt-injection
+  // / supply-chain risk: their text gets injected into the AI's system
+  // prompt as "ACTIVE" guidance. We never auto-activate on fetch anymore —
+  // we fetch, show the user exactly what was found, and only persist/enable
+  // it after an explicit confirmation click. Content is also size-capped.
+  const MAX_SKILL_CONTENT_CHARS = 4000;
+  const [skillPreview, setSkillPreview] = useState<null | {
+    repoPath: string;
+    metadata: any;
+    enhancement: string;
+    truncated: boolean;
+  }>(null);
+
+  const handleFetchSkillPreview = async () => {
     if (!customRepo.trim()) return;
-    
+
     setInstallingSkill('custom-loading');
-    
+
     try {
-      // Parse repo URL or path
       let repoPath = customRepo.trim();
-      
-      // Handle different formats
+
       if (repoPath.includes('github.com')) {
-        // Extract from full URL
         const match = repoPath.match(/github\.com\/([^\/]+\/[^\/]+)/);
         if (match) repoPath = match[1];
       }
-      
-      // Remove .git suffix if exists
       repoPath = repoPath.replace(/\.git$/, '');
-      
-      // Try to fetch skill metadata from GitHub
-      let skillMetadata = null;
+
+      if (!/^[\w.-]+\/[\w.-]+$/.test(repoPath)) {
+        alert('❌ Format repo tidak valid. Gunakan "username/repo" atau URL GitHub lengkap.');
+        setInstallingSkill(null);
+        return;
+      }
+
+      let skillMetadata: any = null;
       try {
         const rawUrl = `https://raw.githubusercontent.com/${repoPath}/main/skill.json`;
         const response = await fetch(rawUrl);
@@ -305,8 +318,7 @@ export default function SkillStore() {
       } catch (error) {
         console.log('No skill.json found, using defaults');
       }
-      
-      // Try to fetch enhancement prompt
+
       let enhancement = '';
       try {
         const promptUrl = `https://raw.githubusercontent.com/${repoPath}/main/prompt.md`;
@@ -317,45 +329,58 @@ export default function SkillStore() {
       } catch (error) {
         console.log('No prompt.md found');
       }
-      
-      const newSkill: Skill = {
-        id: `custom-${Date.now()}`,
-        name: skillMetadata?.name || repoPath.split('/').pop() || 'Custom Skill',
-        description: skillMetadata?.description || `Custom skill from ${repoPath}`,
-        author: skillMetadata?.author || repoPath.split('/')[0] || 'unknown',
-        source: 'github',
-        icon: skillMetadata?.icon || '📦',
-        category: skillMetadata?.category || 'Custom',
-        installed: true,
-        version: skillMetadata?.version || '1.0.0',
-        repo: repoPath,
-        enhancement: enhancement || skillMetadata?.enhancement || `Custom skill from ${repoPath}. Use this skill's capabilities when relevant.`,
-      };
-      
-      // Save to localStorage
-      const customSkills = JSON.parse(localStorage.getItem('arka-custom-skills') || '[]');
-      customSkills.push(newSkill);
-      localStorage.setItem('arka-custom-skills', JSON.stringify(customSkills));
-      
-      // Add to skills list
-      setSkills(prev => [newSkill, ...prev]);
-      
-      // Mark as installed
-      const installedIds = JSON.parse(localStorage.getItem('arka-skills') || '[]');
-      installedIds.push(newSkill.id);
-      localStorage.setItem('arka-skills', JSON.stringify(installedIds));
-      
-      setShowInstallModal(false);
-      setCustomRepo('');
-      setInstallingSkill(null);
-      
-      alert(`✅ Skill "${newSkill.name}" berhasil diinstall! AI sekarang bisa pake skill ini.`);
-      
+
+      const fullEnhancement =
+        enhancement || skillMetadata?.enhancement || `Custom skill from ${repoPath}. Use this skill's capabilities when relevant.`;
+
+      setSkillPreview({
+        repoPath,
+        metadata: skillMetadata,
+        enhancement: fullEnhancement.slice(0, MAX_SKILL_CONTENT_CHARS),
+        truncated: fullEnhancement.length > MAX_SKILL_CONTENT_CHARS,
+      });
     } catch (error) {
-      console.error('Error installing custom skill:', error);
+      console.error('Error fetching custom skill:', error);
+      alert('❌ Gagal mengambil data skill. Cek URL dan coba lagi.');
+    } finally {
       setInstallingSkill(null);
-      alert('❌ Gagal install skill. Cek URL dan coba lagi.');
     }
+  };
+
+  /** Only called after the user has reviewed the raw content and confirmed. */
+  const confirmActivateSkill = () => {
+    if (!skillPreview) return;
+    const { repoPath, metadata, enhancement } = skillPreview;
+
+    const newSkill: Skill = {
+      id: `custom-${Date.now()}`,
+      name: metadata?.name || repoPath.split('/').pop() || 'Custom Skill',
+      description: metadata?.description || `Custom skill from ${repoPath}`,
+      author: metadata?.author || repoPath.split('/')[0] || 'unknown',
+      source: 'github',
+      icon: metadata?.icon || '📦',
+      category: metadata?.category || 'Custom',
+      installed: true,
+      version: metadata?.version || '1.0.0',
+      repo: repoPath,
+      enhancement,
+    };
+
+    const customSkills = JSON.parse(localStorage.getItem('arka-custom-skills') || '[]');
+    customSkills.push(newSkill);
+    localStorage.setItem('arka-custom-skills', JSON.stringify(customSkills));
+
+    setSkills(prev => [newSkill, ...prev]);
+
+    const installedIds = JSON.parse(localStorage.getItem('arka-skills') || '[]');
+    installedIds.push(newSkill.id);
+    localStorage.setItem('arka-skills', JSON.stringify(installedIds));
+
+    setShowInstallModal(false);
+    setCustomRepo('');
+    setSkillPreview(null);
+
+    alert(`✅ Skill "${newSkill.name}" berhasil diaktifkan! AI sekarang bisa pake skill ini.`);
   };
 
   const installedCount = skills.filter(s => s.installed).length;
@@ -542,53 +567,105 @@ export default function SkillStore() {
 
       {/* Install from URL Modal */}
       {showInstallModal && (
-        <div className="fixed inset-0 bg-black/30 z-50 flex items-center justify-center p-4" onClick={() => setShowInstallModal(false)}>
+        <div
+          className="fixed inset-0 bg-black/30 z-50 flex items-center justify-center p-4"
+          onClick={() => { setShowInstallModal(false); setSkillPreview(null); }}
+        >
           <div className="bg-white rounded-2xl w-full max-w-md shadow-xl" onClick={e => e.stopPropagation()}>
             <div className="p-4 border-b border-[#b8c9db] flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <Github size={16} className="text-[#7c9cbf]" />
-                <h3 className="font-bold text-[#334155] text-sm">Install Skill dari URL</h3>
+                <h3 className="font-bold text-[#334155] text-sm">
+                  {skillPreview ? 'Tinjau Skill Sebelum Aktivasi' : 'Install Skill dari URL'}
+                </h3>
               </div>
-              <button onClick={() => setShowInstallModal(false)} className="p-1 rounded hover:bg-[#e8eef4]">
+              <button
+                onClick={() => { setShowInstallModal(false); setSkillPreview(null); }}
+                className="p-1 rounded hover:bg-[#e8eef4]"
+              >
                 <X size={18} className="text-[#64748b]" />
               </button>
             </div>
-            <div className="p-4 space-y-4">
-              <div>
-                <label className="text-xs font-medium text-[#64748b] block mb-1">Repository URL atau Path</label>
-                <input
-                  type="text"
-                  value={customRepo}
-                  onChange={e => setCustomRepo(e.target.value)}
-                  placeholder="username/skill-name atau https://github.com/..."
-                  className="w-full px-3 py-2.5 rounded-lg border border-[#b8c9db] text-sm font-mono focus:border-[#7c9cbf] focus:outline-none"
-                />
-              </div>
-              <div className="bg-[#f0f4f8] rounded-lg p-3">
-                <p className="text-[10px] text-[#64748b] font-medium mb-2">Format yang didukung:</p>
-                <div className="space-y-1">
-                  <p className="text-[10px] text-[#64748b] font-mono">• github: username/repo-name</p>
-                  <p className="text-[10px] text-[#64748b] font-mono">• openclaw: openclaw://skill-id</p>
-                  <p className="text-[10px] text-[#64748b] font-mono">• hermes: hermes://skill-name</p>
+
+            {!skillPreview ? (
+              <div className="p-4 space-y-4">
+                <div>
+                  <label className="text-xs font-medium text-[#64748b] block mb-1">Repository URL atau Path</label>
+                  <input
+                    type="text"
+                    value={customRepo}
+                    onChange={e => setCustomRepo(e.target.value)}
+                    placeholder="username/skill-name atau https://github.com/..."
+                    className="w-full px-3 py-2.5 rounded-lg border border-[#b8c9db] text-sm font-mono focus:border-[#7c9cbf] focus:outline-none"
+                  />
+                </div>
+                <div className="bg-[#fff9f0] border border-[#d4a574]/40 rounded-lg p-3">
+                  <p className="text-[10px] text-[#8a5a1f] leading-relaxed">
+                    ⚠️ Skill pihak ketiga akan disisipkan langsung ke instruksi AI. Hanya install dari sumber yang kamu percaya —
+                    kamu akan diminta meninjau isinya dulu sebelum diaktifkan.
+                  </p>
+                </div>
+                <div className="bg-[#f0f4f8] rounded-lg p-3">
+                  <p className="text-[10px] text-[#64748b] font-medium mb-2">Format yang didukung:</p>
+                  <div className="space-y-1">
+                    <p className="text-[10px] text-[#64748b] font-mono">• github: username/repo-name</p>
+                    <p className="text-[10px] text-[#64748b] font-mono">• atau URL lengkap: https://github.com/username/repo</p>
+                  </div>
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => setShowInstallModal(false)}
+                    className="flex-1 py-2.5 rounded-lg border border-[#b8c9db] text-sm text-[#64748b] hover:bg-[#f8fafc] transition-colors"
+                  >
+                    Batal
+                  </button>
+                  <button
+                    onClick={handleFetchSkillPreview}
+                    disabled={!customRepo.trim() || installingSkill === 'custom-loading'}
+                    className="flex-1 py-2.5 rounded-lg bg-[#7c9cbf] text-white text-sm font-medium hover:bg-[#5a7fa0] disabled:opacity-40 transition-colors flex items-center justify-center gap-2"
+                  >
+                    {installingSkill === 'custom-loading' ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />}
+                    Ambil & Tinjau
+                  </button>
                 </div>
               </div>
-              <div className="flex gap-2">
-                <button
-                  onClick={() => setShowInstallModal(false)}
-                  className="flex-1 py-2.5 rounded-lg border border-[#b8c9db] text-sm text-[#64748b] hover:bg-[#f8fafc] transition-colors"
-                >
-                  Batal
-                </button>
-                <button
-                  onClick={handleInstallCustom}
-                  disabled={!customRepo.trim()}
-                  className="flex-1 py-2.5 rounded-lg bg-[#7c9cbf] text-white text-sm font-medium hover:bg-[#5a7fa0] disabled:opacity-40 transition-colors flex items-center justify-center gap-2"
-                >
-                  <Download size={14} />
-                  Install
-                </button>
+            ) : (
+              <div className="p-4 space-y-3">
+                <div className="bg-[#fff9f0] border border-[#d4a574]/40 rounded-lg p-3">
+                  <p className="text-[10px] text-[#8a5a1f] leading-relaxed">
+                    ⚠️ Ini adalah konten MENTAH dari <span className="font-mono">{skillPreview.repoPath}</span>. Baca dulu sebelum
+                    mengaktifkan — teks ini akan langsung memengaruhi perilaku AI. Jangan aktifkan kalau ada instruksi mencurigakan
+                    (mis. menyuruh AI membocorkan memory/API key atau mengirim data ke URL tertentu).
+                  </p>
+                </div>
+                <div>
+                  <p className="text-[10px] font-medium text-[#64748b] mb-1">
+                    Nama: {skillPreview.metadata?.name || skillPreview.repoPath.split('/').pop()}
+                  </p>
+                  <pre className="text-[11px] font-mono bg-[#1e293b] text-[#e2e8f0] rounded-lg p-3 overflow-y-auto max-h-64 whitespace-pre-wrap">
+{skillPreview.enhancement}
+                  </pre>
+                  {skillPreview.truncated && (
+                    <p className="text-[10px] text-[#94a3b8] mt-1">(Dipotong ke {MAX_SKILL_CONTENT_CHARS} karakter pertama)</p>
+                  )}
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => setSkillPreview(null)}
+                    className="flex-1 py-2.5 rounded-lg border border-[#b8c9db] text-sm text-[#64748b] hover:bg-[#f8fafc] transition-colors"
+                  >
+                    Kembali
+                  </button>
+                  <button
+                    onClick={confirmActivateSkill}
+                    className="flex-1 py-2.5 rounded-lg bg-[#86b8a0] text-white text-sm font-medium hover:bg-[#6fa389] transition-colors flex items-center justify-center gap-2"
+                  >
+                    <Check size={14} />
+                    Aktifkan Skill Ini
+                  </button>
+                </div>
               </div>
-            </div>
+            )}
           </div>
         </div>
       )}
