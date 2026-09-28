@@ -176,7 +176,7 @@ export async function pushToGitHub(
   }
 }
 
-export async function getGitHubUser(token: string): Promise<{ login: string; name: string }> {
+export async function getGitHubUser(token: string): Promise<{ login: string; name: string; scopes: string[] }> {
   const response = await fetch('https://api.github.com/user', {
     headers: {
       'Authorization': `token ${token}`,
@@ -189,8 +189,22 @@ export async function getGitHubUser(token: string): Promise<{ login: string; nam
   }
 
   const user = await response.json();
+  // GitHub returns the token's OAuth scopes in this response header — used
+  // to warn the user if their PAT is broader than this app actually needs
+  // (least-privilege: Arka only needs repo read/write, nothing else).
+  const scopesHeader = response.headers.get('x-oauth-scopes') || '';
+  const scopes = scopesHeader.split(',').map(s => s.trim()).filter(Boolean);
+
   return {
     login: user.login,
     name: user.name || user.login,
+    scopes,
   };
+}
+
+/** Scopes Arka actually needs. Anything beyond this is unnecessary risk if the token ever leaks. */
+export const REQUIRED_GITHUB_SCOPES = ['repo'];
+
+export function getExcessiveScopes(scopes: string[]): string[] {
+  return scopes.filter(s => !REQUIRED_GITHUB_SCOPES.includes(s));
 }

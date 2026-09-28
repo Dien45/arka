@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Github, GitBranch, GitCommit, GitPullRequest, Upload, RefreshCw, ExternalLink, Check, AlertCircle, Info, FileCode, FolderGit2, FolderUp, Trash2, X } from 'lucide-react';
 import { useApp } from '../store';
-import { fetchGitHubRepos, pushToGitHub, getGitHubUser } from '../githubApi';
+import { fetchGitHubRepos, pushToGitHub, getGitHubUser, getExcessiveScopes } from '../githubApi';
 
 export default function GitHubPanel() {
   const { state, dispatch } = useApp();
@@ -17,6 +17,7 @@ export default function GitHubPanel() {
   const [workspaceFiles, setWorkspaceFiles] = useState<Map<string, string>>(new Map());
   const [isLoadingRepos, setIsLoadingRepos] = useState(false);
   const [userName, setUserName] = useState<string>('');
+  const [excessiveScopes, setExcessiveScopes] = useState<string[]>([]);
 
   const handleConnect = async () => {
     if (!token.trim()) return;
@@ -26,7 +27,12 @@ export default function GitHubPanel() {
       // Verify token and get user info
       const user = await getGitHubUser(token);
       setUserName(user.name);
-      
+
+      // Least-privilege check: warn if the token (classic PATs only expose
+      // this via the x-oauth-scopes header) grants more than Arka needs.
+      // A broader token is a bigger blast radius if it ever leaks.
+      setExcessiveScopes(getExcessiveScopes(user.scopes));
+
       // Fetch real repositories
       const repos = await fetchGitHubRepos(token);
       
@@ -285,6 +291,20 @@ export default function GitHubPanel() {
                 Putuskan
               </button>
             </div>
+
+            {excessiveScopes.length > 0 && (
+              <div className="bg-[#d4a574]/10 border border-[#d4a574]/40 rounded-xl p-3 flex items-start gap-2">
+                <AlertCircle size={14} className="text-[#8a5a1f] shrink-0 mt-0.5" />
+                <p className="text-[11px] text-[#8a5a1f] leading-relaxed">
+                  Token ini punya scope lebih luas dari yang Arka butuhkan (<span className="font-mono">{excessiveScopes.join(', ')}</span>).
+                  Arka hanya perlu scope <span className="font-mono">repo</span>. Pertimbangkan membuat token baru dengan scope minimal di{' '}
+                  <a href="https://github.com/settings/tokens" target="_blank" rel="noopener noreferrer" className="underline font-medium">
+                    github.com/settings/tokens
+                  </a>{' '}
+                  supaya risikonya lebih kecil kalau token ini bocor.
+                </p>
+              </div>
+            )}
 
             {/* Workspace Upload */}
             <div className="bg-white rounded-xl border border-[#b8c9db] p-4">

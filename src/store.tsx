@@ -1,5 +1,14 @@
 import { createContext, useContext, useReducer, ReactNode, Dispatch, useEffect } from 'react';
 import { ProviderConfig, Session, Agent, View, Message, GitHubRepo } from './types';
+import {
+  isVaultConfigured,
+  setupVault,
+  unlockVault,
+  saveToVault,
+  lockVault as lockVaultStorage,
+  disableVault as disableVaultStorage,
+  changeVaultPassphrase,
+} from './secureVault';
 
 interface AppState {
   currentView: View;
@@ -12,6 +21,21 @@ interface AppState {
   githubConnected: boolean;
   sidebarOpen: boolean;
   isLoading: boolean;
+  /** Whether the user has opted into encrypting API keys/GitHub token at rest. */
+  vaultConfigured: boolean;
+  /** True when vaultConfigured but the passphrase hasn't been entered this session. */
+  locked: boolean;
+}
+
+/** Shape of the sensitive data that is persisted (plaintext or, if the vault is enabled, encrypted). */
+interface PersistedState {
+  sessions: Session[];
+  currentSessionId: string | null;
+  agents: Agent[];
+  providers: ProviderConfig[];
+  githubToken: string;
+  githubRepos: GitHubRepo[];
+  githubConnected: boolean;
 }
 
 type Action =
@@ -30,7 +54,10 @@ type Action =
   | { type: 'SET_GITHUB_REPOS'; payload: GitHubRepo[] }
   | { type: 'SET_GITHUB_CONNECTED'; payload: boolean }
   | { type: 'TOGGLE_SIDEBAR' }
-  | { type: 'SET_LOADING'; payload: boolean };
+  | { type: 'SET_LOADING'; payload: boolean }
+  | { type: 'HYDRATE_FROM_VAULT'; payload: Partial<PersistedState> }
+  | { type: 'LOCK_VAULT' }
+  | { type: 'SET_VAULT_CONFIGURED'; payload: boolean };
 
 const defaultProviders: ProviderConfig[] = [
   { id: 'openai', name: 'OpenAI', apiKey: '', baseUrl: 'https://api.openai.com/v1', model: 'gpt-4o', enabled: false, icon: '🟢' },
@@ -75,8 +102,33 @@ const defaultAgents: Agent[] = [
   },
 ];
 
-// Load state from localStorage
+const emptyPersisted: PersistedState = {
+  sessions: [],
+  currentSessionId: null,
+  agents: defaultAgents,
+  providers: defaultProviders,
+  githubToken: '',
+  githubRepos: [],
+  githubConnected: false,
+};
+
+// Load state from localStorage. If the user has enabled the encrypted vault
+// (see Settings → Keamanan / secureVault.ts), sensitive data (provider API
+// keys, GitHub token, sessions) is NOT read here — it stays encrypted on
+// disk and the app starts in a `locked` state until the passphrase is
+// entered (see components/Unlock.tsx).
 const loadState = (): AppState => {
+  if (isVaultConfigured()) {
+    return {
+      currentView: 'chat',
+      ...emptyPersisted,
+      sidebarOpen: false,
+      isLoading: false,
+      vaultConfigured: true,
+      locked: true,
+    };
+  }
+
   try {
     const saved = localStorage.getItem('arka-state');
     if (saved) {
@@ -92,39 +144,40 @@ const loadState = (): AppState => {
         githubConnected: parsed.githubConnected || false,
         sidebarOpen: false,
         isLoading: false,
+        vaultConfigured: false,
+        locked: false,
       };
     }
   } catch (error) {
     console.error('Failed to load state from localStorage:', error);
   }
-  
+
   return {
     currentView: 'chat',
-    sessions: [],
-    currentSessionId: null,
-    agents: defaultAgents,
-    providers: defaultProviders,
-    githubToken: '',
-    githubRepos: [],
-    githubConnected: false,
+    ...emptyPersisted,
     sidebarOpen: false,
     isLoading: false,
+    vaultConfigured: false,
+    locked: false,
   };
 };
 
-// Save state to localStorage
-const saveState = (state: AppState) => {
+function extractPersisted(state: AppState): PersistedState {
+  return {
+    sessions: state.sessions,
+    currentSessionId: state.currentSessionId,
+    agents: state.agents,
+    providers: state.providers,
+    githubToken: state.githubToken,
+    githubRepos: state.githubRepos,
+    githubConnected: state.githubConnected,
+  };
+}
+
+// Legacy plaintext save path (used only when the encrypted vault is NOT enabled).
+const savePlaintextState = (state: AppState) => {
   try {
-    const toSave = {
-      sessions: state.sessions,
-      currentSessionId: state.currentSessionId,
-      agents: state.agents,
-      providers: state.providers,
-      githubToken: state.githubToken,
-      githubRepos: state.githubRepos,
-      githubConnected: state.githubConnected,
-    };
-    localStorage.setItem('arka-state', JSON.stringify(toSave));
+    localStorage.setItem('arka-state', JSON.stringify(extractPersisted(state)));
   } catch (error) {
     console.error('Failed to save state to localStorage:', error);
   }
@@ -189,6 +242,22 @@ function reducer(state: AppState, action: Action): AppState {
       return { ...state, sidebarOpen: !state.sidebarOpen };
     case 'SET_LOADING':
       return { ...state, isLoading: action.payload };
+    case 'HYDRATE_FROM_VAULT':
+      return {
+        ...state,
+        sessions: action.payload.sessions ?? [],
+        currentSessionId: action.payload.currentSessionId ?? null,
+        agents: action.payload.agents ?? defaultAgents,
+        providers: action.payload.providers ?? defaultProviders,
+        githubToken: action.payload.githubToken ?? '',
+        githubRepos: action.payload.githubRepos ?? [],
+        githubConnected: action.payload.githubConnected ?? false,
+        locked: false,
+      };
+    case 'LOCK_VAULT':
+      return { ...state, locked: true };
+    case 'SET_VAULT_CONFIGURED':
+      return { ...state, vaultConfigured: action.payload };
     default:
       return state;
   }
@@ -198,12 +267,19 @@ const AppContext = createContext<{ state: AppState; dispatch: Dispatch<Action> }
 
 export function AppProvider({ children }: { children: ReactNode }) {
   const [state, dispatch] = useReducer(reducer, initialState);
-  
-  // Save state to localStorage whenever it changes
+
+  // Persist on every change — but never while locked (there's nothing real
+  // to save then), and route to the encrypted vault vs. plaintext storage
+  // depending on whether the user opted into encryption.
   useEffect(() => {
-    saveState(state);
+    if (state.locked) return;
+    if (state.vaultConfigured) {
+      saveToVault(extractPersisted(state)).catch(err => console.error('Failed to save encrypted vault:', err));
+    } else {
+      savePlaintextState(state);
+    }
   }, [state]);
-  
+
   return <AppContext.Provider value={{ state, dispatch }}>{children}</AppContext.Provider>;
 }
 
@@ -211,4 +287,44 @@ export function useApp() {
   const context = useContext(AppContext);
   if (!context) throw new Error('useApp must be used within AppProvider');
   return context;
+}
+
+/**
+ * Helper actions for enabling/disabling/unlocking the encrypted vault.
+ * Kept separate from the plain reducer because these involve async crypto
+ * (Web Crypto API) and need to talk to secureVault.ts's module-level key.
+ */
+export function useVault() {
+  const { state, dispatch } = useApp();
+
+  const enableEncryption = async (passphrase: string): Promise<void> => {
+    await setupVault(passphrase, extractPersisted(state));
+    localStorage.removeItem('arka-state'); // remove any legacy plaintext copy
+    dispatch({ type: 'SET_VAULT_CONFIGURED', payload: true });
+  };
+
+  const disableEncryption = async (passphrase: string): Promise<boolean> => {
+    const decrypted = await disableVaultStorage(passphrase);
+    if (decrypted === null) return false;
+    dispatch({ type: 'SET_VAULT_CONFIGURED', payload: false });
+    return true;
+  };
+
+  const changePassphrase = async (oldPassphrase: string, newPassphrase: string): Promise<boolean> => {
+    return changeVaultPassphrase(oldPassphrase, newPassphrase);
+  };
+
+  const lock = (): void => {
+    lockVaultStorage();
+    dispatch({ type: 'LOCK_VAULT' });
+  };
+
+  const unlock = async (passphrase: string): Promise<boolean> => {
+    const decrypted = await unlockVault(passphrase);
+    if (decrypted === null) return false;
+    dispatch({ type: 'HYDRATE_FROM_VAULT', payload: decrypted as Partial<PersistedState> });
+    return true;
+  };
+
+  return { enableEncryption, disableEncryption, changePassphrase, lock, unlock, vaultConfigured: state.vaultConfigured, locked: state.locked };
 }

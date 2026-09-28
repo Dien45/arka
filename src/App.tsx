@@ -9,6 +9,7 @@ import FileExplorer from './components/FileExplorer';
 import GitHubPanel from './components/GitHubPanel';
 import Settings from './components/Settings';
 import SkillStore from './components/SkillStore';
+import Unlock from './components/Unlock';
 
 function MainContent() {
   const { state, dispatch } = useApp();
@@ -24,7 +25,14 @@ function MainContent() {
     return () => window.removeEventListener('theme-changed', handleThemeChange as EventListener);
   }, [dispatch]);
 
+  // If the user enabled encrypted local storage (Settings → Keamanan), API
+  // keys/GitHub token stay encrypted until the passphrase is entered here.
+  if (state.vaultConfigured && state.locked) {
+    return <Unlock />;
+  }
+
   const renderView = () => {
+
     switch (state.currentView) {
       case 'chat':
         return <Chat />;

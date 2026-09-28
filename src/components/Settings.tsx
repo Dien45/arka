@@ -1,9 +1,226 @@
 import { useState, useEffect } from 'react';
-import { Settings as SettingsIcon, Key, Globe, Check, Eye, EyeOff, Save, RefreshCw, Sparkles, AlertCircle } from 'lucide-react';
-import { useApp } from '../store';
+import { Settings as SettingsIcon, Key, Globe, Check, Eye, EyeOff, Save, RefreshCw, Sparkles, AlertCircle, Lock, ShieldCheck, Unlock as UnlockIcon, LockKeyhole } from 'lucide-react';
+import { useApp, useVault } from '../store';
 import { Provider } from '../types';
 import { fetchModelsFromProvider, ModelInfo } from '../modelFetcher';
 import { useTranslation } from '../LanguageContext';
+
+function SecuritySection() {
+  const { vaultConfigured, enableEncryption, disableEncryption, changePassphrase, lock } = useVault();
+  const [mode, setMode] = useState<'idle' | 'enable' | 'disable' | 'change'>('idle');
+  const [pass1, setPass1] = useState('');
+  const [pass2, setPass2] = useState('');
+  const [oldPass, setOldPass] = useState('');
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [success, setSuccess] = useState('');
+
+  const reset = () => {
+    setMode('idle');
+    setPass1('');
+    setPass2('');
+    setOldPass('');
+    setError('');
+  };
+
+  const handleEnable = async () => {
+    setError('');
+    if (pass1.length < 8) {
+      setError('Passphrase minimal 8 karakter.');
+      return;
+    }
+    if (pass1 !== pass2) {
+      setError('Konfirmasi passphrase tidak cocok.');
+      return;
+    }
+    setBusy(true);
+    try {
+      await enableEncryption(pass1);
+      setSuccess('Enkripsi diaktifkan. API key & token GitHub sekarang tersimpan terenkripsi.');
+      reset();
+    } catch (e) {
+      setError('Gagal mengaktifkan enkripsi.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleDisable = async () => {
+    setError('');
+    setBusy(true);
+    const ok = await disableEncryption(oldPass);
+    setBusy(false);
+    if (!ok) {
+      setError('Passphrase salah.');
+      return;
+    }
+    setSuccess('Enkripsi dimatikan. Data kembali tersimpan sebagai plaintext di perangkat ini.');
+    reset();
+  };
+
+  const handleChange = async () => {
+    setError('');
+    if (pass1.length < 8) {
+      setError('Passphrase baru minimal 8 karakter.');
+      return;
+    }
+    if (pass1 !== pass2) {
+      setError('Konfirmasi passphrase baru tidak cocok.');
+      return;
+    }
+    setBusy(true);
+    const ok = await changePassphrase(oldPass, pass1);
+    setBusy(false);
+    if (!ok) {
+      setError('Passphrase lama salah.');
+      return;
+    }
+    setSuccess('Passphrase berhasil diganti.');
+    reset();
+  };
+
+  return (
+    <div>
+      <h3 className="text-xs font-semibold text-[#64748b] uppercase tracking-wider mb-3 flex items-center gap-2">
+        <Lock size={12} />
+        Keamanan Data Lokal
+      </h3>
+      <div className="bg-white rounded-xl border border-[#b8c9db] p-4 space-y-3">
+        <div className="flex items-start gap-2">
+          {vaultConfigured ? (
+            <ShieldCheck size={16} className="text-[#5a8a6e] shrink-0 mt-0.5" />
+          ) : (
+            <AlertCircle size={16} className="text-[#d4a574] shrink-0 mt-0.5" />
+          )}
+          <div>
+            <p className="text-sm font-medium text-[#334155]">
+              {vaultConfigured ? 'Terenkripsi' : 'Tidak terenkripsi (plaintext)'}
+            </p>
+            <p className="text-xs text-[#64748b] mt-0.5">
+              API key provider AI dan token GitHub disimpan di browser ini ({vaultConfigured ? 'dienkripsi dengan AES-256 menggunakan passphrase kamu' : 'sebagai teks biasa'}).
+              {!vaultConfigured && ' Aktifkan enkripsi supaya data ini tidak bisa dibaca langsung kalau perangkat ini diakses orang lain.'}
+            </p>
+            <p className="text-[10px] text-[#94a3b8] mt-1">
+              Catatan: enkripsi melindungi data saat tersimpan (at rest). Selama sesi terbuka, key tetap harus ada di memori browser untuk memanggil API — ini adalah batas inheren aplikasi client-side tanpa server.
+            </p>
+          </div>
+        </div>
+
+        {success && <p className="text-xs text-[#5a8a6e] bg-[#86b8a0]/10 rounded-lg px-3 py-2">{success}</p>}
+        {error && <p className="text-xs text-[#c97878] bg-[#c97878]/10 rounded-lg px-3 py-2">{error}</p>}
+
+        {mode === 'idle' && (
+          <div className="flex flex-wrap gap-2">
+            {!vaultConfigured ? (
+              <button
+                onClick={() => { setMode('enable'); setSuccess(''); }}
+                className="px-3 py-2 rounded-lg bg-[#7c9cbf] text-white text-xs font-medium hover:bg-[#5a7fa0] transition-colors flex items-center gap-1.5"
+              >
+                <Lock size={12} /> Aktifkan Enkripsi
+              </button>
+            ) : (
+              <>
+                <button
+                  onClick={() => { setMode('change'); setSuccess(''); }}
+                  className="px-3 py-2 rounded-lg border border-[#b8c9db] text-[#64748b] text-xs font-medium hover:bg-[#f8fafc] transition-colors flex items-center gap-1.5"
+                >
+                  <Key size={12} /> Ganti Passphrase
+                </button>
+                <button
+                  onClick={() => { setMode('disable'); setSuccess(''); }}
+                  className="px-3 py-2 rounded-lg border border-[#c97878]/40 text-[#c97878] text-xs font-medium hover:bg-[#c97878]/10 transition-colors flex items-center gap-1.5"
+                >
+                  <UnlockIcon size={12} /> Matikan Enkripsi
+                </button>
+                <button
+                  onClick={lock}
+                  className="px-3 py-2 rounded-lg border border-[#b8c9db] text-[#64748b] text-xs font-medium hover:bg-[#f8fafc] transition-colors flex items-center gap-1.5"
+                >
+                  <LockKeyhole size={12} /> Kunci Sekarang
+                </button>
+              </>
+            )}
+          </div>
+        )}
+
+        {mode === 'enable' && (
+          <div className="space-y-2 pt-1 border-t border-[#e8eef4]">
+            <input
+              type="password"
+              value={pass1}
+              onChange={e => setPass1(e.target.value)}
+              placeholder="Passphrase baru (min. 8 karakter)"
+              className="w-full px-3 py-2 rounded-lg border border-[#b8c9db] text-sm focus:border-[#7c9cbf] focus:outline-none"
+            />
+            <input
+              type="password"
+              value={pass2}
+              onChange={e => setPass2(e.target.value)}
+              placeholder="Ulangi passphrase"
+              className="w-full px-3 py-2 rounded-lg border border-[#b8c9db] text-sm focus:border-[#7c9cbf] focus:outline-none"
+            />
+            <div className="flex gap-2">
+              <button onClick={reset} className="flex-1 py-2 rounded-lg border border-[#b8c9db] text-xs text-[#64748b]">Batal</button>
+              <button onClick={handleEnable} disabled={busy} className="flex-1 py-2 rounded-lg bg-[#7c9cbf] text-white text-xs font-medium disabled:opacity-40">
+                {busy ? 'Memproses...' : 'Aktifkan'}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {mode === 'disable' && (
+          <div className="space-y-2 pt-1 border-t border-[#e8eef4]">
+            <input
+              type="password"
+              value={oldPass}
+              onChange={e => setOldPass(e.target.value)}
+              placeholder="Masukkan passphrase saat ini"
+              className="w-full px-3 py-2 rounded-lg border border-[#b8c9db] text-sm focus:border-[#7c9cbf] focus:outline-none"
+            />
+            <div className="flex gap-2">
+              <button onClick={reset} className="flex-1 py-2 rounded-lg border border-[#b8c9db] text-xs text-[#64748b]">Batal</button>
+              <button onClick={handleDisable} disabled={busy} className="flex-1 py-2 rounded-lg bg-[#c97878] text-white text-xs font-medium disabled:opacity-40">
+                {busy ? 'Memproses...' : 'Matikan Enkripsi'}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {mode === 'change' && (
+          <div className="space-y-2 pt-1 border-t border-[#e8eef4]">
+            <input
+              type="password"
+              value={oldPass}
+              onChange={e => setOldPass(e.target.value)}
+              placeholder="Passphrase saat ini"
+              className="w-full px-3 py-2 rounded-lg border border-[#b8c9db] text-sm focus:border-[#7c9cbf] focus:outline-none"
+            />
+            <input
+              type="password"
+              value={pass1}
+              onChange={e => setPass1(e.target.value)}
+              placeholder="Passphrase baru (min. 8 karakter)"
+              className="w-full px-3 py-2 rounded-lg border border-[#b8c9db] text-sm focus:border-[#7c9cbf] focus:outline-none"
+            />
+            <input
+              type="password"
+              value={pass2}
+              onChange={e => setPass2(e.target.value)}
+              placeholder="Ulangi passphrase baru"
+              className="w-full px-3 py-2 rounded-lg border border-[#b8c9db] text-sm focus:border-[#7c9cbf] focus:outline-none"
+            />
+            <div className="flex gap-2">
+              <button onClick={reset} className="flex-1 py-2 rounded-lg border border-[#b8c9db] text-xs text-[#64748b]">Batal</button>
+              <button onClick={handleChange} disabled={busy} className="flex-1 py-2 rounded-lg bg-[#7c9cbf] text-white text-xs font-medium disabled:opacity-40">
+                {busy ? 'Memproses...' : 'Ganti'}
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
 
 export default function Settings() {
   const { state, dispatch } = useApp();
@@ -192,6 +409,9 @@ export default function Settings() {
             ))}
           </div>
         </div>
+
+        {/* Security */}
+        <SecuritySection />
 
         {/* Appearance */}
         <div>
