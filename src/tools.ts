@@ -10,21 +10,47 @@ export interface Tool {
 export const availableTools: Tool[] = [
   {
     name: 'web_fetch',
-    description: 'Fetch content from a URL. Returns the text content of the webpage.',
+    description: 'Fetch content from a URL. Returns the text content of the webpage. Supports CORS proxy for external sites and GitHub API for repositories.',
     parameters: {
       url: { type: 'string', description: 'The URL to fetch' },
     },
     execute: async (params: { url: string }) => {
       try {
-        const response = await fetch(params.url);
+        let url = params.url;
+        
+        // Check if it's a GitHub repository URL
+        const githubRepoMatch = url.match(/github\.com\/([^\/]+\/[^\/]+)/);
+        if (githubRepoMatch) {
+          // Use GitHub API to fetch README
+          const repoPath = githubRepoMatch[1].replace(/\.git$/, '');
+          const apiUrl = `https://api.github.com/repos/${repoPath}/readme`;
+          
+          const response = await fetch(apiUrl, {
+            headers: {
+              'Accept': 'application/vnd.github.v3.raw',
+            },
+          });
+          
+          if (response.ok) {
+            const text = await response.text();
+            return `# GitHub Repository: ${repoPath}\n\n${text.substring(0, 10000)}`;
+          }
+        }
+        
+        // For other URLs, use CORS proxy
+        const corsProxy = 'https://api.allorigins.win/raw?url=';
+        const proxyUrl = corsProxy + encodeURIComponent(url);
+        
+        const response = await fetch(proxyUrl);
         if (!response.ok) {
           throw new Error(`HTTP error! status: ${response.status}`);
         }
+        
         const text = await response.text();
         // Limit response size
         return text.substring(0, 10000);
       } catch (error) {
-        return `Error fetching URL: ${error instanceof Error ? error.message : 'Unknown error'}`;
+        return `Error fetching URL: ${error instanceof Error ? error.message : 'Unknown error'}\n\nNote: Some websites may block automated access. Try a different URL or check if the site is accessible.`;
       }
     },
   },
