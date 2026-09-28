@@ -36,6 +36,10 @@ class MemoryManager {
   private saveToStorage(): void {
     try {
       localStorage.setItem('arka-memory', JSON.stringify(this.memory));
+      // Let any mounted UI (e.g. the Memory section in Settings) know it
+      // should re-read memory, mirroring the 'virtual-files-updated' event
+      // used for the virtual filesystem.
+      window.dispatchEvent(new CustomEvent('arka-memory-updated'));
     } catch (error) {
       console.error('Failed to save memory:', error);
     }

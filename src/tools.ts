@@ -1,3 +1,5 @@
+import { memoryManager } from './memorySystem';
+
 // Tool calling system for Arka AI
 //
 // SECURITY MODEL
@@ -307,12 +309,11 @@ export const availableTools: Tool[] = [
     parameters: {
       action: { type: 'string', enum: ['add', 'replace', 'remove'], description: 'Action to perform' },
       target: { type: 'string', enum: ['memory', 'user'], description: 'Memory store to target' },
-      content: { type: 'string', description: 'Content for add/replace actions' },
-      old_text: { type: 'string', description: 'Substring to match for replace/remove actions' },
+      content: { type: 'string', description: 'Content for add/replace actions', required: false },
+      old_text: { type: 'string', description: 'Substring to match for replace/remove actions', required: false },
     },
     sensitive: true,
     execute: async (params: any) => {
-      const { memoryManager } = await import('./memorySystem');
       const { action, target, content, old_text } = params;
 
       if (action === 'add') {

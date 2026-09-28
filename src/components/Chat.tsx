@@ -610,8 +610,21 @@ Keep responses short and actionable.${skillEnhancements}`,
           description: tool.description,
           parameters: {
             type: 'object' as const,
-            properties: tool.parameters,
-            required: Object.keys(tool.parameters),
+            // Strip the internal `required` flag out of each property before
+            // handing the schema to the provider — it's not a JSON-Schema
+            // property keyword, it's only consumed below to build the
+            // top-level `required` list.
+            properties: Object.fromEntries(
+              Object.entries(tool.parameters).map(([name, def]) => {
+                const { required: _required, ...rest } = def as any;
+                return [name, rest];
+              })
+            ),
+            // A param can opt out of being "required" (e.g. memory's content/old_text,
+            // which only apply to some actions) via `{ ..., required: false }`.
+            required: Object.entries(tool.parameters)
+              .filter(([, def]) => (def as any)?.required !== false)
+              .map(([name]) => name),
           },
         },
       }));

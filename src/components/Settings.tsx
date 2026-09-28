@@ -1,9 +1,10 @@
 import { useState, useEffect } from 'react';
-import { Settings as SettingsIcon, Key, Globe, Check, Eye, EyeOff, Save, RefreshCw, Sparkles, AlertCircle, Lock, ShieldCheck, Unlock as UnlockIcon, LockKeyhole } from 'lucide-react';
+import { Settings as SettingsIcon, Key, Globe, Check, Eye, EyeOff, Save, RefreshCw, Sparkles, AlertCircle, Lock, ShieldCheck, Unlock as UnlockIcon, LockKeyhole, Brain, Trash2, X } from 'lucide-react';
 import { useApp, useVault } from '../store';
 import { Provider } from '../types';
 import { fetchModelsFromProvider, ModelInfo } from '../modelFetcher';
 import { useTranslation } from '../LanguageContext';
+import { memoryManager, MemoryEntry } from '../memorySystem';
 
 function SecuritySection() {
   const { vaultConfigured, enableEncryption, disableEncryption, changePassphrase, lock } = useVault();
@@ -222,6 +223,100 @@ function SecuritySection() {
   );
 }
 
+// Lets the user actually see and manage what the AI's `memory` tool has
+// written to persistent storage (arka-memory). Previously there was no UI
+// for this at all: the model could silently add/replace/remove memory
+// entries with zero visibility or a way for the user to intervene.
+function MemorySection() {
+  const [memoryEntries, setMemoryEntries] = useState<MemoryEntry[]>([]);
+  const [userEntries, setUserEntries] = useState<MemoryEntry[]>([]);
+
+  const refresh = () => {
+    const all = memoryManager.getAll();
+    setMemoryEntries(all.memory);
+    setUserEntries(all.user);
+  };
+
+  useEffect(() => {
+    refresh();
+    // Picks up changes made by the AI's memory tool mid-conversation
+    // (same tab) and from other tabs/windows (storage event).
+    window.addEventListener('arka-memory-updated', refresh);
+    window.addEventListener('storage', refresh);
+    return () => {
+      window.removeEventListener('arka-memory-updated', refresh);
+      window.removeEventListener('storage', refresh);
+    };
+  }, []);
+
+  const handleDelete = (target: 'memory' | 'user', content: string) => {
+    memoryManager.remove(target, content);
+    refresh();
+  };
+
+  const handleClearAll = () => {
+    if (!window.confirm('Hapus semua memori AI (catatan & profil pengguna)? Tindakan ini tidak bisa dibatalkan.')) return;
+    memoryManager.clear();
+    refresh();
+  };
+
+  const renderEntries = (entries: MemoryEntry[], target: 'memory' | 'user') => {
+    if (entries.length === 0) {
+      return <p className="text-xs text-[#94a3b8] italic">Kosong — belum ada yang tersimpan.</p>;
+    }
+    return (
+      <div className="space-y-2">
+        {entries.map(entry => (
+          <div key={entry.id} className="flex items-start gap-2 bg-[#f8fafc] border border-[#e2e8f0] rounded-lg px-3 py-2">
+            <p className="flex-1 text-xs text-[#334155] whitespace-pre-wrap break-words">{entry.content}</p>
+            <button
+              onClick={() => handleDelete(target, entry.content)}
+              title="Hapus entri ini"
+              className="p-1 rounded hover:bg-[#fee2e2] text-[#94a3b8] hover:text-[#c97878] shrink-0"
+            >
+              <X size={12} />
+            </button>
+          </div>
+        ))}
+      </div>
+    );
+  };
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-3">
+        <h3 className="text-xs font-semibold text-[#64748b] uppercase tracking-wider flex items-center gap-1.5">
+          <Brain size={12} />
+          Memori AI
+        </h3>
+        {(memoryEntries.length > 0 || userEntries.length > 0) && (
+          <button
+            onClick={handleClearAll}
+            className="flex items-center gap-1 text-[10px] font-medium text-[#c97878] hover:bg-[#c97878]/10 px-2 py-1 rounded transition-colors"
+          >
+            <Trash2 size={10} />
+            Hapus Semua
+          </button>
+        )}
+      </div>
+      <div className="bg-white rounded-xl border border-[#b8c9db] p-4 space-y-4">
+        <p className="text-[11px] text-[#94a3b8]">
+          AI dapat menyimpan catatan tentang percakapan dan profil Anda agar diingat di sesi berikutnya.
+          Anda bisa meninjau dan menghapusnya di sini kapan saja.
+        </p>
+        <div>
+          <p className="text-[11px] font-medium text-[#64748b] mb-2">Catatan Agent</p>
+          {renderEntries(memoryEntries, 'memory')}
+        </div>
+        <div>
+          <p className="text-[11px] font-medium text-[#64748b] mb-2">Profil Pengguna</p>
+          {renderEntries(userEntries, 'user')}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function Settings() {
   const { state, dispatch } = useApp();
   const { language, setLanguage } = useTranslation();
@@ -412,6 +507,9 @@ export default function Settings() {
 
         {/* Security */}
         <SecuritySection />
+
+        {/* Memory */}
+        <MemorySection />
 
         {/* Appearance */}
         <div>

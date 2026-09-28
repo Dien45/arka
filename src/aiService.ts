@@ -114,7 +114,41 @@ async function callOpenAI(provider: ProviderConfig, messages: ChatMessage[], too
 async function callAnthropic(provider: ProviderConfig, messages: ChatMessage[], tools?: ToolDefinition[]): Promise<AIResponse> {
   // Extract system message if exists
   const systemMessage = messages.find(m => m.role === 'system');
-  const chatMessages = messages.filter(m => m.role !== 'system');
+
+  // Anthropic does NOT understand the generic OpenAI-shaped `role: 'tool'` /
+  // `tool_calls` messages the rest of this app builds (see Chat.tsx). It needs:
+  //   - assistant tool calls as `content: [{ type: 'tool_use', id, name, input }]`
+  //   - tool results as a `role: 'user'` message with
+  //     `content: [{ type: 'tool_result', tool_use_id, content }]`
+  // Sending the raw OpenAI-shaped messages through un-translated causes the
+  // Anthropic API to reject the request (400) the moment a tool call happens.
+  const chatMessages: any[] = [];
+  for (const m of messages) {
+    if (m.role === 'system') continue;
+
+    if (m.role === 'assistant') {
+      const toolCalls = (m as any).tool_calls as Array<{ id: string; function: { name: string; arguments: string } }> | undefined;
+      if (toolCalls && toolCalls.length > 0) {
+        const content: any[] = [];
+        if (m.content) content.push({ type: 'text', text: m.content });
+        for (const tc of toolCalls) {
+          let input: any = {};
+          try { input = JSON.parse(tc.function.arguments || '{}'); } catch { /* leave empty */ }
+          content.push({ type: 'tool_use', id: tc.id, name: tc.function.name, input });
+        }
+        chatMessages.push({ role: 'assistant', content });
+      } else {
+        chatMessages.push({ role: 'assistant', content: m.content });
+      }
+    } else if (m.role === 'tool') {
+      chatMessages.push({
+        role: 'user',
+        content: [{ type: 'tool_result', tool_use_id: (m as any).tool_call_id, content: m.content }],
+      });
+    } else {
+      chatMessages.push({ role: 'user', content: m.content });
+    }
+  }
 
   const requestBody: any = {
     model: provider.model,
@@ -147,31 +181,63 @@ async function callAnthropic(provider: ProviderConfig, messages: ChatMessage[], 
   }
 
   const data = await response.json();
-  
+
+  const contentBlocks: any[] = data.content || [];
   const result: AIResponse = {
-    content: data.content[0]?.text || '',
+    content: contentBlocks.filter(b => b.type === 'text').map(b => b.text).join('\n'),
   };
 
-  // Check for tool use in Anthropic response
-  if (data.content && data.content.length > 0) {
-    const toolUseBlock = data.content.find((block: any) => block.type === 'tool_use');
-    if (toolUseBlock) {
-      result.toolCalls = [{
-        id: toolUseBlock.id,
-        name: toolUseBlock.name,
-        arguments: JSON.stringify(toolUseBlock.input),
-      }];
-    }
+  // Claude can request multiple tool calls in a single turn — collect all of them.
+  const toolUseBlocks = contentBlocks.filter(b => b.type === 'tool_use');
+  if (toolUseBlocks.length > 0) {
+    result.toolCalls = toolUseBlocks.map((block: any) => ({
+      id: block.id,
+      name: block.name,
+      arguments: JSON.stringify(block.input),
+    }));
   }
 
   return result;
 }
 
+
 async function callGoogle(provider: ProviderConfig, messages: ChatMessage[], tools?: ToolDefinition[]): Promise<AIResponse> {
-  const contents = messages.map(m => ({
-    role: m.role === 'assistant' ? 'model' : 'user',
-    parts: [{ text: m.content }],
-  }));
+  // Gemini has no OpenAI-style `role: 'tool'` / `tool_calls` messages and no
+  // 'system' role inside `contents` — it needs a separate `systemInstruction`
+  // field, assistant tool calls as `{ functionCall: { name, args } }` parts on
+  // a 'model' turn, and tool results as `{ functionResponse: { name, response } }`
+  // parts on a 'user' turn. The previous implementation just stringified every
+  // message as plain text (including an empty-string assistant turn right
+  // before/after a tool call), which Gemini's API can reject as an invalid
+  // "empty part" the moment tool calling is used.
+  const systemMessage = messages.find(m => m.role === 'system');
+  const contents: any[] = [];
+  for (const m of messages) {
+    if (m.role === 'system') continue;
+
+    if (m.role === 'assistant') {
+      const toolCalls = (m as any).tool_calls as Array<{ function: { name: string; arguments: string } }> | undefined;
+      const parts: any[] = [];
+      if (m.content) parts.push({ text: m.content });
+      if (toolCalls && toolCalls.length > 0) {
+        for (const tc of toolCalls) {
+          let args: any = {};
+          try { args = JSON.parse(tc.function.arguments || '{}'); } catch { /* leave empty */ }
+          parts.push({ functionCall: { name: tc.function.name, args } });
+        }
+      }
+      if (parts.length === 0) continue; // nothing to send for this turn
+      contents.push({ role: 'model', parts });
+    } else if (m.role === 'tool') {
+      contents.push({
+        role: 'user',
+        parts: [{ functionResponse: { name: (m as any).name, response: { content: m.content } } }],
+      });
+    } else {
+      if (!m.content) continue;
+      contents.push({ role: 'user', parts: [{ text: m.content }] });
+    }
+  }
 
   const requestBody: any = {
     contents: contents,
@@ -180,6 +246,10 @@ async function callGoogle(provider: ProviderConfig, messages: ChatMessage[], too
       maxOutputTokens: 4096,
     },
   };
+
+  if (systemMessage?.content) {
+    requestBody.systemInstruction = { parts: [{ text: systemMessage.content }] };
+  }
 
   if (tools && tools.length > 0) {
     requestBody.tools = [{
@@ -208,18 +278,20 @@ async function callGoogle(provider: ProviderConfig, messages: ChatMessage[], too
   }
 
   const data = await response.json();
+  const responseParts: any[] = data.candidates?.[0]?.content?.parts || [];
+
   const result: AIResponse = {
-    content: data.candidates[0]?.content?.parts[0]?.text || '',
+    content: responseParts.filter(p => p.text).map(p => p.text).join(''),
   };
 
-  // Check for function calls
-  const functionCall = data.candidates[0]?.content?.parts[0]?.functionCall;
-  if (functionCall) {
-    result.toolCalls = [{
-      id: `call_${Date.now()}`,
-      name: functionCall.name,
-      arguments: JSON.stringify(functionCall.args),
-    }];
+  // Gemini can return multiple function calls in one turn — collect all of them.
+  const functionCallParts = responseParts.filter(p => p.functionCall);
+  if (functionCallParts.length > 0) {
+    result.toolCalls = functionCallParts.map((p: any, i: number) => ({
+      id: `call_${Date.now()}_${i}`,
+      name: p.functionCall.name,
+      arguments: JSON.stringify(p.functionCall.args),
+    }));
   }
 
   return result;

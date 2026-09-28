@@ -176,6 +176,17 @@ const availableSkills: Skill[] = [
     installed: false,
     version: '1.2.0',
   },
+  {
+    id: 'ponytail',
+    name: 'Ponytail (Lazy Senior Dev)',
+    description: 'Pendekatan "7-rung ladder": tulis kode seminimal mungkin tanpa pernah mengorbankan validasi, error handling, keamanan, atau aksesibilitas',
+    author: 'hermes-labs',
+    source: 'hermes',
+    icon: '🐴',
+    category: 'Code Quality',
+    installed: false,
+    version: '1.0.0',
+  },
 ];
 
 export default function SkillStore() {
