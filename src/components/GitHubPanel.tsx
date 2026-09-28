@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Github, GitBranch, GitCommit, GitPullRequest, Upload, RefreshCw, ExternalLink, Check, AlertCircle, Info, FileCode, FolderGit2, FolderUp } from 'lucide-react';
+import { Github, GitBranch, GitCommit, GitPullRequest, Upload, RefreshCw, ExternalLink, Check, AlertCircle, Info, FileCode, FolderGit2, FolderUp, Trash2, X } from 'lucide-react';
 import { useApp } from '../store';
 import { fetchGitHubRepos, pushToGitHub, getGitHubUser } from '../githubApi';
 
@@ -17,12 +17,6 @@ export default function GitHubPanel() {
   const [workspaceFiles, setWorkspaceFiles] = useState<Map<string, string>>(new Map());
   const [isLoadingRepos, setIsLoadingRepos] = useState(false);
   const [userName, setUserName] = useState<string>('');
-  
-  // Get actual file changes from workspace
-  const fileChanges = Array.from(workspaceFiles.entries()).map(([path]) => ({
-    path,
-    status: 'modified' as const,
-  }));
 
   const handleConnect = async () => {
     if (!token.trim()) return;
@@ -133,17 +127,9 @@ export default function GitHubPanel() {
   const toggleFileSelection = (filePath: string) => {
     setSelectedFiles(prev => 
       prev.includes(filePath) 
-        ? prev.filter(f => f !== filePath)
+        ? prev.filter((f: string) => f !== filePath)
         : [...prev, filePath]
     );
-  };
-
-  const selectAllFiles = () => {
-    if (selectedFiles.length === fileChanges.length) {
-      setSelectedFiles([]);
-    } else {
-      setSelectedFiles(fileChanges.map(f => f.path));
-    }
   };
 
   const handleDisconnect = () => {
@@ -302,30 +288,104 @@ export default function GitHubPanel() {
 
             {/* Workspace Upload */}
             <div className="bg-white rounded-xl border border-[#b8c9db] p-4">
-              <h4 className="text-xs font-semibold text-[#64748b] uppercase mb-3 flex items-center gap-1">
-                <FolderUp size={12} />
-                Upload Workspace
-              </h4>
-              <label className="flex flex-col items-center justify-center w-full h-32 border-2 border-dashed border-[#b8c9db] rounded-lg cursor-pointer hover:border-[#7c9cbf] hover:bg-[#f8fafc] transition-all">
-                <div className="flex flex-col items-center justify-center pt-5 pb-6">
-                  <FolderUp size={24} className="text-[#7c9cbf] mb-2" />
-                  <p className="text-xs text-[#64748b] mb-1">
-                    <span className="font-semibold text-[#5a7fa0]">Klik untuk upload</span> atau drag & drop
-                  </p>
-                  <p className="text-[10px] text-[#94a3b8]">Pilih folder proyek Anda</p>
-                </div>
-                <input
-                  type="file"
-                  className="hidden"
-                  onChange={handleFolderUpload}
-                  {...({ webkitdirectory: 'true', directory: 'true' } as any)}
-                />
-              </label>
-              {workspaceFiles.size > 0 && (
-                <div className="mt-3 p-2 bg-[#86b8a0]/10 border border-[#86b8a0]/20 rounded-lg">
-                  <p className="text-xs text-[#5a8a6e] font-medium">
-                    ✓ {workspaceFiles.size} file dari workspace ter-load
-                  </p>
+              <div className="flex items-center justify-between mb-3">
+                <h4 className="text-xs font-semibold text-[#64748b] uppercase flex items-center gap-1">
+                  <FolderUp size={12} />
+                  Upload Workspace
+                </h4>
+                {workspaceFiles.size > 0 && (
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => {
+                        const input = document.createElement('input');
+                        input.type = 'file';
+                        input.setAttribute('webkitdirectory', 'true');
+                        input.setAttribute('directory', 'true');
+                        input.onchange = handleFolderUpload as any;
+                        input.click();
+                      }}
+                      className="flex items-center gap-1 px-2 py-1 rounded text-[10px] font-medium text-[#5a7fa0] hover:bg-[#7c9cbf]/10 transition-colors"
+                    >
+                      <RefreshCw size={10} />
+                      Refresh
+                    </button>
+                    <button
+                      onClick={() => {
+                        if (confirm('Hapus semua file dari workspace?')) {
+                          setWorkspaceFiles(new Map());
+                          setSelectedFiles([]);
+                        }
+                      }}
+                      className="flex items-center gap-1 px-2 py-1 rounded text-[10px] font-medium text-[#c97878] hover:bg-[#c97878]/10 transition-colors"
+                    >
+                      <Trash2 size={10} />
+                      Clear All
+                    </button>
+                  </div>
+                )}
+              </div>
+              
+              {workspaceFiles.size === 0 ? (
+                <label className="flex flex-col items-center justify-center w-full h-32 border-2 border-dashed border-[#b8c9db] rounded-lg cursor-pointer hover:border-[#7c9cbf] hover:bg-[#f8fafc] transition-all">
+                  <div className="flex flex-col items-center justify-center pt-5 pb-6">
+                    <FolderUp size={24} className="text-[#7c9cbf] mb-2" />
+                    <p className="text-xs text-[#64748b] mb-1">
+                      <span className="font-semibold text-[#5a7fa0]">Klik untuk upload</span> atau drag & drop
+                    </p>
+                    <p className="text-[10px] text-[#94a3b8]">Pilih folder proyek Anda</p>
+                  </div>
+                  <input
+                    type="file"
+                    className="hidden"
+                    onChange={handleFolderUpload}
+                    {...({ webkitdirectory: 'true', directory: 'true' } as any)}
+                  />
+                </label>
+              ) : (
+                <div className="border border-[#b8c9db] rounded-lg max-h-64 overflow-y-auto">
+                  <div className="sticky top-0 bg-[#f8fafc] border-b border-[#b8c9db] px-3 py-2 flex items-center justify-between">
+                    <span className="text-[10px] font-semibold text-[#64748b]">
+                      {workspaceFiles.size} file ter-load
+                    </span>
+                    <button
+                      onClick={() => {
+                        if (selectedFiles.length === workspaceFiles.size) {
+                          setSelectedFiles([]);
+                        } else {
+                          setSelectedFiles(Array.from(workspaceFiles.keys()));
+                        }
+                      }}
+                      className="text-[10px] text-[#5a7fa0] font-medium hover:underline"
+                    >
+                      {selectedFiles.length === workspaceFiles.size ? 'Deselect All' : 'Select All'}
+                    </button>
+                  </div>
+                  <div className="divide-y divide-[#e8eef4]">
+                    {Array.from(workspaceFiles.keys()).map((path) => (
+                      <div key={path} className="flex items-center gap-2 px-3 py-2 hover:bg-[#f8fafc]">
+                        <input
+                          type="checkbox"
+                          checked={selectedFiles.includes(path)}
+                          onChange={() => toggleFileSelection(path)}
+                          className="rounded border-[#b8c9db] text-[#7c9cbf] focus:ring-[#7c9cbf]"
+                        />
+                        <FileCode size={12} className="text-[#7c9cbf] shrink-0" />
+                        <span className="text-xs text-[#334155] font-mono truncate flex-1">{path}</span>
+                        <button
+                          onClick={() => {
+                            const newFiles = new Map(workspaceFiles);
+                            newFiles.delete(path);
+                            setWorkspaceFiles(newFiles);
+                            setSelectedFiles(prev => prev.filter(f => f !== path));
+                          }}
+                          className="p-1 rounded hover:bg-[#c97878]/10 text-[#c97878] transition-colors"
+                          title="Hapus file"
+                        >
+                          <X size={12} />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
                 </div>
               )}
             </div>
@@ -417,46 +477,17 @@ export default function GitHubPanel() {
                   </div>
                 </div>
 
-                {/* File Selection */}
-                <div>
-                  <div className="flex items-center justify-between mb-2">
-                    <label className="text-xs font-medium text-[#64748b]">
-                      Files ({selectedFiles.length}/{fileChanges.length})
-                    </label>
-                    <button
-                      onClick={selectAllFiles}
-                      className="text-[10px] text-[#5a7fa0] font-medium hover:underline"
-                    >
-                      {selectedFiles.length === fileChanges.length ? 'Batal Pilih Semua' : 'Pilih Semua'}
-                    </button>
+                {/* File Info */}
+                {workspaceFiles.size > 0 && (
+                  <div className="bg-[#86b8a0]/10 border border-[#86b8a0]/20 rounded-lg p-3">
+                    <p className="text-xs text-[#5a8a6e] font-medium">
+                      ✓ {selectedFiles.length} dari {workspaceFiles.size} file dipilih untuk di-push
+                    </p>
+                    <p className="text-[10px] text-[#64748b] mt-1">
+                      Pilih file di bagian "Upload Workspace" di atas
+                    </p>
                   </div>
-                  <div className="border border-[#b8c9db] rounded-lg max-h-40 overflow-y-auto">
-                    {fileChanges.map((file, index) => (
-                      <label
-                        key={index}
-                        className={`flex items-center gap-2 px-3 py-2 cursor-pointer hover:bg-[#f8fafc] ${
-                          index !== fileChanges.length - 1 ? 'border-b border-[#e8eef4]' : ''
-                        }`}
-                      >
-                        <input
-                          type="checkbox"
-                          checked={selectedFiles.includes(file.path)}
-                          onChange={() => toggleFileSelection(file.path)}
-                          className="rounded border-[#b8c9db] text-[#7c9cbf] focus:ring-[#7c9cbf]"
-                        />
-                        <FileCode size={12} className="text-[#7c9cbf] shrink-0" />
-                        <span className="text-xs text-[#334155] font-mono truncate flex-1">{file.path}</span>
-                        <span className={`text-[9px] px-1.5 py-0.5 rounded font-medium ${
-                          file.status === 'modified' 
-                            ? 'bg-[#d4a574]/10 text-[#d4a574]' 
-                            : 'bg-[#86b8a0]/10 text-[#5a8a6e]'
-                        }`}>
-                          {file.status}
-                        </span>
-                      </label>
-                    ))}
-                  </div>
-                </div>
+                )}
 
                 <div>
                   <label className="text-xs font-medium text-[#64748b] block mb-1">Commit Message</label>
