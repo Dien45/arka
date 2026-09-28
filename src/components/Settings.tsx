@@ -1,19 +1,27 @@
 import { useState } from 'react';
-import { Settings as SettingsIcon, Key, Globe, Check, Eye, EyeOff, Save } from 'lucide-react';
+import { Settings as SettingsIcon, Key, Globe, Check, Eye, EyeOff, Save, RefreshCw, Sparkles, AlertCircle } from 'lucide-react';
 import { useApp } from '../store';
 import { Provider } from '../types';
+import { fetchModelsFromProvider, ModelInfo } from '../modelFetcher';
 
 export default function Settings() {
   const { state, dispatch } = useApp();
   const [showKeys, setShowKeys] = useState<Record<string, boolean>>({});
   const [editingProvider, setEditingProvider] = useState<Provider | null>(null);
   const [editForm, setEditForm] = useState({ apiKey: '', baseUrl: '', model: '' });
+  const [modelMode, setModelMode] = useState<'auto' | 'manual'>('auto');
+  const [availableModels, setAvailableModels] = useState<ModelInfo[]>([]);
+  const [isLoadingModels, setIsLoadingModels] = useState(false);
+  const [modelError, setModelError] = useState<string | null>(null);
 
   const handleEdit = (providerId: Provider) => {
     const provider = state.providers.find(p => p.id === providerId);
     if (provider) {
       setEditingProvider(providerId);
       setEditForm({ apiKey: provider.apiKey, baseUrl: provider.baseUrl, model: provider.model });
+      setModelMode('auto');
+      setAvailableModels([]);
+      setModelError(null);
     }
   };
 
@@ -33,6 +41,35 @@ export default function Settings() {
     const provider = state.providers.find(p => p.id === providerId);
     if (provider) {
       dispatch({ type: 'UPDATE_PROVIDER', payload: { ...provider, enabled: !provider.enabled } });
+    }
+  };
+
+  const handleDetectModels = async () => {
+    if (!editingProvider || !editForm.apiKey.trim()) {
+      setModelError('API Key diperlukan untuk mendeteksi model');
+      return;
+    }
+
+    setIsLoadingModels(true);
+    setModelError(null);
+
+    try {
+      const models = await fetchModelsFromProvider(
+        editingProvider,
+        editForm.apiKey,
+        editForm.baseUrl
+      );
+      setAvailableModels(models);
+      if (models.length > 0) {
+        setEditForm({ ...editForm, model: models[0].id });
+      } else {
+        setModelError('Tidak ada model yang ditemukan');
+      }
+    } catch (error) {
+      setModelError(error instanceof Error ? error.message : 'Gagal mendeteksi model');
+      setAvailableModels([]);
+    } finally {
+      setIsLoadingModels(false);
     }
   };
 
@@ -161,8 +198,8 @@ export default function Settings() {
       {/* Edit Provider Modal */}
       {editingProvider && (
         <div className="fixed inset-0 bg-black/30 z-50 flex items-end md:items-center justify-center p-4" onClick={() => setEditingProvider(null)}>
-          <div className="bg-white rounded-2xl w-full max-w-md shadow-xl" onClick={e => e.stopPropagation()}>
-            <div className="p-4 border-b border-[#b8c9db] flex items-center justify-between">
+          <div className="bg-white rounded-2xl w-full max-w-md max-h-[90vh] overflow-y-auto shadow-xl" onClick={e => e.stopPropagation()}>
+            <div className="p-4 border-b border-[#b8c9db] flex items-center justify-between sticky top-0 bg-white z-10">
               <div className="flex items-center gap-2">
                 <Key size={16} className="text-[#7c9cbf]" />
                 <h3 className="font-bold text-[#334155] text-sm">
@@ -171,6 +208,7 @@ export default function Settings() {
               </div>
             </div>
             <div className="p-4 space-y-4">
+              {/* API Key */}
               <div>
                 <label className="text-xs font-medium text-[#64748b] block mb-1">API Key</label>
                 <div className="relative">
@@ -189,6 +227,8 @@ export default function Settings() {
                   </button>
                 </div>
               </div>
+
+              {/* Base URL */}
               <div>
                 <label className="text-xs font-medium text-[#64748b] block mb-1">Base URL</label>
                 <input
@@ -199,16 +239,99 @@ export default function Settings() {
                   className="w-full px-3 py-2.5 rounded-lg border border-[#b8c9db] text-sm font-mono focus:border-[#7c9cbf] focus:outline-none"
                 />
               </div>
+
+              {/* Model Selection Mode */}
               <div>
-                <label className="text-xs font-medium text-[#64748b] block mb-1">Model</label>
-                <input
-                  type="text"
-                  value={editForm.model}
-                  onChange={e => setEditForm({ ...editForm, model: e.target.value })}
-                  placeholder="gpt-4o"
-                  className="w-full px-3 py-2.5 rounded-lg border border-[#b8c9db] text-sm font-mono focus:border-[#7c9cbf] focus:outline-none"
-                />
+                <label className="text-xs font-medium text-[#64748b] block mb-2">Model</label>
+                
+                {/* Mode Toggle */}
+                <div className="flex gap-2 mb-3">
+                  <button
+                    onClick={() => setModelMode('auto')}
+                    className={`flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-xs font-medium transition-all ${
+                      modelMode === 'auto'
+                        ? 'bg-[#7c9cbf]/15 text-[#5a7fa0] border-2 border-[#7c9cbf]/30'
+                        : 'bg-[#f0f4f8] text-[#64748b] border border-transparent hover:border-[#b8c9db]'
+                    }`}
+                  >
+                    <Sparkles size={14} />
+                    Auto-Detect
+                  </button>
+                  <button
+                    onClick={() => setModelMode('manual')}
+                    className={`flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-xs font-medium transition-all ${
+                      modelMode === 'manual'
+                        ? 'bg-[#7c9cbf]/15 text-[#5a7fa0] border-2 border-[#7c9cbf]/30'
+                        : 'bg-[#f0f4f8] text-[#64748b] border border-transparent hover:border-[#b8c9db]'
+                    }`}
+                  >
+                    <Key size={14} />
+                    Manual
+                  </button>
+                </div>
+
+                {/* Auto Mode */}
+                {modelMode === 'auto' && (
+                  <div className="space-y-2">
+                    <button
+                      onClick={handleDetectModels}
+                      disabled={isLoadingModels || !editForm.apiKey.trim()}
+                      className="w-full flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg bg-[#7c9cbf] text-white text-xs font-medium hover:bg-[#5a7fa0] disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                    >
+                      {isLoadingModels ? (
+                        <>
+                          <RefreshCw size={14} className="animate-spin" />
+                          Mendeteksi Model...
+                        </>
+                      ) : (
+                        <>
+                          <Sparkles size={14} />
+                          Deteksi Model Otomatis
+                        </>
+                      )}
+                    </button>
+
+                    {modelError && (
+                      <div className="flex items-start gap-2 p-2.5 rounded-lg bg-[#c97878]/10 border border-[#c97878]/20">
+                        <AlertCircle size={14} className="text-[#c97878] shrink-0 mt-0.5" />
+                        <p className="text-xs text-[#c97878]">{modelError}</p>
+                      </div>
+                    )}
+
+                    {availableModels.length > 0 && (
+                      <div>
+                        <p className="text-[10px] text-[#64748b] mb-1.5">
+                          {availableModels.length} model ditemukan
+                        </p>
+                        <select
+                          value={editForm.model}
+                          onChange={e => setEditForm({ ...editForm, model: e.target.value })}
+                          className="w-full px-3 py-2.5 rounded-lg border border-[#b8c9db] text-sm focus:border-[#7c9cbf] focus:outline-none"
+                        >
+                          {availableModels.map(model => (
+                            <option key={model.id} value={model.id}>
+                              {model.name}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Manual Mode */}
+                {modelMode === 'manual' && (
+                  <input
+                    type="text"
+                    value={editForm.model}
+                    onChange={e => setEditForm({ ...editForm, model: e.target.value })}
+                    placeholder="gpt-4o, claude-3-opus, dll"
+                    className="w-full px-3 py-2.5 rounded-lg border border-[#b8c9db] text-sm font-mono focus:border-[#7c9cbf] focus:outline-none"
+                  />
+                )}
               </div>
+
+              {/* Save Button */}
               <button
                 onClick={handleSave}
                 className="w-full py-2.5 rounded-lg bg-[#7c9cbf] text-white font-medium text-sm hover:bg-[#5a7fa0] transition-colors flex items-center justify-center gap-2"

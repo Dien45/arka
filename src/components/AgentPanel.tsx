@@ -1,7 +1,8 @@
 import { useState } from 'react';
-import { Bot, Plus, Trash2, Wrench, Zap, ChevronRight, X } from 'lucide-react';
+import { Bot, Plus, Trash2, Wrench, Zap, ChevronRight, X, Sparkles, RefreshCw } from 'lucide-react';
 import { useApp } from '../store';
 import { Agent } from '../types';
+import { fetchModelsFromProvider, ModelInfo } from '../modelFetcher';
 
 const availableTools = [
   { id: 'read_file', name: 'Read File', icon: '📖', description: 'Membaca isi file' },
@@ -27,6 +28,9 @@ export default function AgentPanel() {
     provider: 'openai',
     model: 'gpt-4o',
   });
+  const [modelMode, setModelMode] = useState<'auto' | 'manual'>('auto');
+  const [availableModels, setAvailableModels] = useState<ModelInfo[]>([]);
+  const [isLoadingModels, setIsLoadingModels] = useState(false);
 
   const handleCreate = () => {
     if (!newAgent.name || !newAgent.systemPrompt) return;
@@ -43,6 +47,36 @@ export default function AgentPanel() {
     dispatch({ type: 'ADD_AGENT', payload: agent });
     setShowCreate(false);
     setNewAgent({ name: '', description: '', icon: '🤖', systemPrompt: '', tools: [], provider: 'openai', model: 'gpt-4o' });
+    setModelMode('auto');
+    setAvailableModels([]);
+  };
+
+  const handleDetectModels = async () => {
+    const provider = state.providers.find(p => p.id === newAgent.provider);
+    if (!provider || !provider.apiKey.trim()) return;
+
+    setIsLoadingModels(true);
+    try {
+      const models = await fetchModelsFromProvider(
+        provider.id,
+        provider.apiKey,
+        provider.baseUrl
+      );
+      setAvailableModels(models);
+      if (models.length > 0) {
+        setNewAgent({ ...newAgent, model: models[0].id });
+      }
+    } catch (error) {
+      console.error('Failed to fetch models:', error);
+    } finally {
+      setIsLoadingModels(false);
+    }
+  };
+
+  const handleProviderChange = (providerId: string) => {
+    setNewAgent({ ...newAgent, provider: providerId as Agent['provider'], model: '' });
+    setAvailableModels([]);
+    setModelMode('auto');
   };
 
   const toggleTool = (toolId: string) => {
@@ -242,35 +276,102 @@ export default function AgentPanel() {
                   ))}
                 </div>
               </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="text-xs font-semibold text-[#64748b] block mb-1">Provider</label>
-                  <select
-                    value={newAgent.provider}
-                    onChange={e => setNewAgent({ ...newAgent, provider: e.target.value as Agent['provider'] })}
-                    className="w-full px-3 py-2 rounded-lg border border-[#b8c9db] text-sm focus:border-[#7c9cbf] focus:outline-none"
+              <div>
+                <label className="text-xs font-semibold text-[#64748b] block mb-1">Provider</label>
+                <select
+                  value={newAgent.provider}
+                  onChange={e => handleProviderChange(e.target.value)}
+                  className="w-full px-3 py-2 rounded-lg border border-[#b8c9db] text-sm focus:border-[#7c9cbf] focus:outline-none"
+                >
+                  {state.providers.filter(p => p.enabled).map(p => (
+                    <option key={p.id} value={p.id}>{p.name}</option>
+                  ))}
+                  {state.providers.filter(p => !p.enabled).length > 0 && (
+                    <optgroup label="Non-aktif">
+                      {state.providers.filter(p => !p.enabled).map(p => (
+                        <option key={p.id} value={p.id}>{p.name}</option>
+                      ))}
+                    </optgroup>
+                  )}
+                </select>
+              </div>
+
+              {/* Model Selection */}
+              <div>
+                <label className="text-xs font-semibold text-[#64748b] block mb-2">Model</label>
+                
+                {/* Mode Toggle */}
+                <div className="flex gap-2 mb-3">
+                  <button
+                    onClick={() => setModelMode('auto')}
+                    className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                      modelMode === 'auto'
+                        ? 'bg-[#7c9cbf]/15 text-[#5a7fa0] border border-[#7c9cbf]/30'
+                        : 'bg-[#f0f4f8] text-[#64748b] border border-transparent hover:border-[#b8c9db]'
+                    }`}
                   >
-                    {state.providers.filter(p => p.enabled).map(p => (
-                      <option key={p.id} value={p.id}>{p.name}</option>
-                    ))}
-                    {state.providers.filter(p => !p.enabled).length > 0 && (
-                      <optgroup label="Non-aktif">
-                        {state.providers.filter(p => !p.enabled).map(p => (
-                          <option key={p.id} value={p.id}>{p.name}</option>
-                        ))}
-                      </optgroup>
-                    )}
-                  </select>
+                    <Sparkles size={12} />
+                    Auto-Detect
+                  </button>
+                  <button
+                    onClick={() => setModelMode('manual')}
+                    className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                      modelMode === 'manual'
+                        ? 'bg-[#7c9cbf]/15 text-[#5a7fa0] border border-[#7c9cbf]/30'
+                        : 'bg-[#f0f4f8] text-[#64748b] border border-transparent hover:border-[#b8c9db]'
+                    }`}
+                  >
+                    Manual
+                  </button>
                 </div>
-                <div>
-                  <label className="text-xs font-semibold text-[#64748b] block mb-1">Model</label>
+
+                {/* Auto Mode */}
+                {modelMode === 'auto' && (
+                  <div className="space-y-2">
+                    <button
+                      onClick={handleDetectModels}
+                      disabled={isLoadingModels}
+                      className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-[#7c9cbf] text-white text-xs font-medium hover:bg-[#5a7fa0] disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                    >
+                      {isLoadingModels ? (
+                        <>
+                          <RefreshCw size={12} className="animate-spin" />
+                          Mendeteksi...
+                        </>
+                      ) : (
+                        <>
+                          <Sparkles size={12} />
+                          Deteksi Model
+                        </>
+                      )}
+                    </button>
+
+                    {availableModels.length > 0 && (
+                      <select
+                        value={newAgent.model}
+                        onChange={e => setNewAgent({ ...newAgent, model: e.target.value })}
+                        className="w-full px-3 py-2 rounded-lg border border-[#b8c9db] text-sm focus:border-[#7c9cbf] focus:outline-none"
+                      >
+                        {availableModels.map(model => (
+                          <option key={model.id} value={model.id}>
+                            {model.name}
+                          </option>
+                        ))}
+                      </select>
+                    )}
+                  </div>
+                )}
+
+                {/* Manual Mode */}
+                {modelMode === 'manual' && (
                   <input
                     type="text"
                     value={newAgent.model}
                     onChange={e => setNewAgent({ ...newAgent, model: e.target.value })}
+                    placeholder="gpt-4o, claude-3-opus, dll"
                     className="w-full px-3 py-2 rounded-lg border border-[#b8c9db] text-sm focus:border-[#7c9cbf] focus:outline-none"
                   />
-                </div>
+                )}
               </div>
               <button
                 onClick={handleCreate}
