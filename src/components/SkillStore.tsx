@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Bot, Download, Github, Search, X, Check, ExternalLink, Loader2, Package, Sparkles } from 'lucide-react';
 import { useApp } from '../store';
 
@@ -159,13 +159,34 @@ const availableSkills: Skill[] = [
 
 export default function SkillStore() {
   const { state } = useApp();
-  const [skills, setSkills] = useState<Skill[]>(availableSkills);
+  const [skills, setSkills] = useState<Skill[]>(() => {
+    const saved = localStorage.getItem('arka-skills');
+    if (saved) {
+      try {
+        const savedSkills = JSON.parse(saved);
+        return availableSkills.map(skill => ({
+          ...skill,
+          installed: savedSkills.includes(skill.id)
+        }));
+      } catch {
+        return availableSkills;
+      }
+    }
+    return availableSkills;
+  });
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedSource, setSelectedSource] = useState<'all' | 'github' | 'openclaw' | 'hermes'>('all');
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [installingSkill, setInstallingSkill] = useState<string | null>(null);
   const [showInstallModal, setShowInstallModal] = useState(false);
   const [customRepo, setCustomRepo] = useState('');
+  const [configuringSkill, setConfiguringSkill] = useState<Skill | null>(null);
+
+  // Save skills to localStorage whenever they change
+  useEffect(() => {
+    const installedIds = skills.filter(s => s.installed).map(s => s.id);
+    localStorage.setItem('arka-skills', JSON.stringify(installedIds));
+  }, [skills]);
 
   const categories = ['all', ...new Set(skills.map(s => s.category))];
 
@@ -352,7 +373,10 @@ export default function SkillStore() {
                       >
                         Uninstall
                       </button>
-                      <button className="flex-1 py-1.5 rounded-lg bg-[#86b8a0]/10 text-[#5a8a6e] text-xs font-medium hover:bg-[#86b8a0]/20 transition-colors">
+                      <button 
+                        onClick={() => setConfiguringSkill(skill)}
+                        className="flex-1 py-1.5 rounded-lg bg-[#86b8a0]/10 text-[#5a8a6e] text-xs font-medium hover:bg-[#86b8a0]/20 transition-colors"
+                      >
                         Configure
                       </button>
                     </>
@@ -438,6 +462,77 @@ export default function SkillStore() {
                 >
                   <Download size={14} />
                   Install
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Configure Skill Modal */}
+      {configuringSkill && (
+        <div className="fixed inset-0 bg-black/30 z-50 flex items-center justify-center p-4" onClick={() => setConfiguringSkill(null)}>
+          <div className="bg-white rounded-2xl w-full max-w-md shadow-xl" onClick={e => e.stopPropagation()}>
+            <div className="p-4 border-b border-[#b8c9db] flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <span className="text-xl">{configuringSkill.icon}</span>
+                <h3 className="font-bold text-[#334155] text-sm">Configure: {configuringSkill.name}</h3>
+              </div>
+              <button onClick={() => setConfiguringSkill(null)} className="p-1 rounded hover:bg-[#e8eef4]">
+                <X size={18} className="text-[#64748b]" />
+              </button>
+            </div>
+            <div className="p-4 space-y-4">
+              <div>
+                <p className="text-xs text-[#64748b] mb-2">{configuringSkill.description}</p>
+                <div className="bg-[#f0f4f8] rounded-lg p-3 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs text-[#64748b]">Version</span>
+                    <span className="text-xs font-medium text-[#334155]">v{configuringSkill.version}</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs text-[#64748b]">Source</span>
+                    <span className="text-xs font-medium text-[#334155] capitalize">{configuringSkill.source}</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs text-[#64748b]">Author</span>
+                    <span className="text-xs font-medium text-[#334155]">{configuringSkill.author}</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs text-[#64748b]">Category</span>
+                    <span className="text-xs font-medium text-[#334155]">{configuringSkill.category}</span>
+                  </div>
+                </div>
+              </div>
+              <div>
+                <label className="text-xs font-medium text-[#64748b] block mb-1">Skill Settings</label>
+                <div className="space-y-2">
+                  <label className="flex items-center gap-2">
+                    <input type="checkbox" defaultChecked className="rounded border-[#b8c9db] text-[#7c9cbf] focus:ring-[#7c9cbf]" />
+                    <span className="text-xs text-[#334155]">Enable auto-suggestions</span>
+                  </label>
+                  <label className="flex items-center gap-2">
+                    <input type="checkbox" defaultChecked className="rounded border-[#b8c9db] text-[#7c9cbf] focus:ring-[#7c9cbf]" />
+                    <span className="text-xs text-[#334155]">Show notifications</span>
+                  </label>
+                  <label className="flex items-center gap-2">
+                    <input type="checkbox" className="rounded border-[#b8c9db] text-[#7c9cbf] focus:ring-[#7c9cbf]" />
+                    <span className="text-xs text-[#334155]">Advanced mode</span>
+                  </label>
+                </div>
+              </div>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setConfiguringSkill(null)}
+                  className="flex-1 py-2.5 rounded-lg border border-[#b8c9db] text-sm text-[#64748b] hover:bg-[#f8fafc] transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={() => setConfiguringSkill(null)}
+                  className="flex-1 py-2.5 rounded-lg bg-[#7c9cbf] text-white text-sm font-medium hover:bg-[#5a7fa0] transition-colors"
+                >
+                  Save Changes
                 </button>
               </div>
             </div>

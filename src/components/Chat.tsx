@@ -349,7 +349,7 @@ Keep responses short and actionable.`,
           </div>
           
           {/* Model Selector */}
-          <div className="relative" data-model-selector>
+          <div className="relative z-50" data-model-selector>
             <button
               onClick={() => setShowModelSelector(!showModelSelector)}
               className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-[#7c9cbf]/10 text-[#5a7fa0] text-xs font-medium hover:bg-[#7c9cbf]/20 transition-colors"
@@ -359,7 +359,7 @@ Keep responses short and actionable.`,
             </button>
             
             {showModelSelector && (
-              <div className="absolute right-0 top-full mt-2 w-72 bg-white rounded-xl border border-[#b8c9db] shadow-lg z-10 overflow-hidden">
+              <div className="absolute right-0 top-full mt-2 w-72 bg-white rounded-xl border border-[#b8c9db] shadow-lg z-[100] overflow-hidden">
                 <div className="p-2 border-b border-[#b8c9db] bg-[#f8fafc]">
                   <p className="text-[10px] font-semibold text-[#64748b] uppercase">Pilih Model AI</p>
                 </div>
