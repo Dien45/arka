@@ -3,8 +3,8 @@ import { Send, Paperclip, Sparkles, User, Bot, Loader2, Code, Terminal, FileCode
 import ReactMarkdown from 'react-markdown';
 import { useApp } from '../store';
 import { Message, ToolCall } from '../types';
-import { callAIProvider } from '../aiService';
-import { getToolsList, executeTool } from '../tools';
+import { callAIProvider, ToolDefinition, ChatMessage } from '../aiService';
+import { availableTools, executeTool, getToolsList } from '../tools';
 
 function FilePreview({ fileName, content }: { fileName: string; content: string }) {
   const [expanded, setExpanded] = useState(false);
@@ -490,73 +490,90 @@ Keep responses short and actionable.${skillEnhancements}`,
         ...messageHistory,
       ];
 
-      // Call the AI provider
-      let responseContent = await callAIProvider(provider, messagesWithSystem);
+      // Convert tools to ToolDefinition format
+      const toolDefinitions = availableTools.map((tool): ToolDefinition => ({
+        type: 'function' as const,
+        function: {
+          name: tool.name,
+          description: tool.description,
+          parameters: {
+            type: 'object' as const,
+            properties: tool.parameters,
+            required: Object.keys(tool.parameters),
+          },
+        },
+      }));
+
+      // Call the AI provider with tools
+      let aiResponse = await callAIProvider(provider, messagesWithSystem, toolDefinitions);
+      let responseContent = aiResponse.content;
       
-      // Check for tool calls in response
-      const toolCallRegex = /\[TOOL_CALL:(\w+)\]\n?([\s\S]*?)\n?\[\/TOOL_CALL\]/g;
-      let match;
-      let hasToolCalls = false;
-      
-      while ((match = toolCallRegex.exec(responseContent)) !== null) {
-        hasToolCalls = true;
-        const toolName = match[1];
-        const toolParams = match[2].trim();
-        
-        try {
-          const params = JSON.parse(toolParams);
-          
-          // Add tool call message
-          const toolCallMessage: Message = {
-            id: Date.now().toString() + '_tool',
-            role: 'tool',
-            content: '',
-            timestamp: new Date(),
-            toolCalls: [{
-              id: Date.now().toString(),
-              name: toolName,
-              input: params,
-              status: 'running',
-            }],
-          };
-          dispatch({ type: 'ADD_MESSAGE', payload: { sessionId, message: toolCallMessage } });
-          
-          // Execute tool
-          const toolResult = await executeTool(toolName, params);
-          
-          // Update tool call with result
-          const updatedToolCallMessage: Message = {
-            ...toolCallMessage,
-            toolCalls: [{
-              ...toolCallMessage.toolCalls![0],
-              output: toolResult,
-              status: 'completed',
-            }],
-          };
-          // Add new message with result instead of updating
-          dispatch({ type: 'ADD_MESSAGE', payload: { sessionId, message: updatedToolCallMessage } });
-          
-          // Add tool result to message history for next AI call
-          messageHistory.push({
-            role: 'assistant' as const,
-            content: `I used the ${toolName} tool.`,
-          });
-          messageHistory.push({
-            role: 'user' as const,
-            content: `Tool result: ${toolResult}`,
-          });
-          
-        } catch (error) {
-          console.error('Error executing tool:', error);
+      // Handle tool calls from API response
+      if (aiResponse.toolCalls && aiResponse.toolCalls.length > 0) {
+        for (const toolCall of aiResponse.toolCalls) {
+          try {
+            const params = JSON.parse(toolCall.arguments);
+            
+            // Add tool call message
+            const toolCallMessage: Message = {
+              id: Date.now().toString() + '_tool',
+              role: 'tool',
+              content: '',
+              timestamp: new Date(),
+              toolCalls: [{
+                id: toolCall.id,
+                name: toolCall.name,
+                input: params,
+                status: 'running',
+              }],
+            };
+            dispatch({ type: 'ADD_MESSAGE', payload: { sessionId, message: toolCallMessage } });
+            
+            // Execute tool
+            const toolResult = await executeTool(toolCall.name, params);
+            
+            // Update tool call with result
+            const updatedToolCallMessage: Message = {
+              ...toolCallMessage,
+              toolCalls: [{
+                ...toolCallMessage.toolCalls![0],
+                output: toolResult,
+                status: 'completed',
+              }],
+            };
+            dispatch({ type: 'ADD_MESSAGE', payload: { sessionId, message: updatedToolCallMessage } });
+            
+            // Add tool result to message history for next AI call
+            messageHistory.push({
+              role: 'assistant' as const,
+              content: '',
+            } as any);
+            (messageHistory[messageHistory.length - 1] as any).tool_calls = [{
+              id: toolCall.id,
+              type: 'function',
+              function: {
+                name: toolCall.name,
+                arguments: toolCall.arguments,
+              },
+            }];
+            messageHistory.push({
+              role: 'tool' as const,
+              content: toolResult,
+              tool_call_id: toolCall.id,
+              name: toolCall.name,
+            } as any);
+            
+          } catch (error) {
+            console.error('Error executing tool:', error);
+          }
         }
-      }
-      
-      // If there were tool calls, get final response from AI
-      if (hasToolCalls) {
-        responseContent = await callAIProvider(provider, [
+        
+        // Get final response from AI with tool results
+        aiResponse = await callAIProvider(provider, [
           messagesWithSystem[0],
           ...messageHistory,
-        ]);
+        ], toolDefinitions);
+        responseContent = aiResponse.content;
       }
 
       const response: Message = {
