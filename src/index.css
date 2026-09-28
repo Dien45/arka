@@ -1,50 +1,105 @@
 @import "tailwindcss";
 
-@keyframes float {
-  0% {
-    transform: translateY(0) rotate(0deg);
-    opacity: 1;
-  }
-  50% {
-    transform: translateY(-200px) rotate(180deg);
-    opacity: 0.8;
-  }
-  100% {
-    transform: translateY(-400px) rotate(360deg);
-    opacity: 0;
-  }
+:root {
+  --arka-bg: #f0f4f8;
+  --arka-surface: #e2e8f0;
+  --arka-surface-2: #cbd5e1;
+  --arka-primary: #7c9cbf;
+  --arka-primary-dark: #5a7fa0;
+  --arka-accent: #93b5d3;
+  --arka-text: #334155;
+  --arka-text-muted: #64748b;
+  --arka-border: #b8c9db;
+  --arka-success: #86b8a0;
+  --arka-warning: #d4a574;
+  --arka-error: #c97878;
 }
 
-@keyframes ripple {
-  0% {
-    transform: scale(1);
-    opacity: 1;
-  }
-  100% {
-    transform: scale(20);
-    opacity: 0;
-  }
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--arka-primary) transparent;
 }
 
-@keyframes slideUp {
-  0% {
-    transform: translateY(20px);
-    opacity: 0;
-  }
-  100% {
-    transform: translateY(0);
-    opacity: 1;
-  }
+*::-webkit-scrollbar {
+  width: 6px;
 }
 
-.animate-float {
-  animation: float 3s ease-out forwards;
+*::-webkit-scrollbar-track {
+  background: transparent;
 }
 
-.animate-ripple {
-  animation: ripple 1s ease-out forwards;
+*::-webkit-scrollbar-thumb {
+  background-color: var(--arka-primary);
+  border-radius: 3px;
 }
 
-.animate-slide-up {
-  animation: slideUp 0.5s ease-out forwards;
+body {
+  background-color: var(--arka-bg);
+  color: var(--arka-text);
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes slideIn {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(0); }
+}
+
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
+
+@keyframes typing {
+  0% { width: 0; }
+  100% { width: 100%; }
+}
+
+.animate-fade-in {
+  animation: fadeIn 0.3s ease-out forwards;
+}
+
+.animate-slide-in {
+  animation: slideIn 0.3s ease-out forwards;
+}
+
+.typing-dot {
+  animation: pulse-dot 1.4s infinite;
+}
+
+.typing-dot:nth-child(2) { animation-delay: 0.2s; }
+.typing-dot:nth-child(3) { animation-delay: 0.4s; }
+
+.markdown-body pre {
+  background: #1e293b;
+  color: #e2e8f0;
+  padding: 1rem;
+  border-radius: 0.5rem;
+  overflow-x: auto;
+  margin: 0.5rem 0;
+  font-size: 0.85rem;
+}
+
+.markdown-body code {
+  background: #e2e8f0;
+  padding: 0.15rem 0.4rem;
+  border-radius: 0.25rem;
+  font-size: 0.85em;
+  color: #475569;
+}
+
+.markdown-body pre code {
+  background: transparent;
+  padding: 0;
+  color: inherit;
+}
+
+.glass-card {
+  background: rgba(255, 255, 255, 0.7);
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(184, 201, 219, 0.5);
 }
