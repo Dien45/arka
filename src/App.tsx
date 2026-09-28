@@ -6,6 +6,7 @@ import AgentPanel from './components/AgentPanel';
 import FileExplorer from './components/FileExplorer';
 import GitHubPanel from './components/GitHubPanel';
 import Settings from './components/Settings';
+import SkillStore from './components/SkillStore';
 
 function MainContent() {
   const { state, dispatch } = useApp();
@@ -18,6 +19,8 @@ function MainContent() {
         return <AgentPanel />;
       case 'files':
         return <FileExplorer />;
+      case 'skills':
+        return <SkillStore />;
       case 'github':
         return <GitHubPanel />;
       case 'settings':

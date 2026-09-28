@@ -196,6 +196,13 @@ export default function Chat() {
   // Get enabled providers and their models
   const enabledProviders = state.providers.filter(p => p.enabled);
   const currentProvider = enabledProviders.find(p => p.model === selectedModel) || enabledProviders[0];
+  
+  // Default models if no provider is enabled
+  const defaultModels = [
+    { id: 'gpt-4o', name: 'GPT-4o', provider: 'OpenAI', icon: '🟢' },
+    { id: 'claude-3-5-sonnet', name: 'Claude 3.5 Sonnet', provider: 'Anthropic', icon: '🟠' },
+    { id: 'gemini-pro', name: 'Gemini Pro', provider: 'Google', icon: '🔵' },
+  ];
 
   // Close model selector when clicking outside
   useEffect(() => {
@@ -379,27 +386,49 @@ Dengan info itu, saya bisa bantu lebih spesifik dan actionable! 💡`;
                   <p className="text-[10px] font-semibold text-[#64748b] uppercase">Pilih Model AI</p>
                 </div>
                 <div className="max-h-96 overflow-y-auto">
-                  {enabledProviders.length === 0 ? (
-                    <div className="p-4 text-center">
-                      <p className="text-xs text-[#94a3b8] mb-2">Belum ada provider aktif</p>
+                  {/* Default Models */}
+                  <div className="border-b border-[#e8eef4]">
+                    <div className="px-3 py-2 bg-[#f8fafc] flex items-center gap-2">
+                      <Sparkles size={12} className="text-[#7c9cbf]" />
+                      <span className="text-xs font-medium text-[#334155]">Default Models</span>
+                    </div>
+                    {defaultModels.map(model => (
                       <button
+                        key={model.id}
                         onClick={() => {
-                          dispatch({ type: 'SET_VIEW', payload: 'settings' });
+                          setSelectedModel(model.id);
                           setShowModelSelector(false);
                         }}
-                        className="text-xs text-[#5a7fa0] font-medium hover:underline"
+                        className={`w-full px-3 py-2.5 text-left hover:bg-[#f0f4f8] transition-colors ${
+                          selectedModel === model.id ? 'bg-[#7c9cbf]/10' : ''
+                        }`}
                       >
-                        Buka Settings untuk setup
-                      </button>
-                    </div>
-                  ) : (
-                    enabledProviders.map(provider => (
-                      <div key={provider.id} className="border-b border-[#e8eef4] last:border-b-0">
-                        <div className="px-3 py-2 bg-[#f8fafc] flex items-center gap-2">
-                          <span className="text-sm">{provider.icon}</span>
-                          <span className="text-xs font-medium text-[#334155]">{provider.name}</span>
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm">{model.icon}</span>
+                          <div className="flex-1">
+                            <p className={`text-xs font-medium ${
+                              selectedModel === model.id ? 'text-[#5a7fa0]' : 'text-[#334155]'
+                            }`}>
+                              {model.name}
+                            </p>
+                            <p className="text-[10px] text-[#94a3b8]">{model.provider}</p>
+                          </div>
+                          {selectedModel === model.id && (
+                            <Check size={14} className="text-[#7c9cbf]" />
+                          )}
                         </div>
-                        {provider.model ? (
+                      </button>
+                    ))}
+                  </div>
+
+                  {/* Enabled Providers */}
+                  {enabledProviders.length > 0 && (
+                    <div>
+                      <div className="px-3 py-2 bg-[#f8fafc] flex items-center gap-2">
+                        <span className="text-xs font-medium text-[#334155]">Your Providers</span>
+                      </div>
+                      {enabledProviders.map(provider => (
+                        <div key={provider.id} className="border-b border-[#e8eef4] last:border-b-0">
                           <button
                             onClick={() => {
                               setSelectedModel(provider.model);
@@ -410,26 +439,37 @@ Dengan info itu, saya bisa bantu lebih spesifik dan actionable! 💡`;
                             }`}
                           >
                             <div className="flex items-center gap-2">
+                              <span className="text-sm">{provider.icon}</span>
                               <div className="flex-1">
                                 <p className={`text-xs font-mono ${
                                   selectedModel === provider.model ? 'text-[#5a7fa0] font-medium' : 'text-[#334155]'
                                 }`}>
                                   {provider.model}
                                 </p>
+                                <p className="text-[10px] text-[#94a3b8]">{provider.name}</p>
                               </div>
                               {selectedModel === provider.model && (
                                 <Check size={14} className="text-[#7c9cbf]" />
                               )}
                             </div>
                           </button>
-                        ) : (
-                          <div className="px-3 py-2 text-[10px] text-[#94a3b8] italic">
-                            Model belum dikonfigurasi
-                          </div>
-                        )}
-                      </div>
-                    ))
+                        </div>
+                      ))}
+                    </div>
                   )}
+
+                  {/* Setup Link */}
+                  <div className="p-3 bg-[#f8fafc] border-t border-[#e8eef4]">
+                    <button
+                      onClick={() => {
+                        dispatch({ type: 'SET_VIEW', payload: 'settings' });
+                        setShowModelSelector(false);
+                      }}
+                      className="w-full text-xs text-[#5a7fa0] font-medium hover:underline text-center"
+                    >
+                      ⚙️ Setup Provider di Settings
+                    </button>
+                  </div>
                 </div>
               </div>
             )}

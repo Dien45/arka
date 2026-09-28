@@ -1,4 +1,4 @@
-import { MessageSquare, Bot, FolderOpen, Github, Settings, Plus, X, MessageCircle, Trash2 } from 'lucide-react';
+import { MessageSquare, Bot, FolderOpen, Github, Settings, Plus, X, MessageCircle, Trash2, Package } from 'lucide-react';
 import { useApp } from '../store';
 import { View } from '../types';
 
@@ -6,6 +6,7 @@ const menuItems: { view: View; icon: typeof MessageSquare; label: string }[] = [
   { view: 'chat', icon: MessageSquare, label: 'Chat' },
   { view: 'agent', icon: Bot, label: 'Agents' },
   { view: 'files', icon: FolderOpen, label: 'Files' },
+  { view: 'skills', icon: Package, label: 'Skills' },
   { view: 'github', icon: Github, label: 'GitHub' },
   { view: 'settings', icon: Settings, label: 'Settings' },
 ];
