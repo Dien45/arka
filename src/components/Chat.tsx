@@ -1,8 +1,45 @@
 import { useState, useRef, useEffect } from 'react';
-import { Send, Paperclip, Sparkles, User, Bot, Loader2, Code, Terminal } from 'lucide-react';
+import { Send, Paperclip, Sparkles, User, Bot, Loader2, Code, Terminal, FileCode, Eye } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import { useApp } from '../store';
 import { Message, ToolCall } from '../types';
+
+function FilePreview({ fileName, content }: { fileName: string; content: string }) {
+  const [expanded, setExpanded] = useState(false);
+  const lines = content.split('\n');
+  const displayLines = expanded ? lines : lines.slice(0, 8);
+
+  return (
+    <div className="my-2 rounded-lg border border-[#b8c9db] overflow-hidden bg-white">
+      <div className="flex items-center gap-2 px-3 py-2 bg-[#f8fafc] border-b border-[#b8c9db]">
+        <FileCode size={14} className="text-[#7c9cbf]" />
+        <span className="text-xs font-medium text-[#334155]">{fileName}</span>
+        <span className="text-[10px] text-[#94a3b8] ml-auto">{lines.length} lines</span>
+      </div>
+      <div className="flex">
+        <div className="bg-[#f8fafc] border-r border-[#e2e8f0] py-2 px-2 select-none">
+          {displayLines.map((_, i) => (
+            <div key={i} className="text-[10px] text-[#94a3b8] text-right font-mono leading-5 h-5">
+              {i + 1}
+            </div>
+          ))}
+        </div>
+        <pre className="flex-1 p-2 text-[11px] font-mono text-[#334155] overflow-x-auto leading-5">
+          <code>{displayLines.join('\n')}</code>
+        </pre>
+      </div>
+      {lines.length > 8 && (
+        <button
+          onClick={() => setExpanded(!expanded)}
+          className="w-full py-1.5 text-[10px] text-[#5a7fa0] font-medium hover:bg-[#f8fafc] border-t border-[#b8c9db] flex items-center justify-center gap-1"
+        >
+          <Eye size={10} />
+          {expanded ? 'Tutup preview' : `Lihat ${lines.length - 8} baris lainnya`}
+        </button>
+      )}
+    </div>
+  );
+}
 
 function ToolCallDisplay({ toolCall }: { toolCall: ToolCall }) {
   const statusColors = {
@@ -11,24 +48,76 @@ function ToolCallDisplay({ toolCall }: { toolCall: ToolCall }) {
     error: 'text-[#c97878] bg-[#c97878]/10',
   };
 
+  const isFileOperation = toolCall.name === 'read_file' || toolCall.name === 'write_file';
+  const fileName = (toolCall.input?.path as string) || '';
+
   return (
-    <div className="my-2 rounded-lg border border-[#b8c9db] overflow-hidden">
-      <div className={`flex items-center gap-2 px-3 py-2 text-xs font-medium ${statusColors[toolCall.status]}`}>
-        {toolCall.status === 'running' ? (
-          <Loader2 size={12} className="animate-spin" />
-        ) : toolCall.status === 'completed' ? (
-          <Code size={12} />
-        ) : (
-          <Terminal size={12} />
-        )}
-        <span>{toolCall.name}</span>
-        <span className="ml-auto opacity-60">{toolCall.status}</span>
-      </div>
-      {toolCall.output && (
-        <div className="px-3 py-2 bg-[#1e293b] text-[#e2e8f0] text-xs font-mono overflow-x-auto max-h-40">
-          {toolCall.output}
+    <div className="my-2">
+      <div className="rounded-lg border border-[#b8c9db] overflow-hidden">
+        <div className={`flex items-center gap-2 px-3 py-2 text-xs font-medium ${statusColors[toolCall.status]}`}>
+          {toolCall.status === 'running' ? (
+            <Loader2 size={12} className="animate-spin" />
+          ) : toolCall.status === 'completed' ? (
+            <Code size={12} />
+          ) : (
+            <Terminal size={12} />
+          )}
+          <span>{toolCall.name}</span>
+          {fileName && <span className="text-[10px] opacity-70 font-mono">{fileName}</span>}
+          <span className="ml-auto opacity-60">{toolCall.status}</span>
         </div>
+        {toolCall.output && !isFileOperation && (
+          <div className="px-3 py-2 bg-[#1e293b] text-[#e2e8f0] text-xs font-mono overflow-x-auto max-h-40">
+            {toolCall.output}
+          </div>
+        )}
+      </div>
+      {isFileOperation && toolCall.output && toolCall.status === 'completed' && (
+        <FilePreview fileName={fileName} content={toolCall.output} />
       )}
+    </div>
+  );
+}
+
+function WorkspaceChangesSummary({ toolCalls }: { toolCalls: ToolCall[] }) {
+  const { dispatch } = useApp();
+  const fileOps = toolCalls.filter(tc => tc.name === 'read_file' || tc.name === 'write_file');
+  
+  if (fileOps.length === 0) return null;
+
+  return (
+    <div className="mt-2 rounded-lg border border-[#b8c9db] bg-[#f8fafc] p-3">
+      <div className="flex items-center justify-between mb-2">
+        <span className="text-[10px] font-semibold text-[#64748b] uppercase">
+          📁 Workspace Changes ({fileOps.length} file)
+        </span>
+        <button
+          onClick={() => dispatch({ type: 'SET_VIEW', payload: 'files' })}
+          className="text-[10px] text-[#5a7fa0] font-medium hover:underline flex items-center gap-1"
+        >
+          <FileCode size={10} />
+          Buka di Explorer
+        </button>
+      </div>
+      <div className="space-y-1">
+        {fileOps.map(tc => (
+          <div key={tc.id} className="flex items-center gap-2 text-xs">
+            <span className={`w-1.5 h-1.5 rounded-full ${
+              tc.name === 'write_file' ? 'bg-[#86b8a0]' : 'bg-[#7c9cbf]'
+            }`} />
+            <span className="text-[#334155] font-mono truncate">
+              {tc.input?.path as string}
+            </span>
+            <span className={`text-[10px] px-1.5 py-0.5 rounded ${
+              tc.name === 'write_file' 
+                ? 'bg-[#86b8a0]/10 text-[#5a8a6e]' 
+                : 'bg-[#7c9cbf]/10 text-[#5a7fa0]'
+            }`}>
+              {tc.name === 'write_file' ? 'modified' : 'read'}
+            </span>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
@@ -43,6 +132,9 @@ function MessageBubble({ message }: { message: Message }) {
         {message.toolCalls?.map(tc => (
           <ToolCallDisplay key={tc.id} toolCall={tc} />
         ))}
+        {message.toolCalls && message.toolCalls.length > 0 && (
+          <WorkspaceChangesSummary toolCalls={message.toolCalls} />
+        )}
       </div>
     );
   }
@@ -103,7 +195,31 @@ export default function Chat() {
     setTimeout(() => {
       if (!sessionId) return;
 
-      // Simulate tool call
+      // Simulate tool call with file content
+      const fileContent = `import React from 'react';
+import { Header } from './Header';
+import { Sidebar } from './Sidebar';
+
+export default function App() {
+  const [count, setCount] = React.useState(0);
+
+  return (
+    <div className="app">
+      <Header />
+      <div className="flex">
+        <Sidebar />
+        <main className="flex-1 p-6">
+          <h1>Hello World</h1>
+          <p>Count: {count}</p>
+          <button onClick={() => setCount(c => c + 1)}>
+            Increment
+          </button>
+        </main>
+      </div>
+    </div>
+  );
+}`;
+
       const toolMessage: Message = {
         id: Date.now().toString() + '_tool',
         role: 'tool',
@@ -114,12 +230,53 @@ export default function Chat() {
             id: 'tc_1',
             name: 'read_file',
             input: { path: 'src/App.tsx' },
-            output: '// Reading file content...\n// Found 42 lines of code',
+            output: fileContent,
             status: 'completed',
           },
         ],
       };
       dispatch({ type: 'ADD_MESSAGE', payload: { sessionId, message: toolMessage } });
+
+      // Simulate a write_file tool call after a short delay
+      setTimeout(() => {
+        const writeToolMessage: Message = {
+          id: Date.now().toString() + '_tool2',
+          role: 'tool',
+          content: '',
+          timestamp: new Date(),
+          toolCalls: [
+            {
+              id: 'tc_2',
+              name: 'write_file',
+              input: { path: 'src/utils/helpers.ts' },
+              output: `export function formatDate(date: Date): string {
+  return date.toLocaleDateString('id-ID', {
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+  });
+}
+
+export function debounce<T extends (...args: any[]) => void>(
+  fn: T,
+  ms: number
+) {
+  let timer: ReturnType<typeof setTimeout>;
+  return (...args: Parameters<T>) => {
+    clearTimeout(timer);
+    timer = setTimeout(() => fn(...args), ms);
+  };
+}
+
+export function classNames(...classes: (string | boolean | undefined)[]) {
+  return classes.filter(Boolean).join(' ');
+}`,
+              status: 'completed',
+            },
+          ],
+        };
+        dispatch({ type: 'ADD_MESSAGE', payload: { sessionId, message: writeToolMessage } });
+      }, 1200);
 
       setTimeout(() => {
         const responses = [
