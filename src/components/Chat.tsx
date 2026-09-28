@@ -402,17 +402,24 @@ When developing mobile apps, you MUST:
               if (savedCustomSkills) {
                 const customSkills = JSON.parse(savedCustomSkills);
                 customSkills.forEach((skill: any) => {
-                  if (!skillDefinitions[skill.id]) {
-                    // Use enhancement field if available, otherwise fallback to description
-                    const skillEnhancement = skill.enhancement || skill.description || 'Custom skill installed from URL';
-                    skillDefinitions[skill.id] = {
-                      name: skill.name,
-                      enhancement: `\n\n📦 CUSTOM SKILL "${skill.name}" ACTIVE:\n${skillEnhancement}\nUse this skill's capabilities when relevant.`
-                    };
-                    // Auto-add to installed list if not already there
-                    if (!installedSkillIds.includes(skill.id)) {
-                      installedSkillIds.push(skill.id);
-                    }
+                  // Use enhancement field if available, otherwise fallback to description
+                  const skillEnhancement = skill.enhancement || skill.description || `Custom skill "${skill.name}" installed from ${skill.repo || 'URL'}`;
+                  
+                  // Register skill with its ID
+                  skillDefinitions[skill.id] = {
+                    name: skill.name,
+                    enhancement: `\n\n📦 CUSTOM SKILL "${skill.name}" ACTIVE:\n${skillEnhancement}\n\nThis skill was installed from: ${skill.repo || 'URL'}\nWhen user asks about this skill or its capabilities, confirm it's ACTIVE and demonstrate its features immediately.\nUse this skill's capabilities when relevant to the user's request.`
+                  };
+                  
+                  // Auto-add to installed list if not already there
+                  if (!installedSkillIds.includes(skill.id)) {
+                    installedSkillIds.push(skill.id);
+                  }
+                  
+                  // Also register by skill name for easier reference
+                  const skillNameLower = skill.name.toLowerCase().replace(/\s+/g, '-');
+                  if (!skillDefinitions[skillNameLower]) {
+                    skillDefinitions[skillNameLower] = skillDefinitions[skill.id];
                   }
                 });
               }
@@ -425,7 +432,7 @@ When developing mobile apps, you MUST:
               .map((id: string) => skillDefinitions[id]);
             
             if (installedSkills.length > 0) {
-              skillEnhancements = `\n\n🎯 ACTIVE SKILLS (These skills are installed and ACTIVE - you MUST use their capabilities):\n${installedSkills.map((s: any) => `\n${s.enhancement}`).join('\n')}\n\nIMPORTANT: When user asks about installed skills or uses their capabilities, demonstrate the enhanced behavior immediately. Don't just mention the skill - USE it!`;
+              skillEnhancements = `\n\n🎯 ACTIVE SKILLS (${installedSkills.length} skills installed and ACTIVE):\n${installedSkills.map((s: any) => `\n${s.enhancement}`).join('\n')}\n\nIMPORTANT RULES FOR SKILLS:\n1. When user asks "apa skill [nama] udah terinstall?" or similar, check if that skill is in the ACTIVE SKILLS list above\n2. If the skill is in the list, confirm it's ACTIVE and demonstrate its capabilities\n3. If user asks about a custom skill they installed from URL, it WILL be in the list - confirm it's active\n4. Don't say a skill is not found if it's in the ACTIVE SKILLS list above\n5. When user mentions using a skill, immediately demonstrate that skill's enhanced behavior\n6. For custom skills from URL, they have full capabilities - use them confidently`;
             }
           }
         }
