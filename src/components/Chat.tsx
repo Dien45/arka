@@ -402,13 +402,25 @@ When developing mobile apps, you MUST:
               if (savedCustomSkills) {
                 const customSkills = JSON.parse(savedCustomSkills);
                 customSkills.forEach((skill: any) => {
-                  // Use enhancement field if available, otherwise fallback to description
-                  const skillEnhancement = skill.enhancement || skill.description || `Custom skill "${skill.name}" installed from ${skill.repo || 'URL'}`;
+                  // Check if skill has actual enhancement/description
+                  const hasEnhancement = skill.enhancement && skill.enhancement.trim().length > 0;
+                  const hasDescription = skill.description && skill.description.trim().length > 0 && !skill.description.startsWith('Skill dari') && !skill.description.startsWith('Custom skill from');
+                  
+                  let skillEnhancement = '';
+                  
+                  if (hasEnhancement) {
+                    skillEnhancement = skill.enhancement;
+                  } else if (hasDescription) {
+                    skillEnhancement = skill.description;
+                  } else {
+                    // No real enhancement available - tell AI to be honest
+                    skillEnhancement = `This custom skill "${skill.name}" is installed but has no detailed capability description available.\n\nIMPORTANT: Do NOT invent or hallucinate features for this skill. If user asks about its capabilities, honestly say:\n"Skill ini terinstall tapi ga ada deskripsi kemampuan yang detail. Mau coba pake atau ada yang lain yang bisa aku bantu?"`;
+                  }
                   
                   // Register skill with its ID
                   skillDefinitions[skill.id] = {
                     name: skill.name,
-                    enhancement: `\n\n📦 CUSTOM SKILL "${skill.name}" ACTIVE:\n${skillEnhancement}\n\nThis skill was installed from: ${skill.repo || 'URL'}\nWhen user asks about this skill or its capabilities, confirm it's ACTIVE and demonstrate its features immediately.\nUse this skill's capabilities when relevant to the user's request.`
+                    enhancement: `\n\n📦 CUSTOM SKILL "${skill.name}" ACTIVE:\n${skillEnhancement}\n\nThis skill was installed from: ${skill.repo || 'URL'}\n\nCRITICAL RULES:\n- If this skill has a detailed enhancement/description above, use those capabilities\n- If NO detailed description is available, DO NOT invent features\n- Be honest about what the skill can do\n- Don't make up fake capabilities like "text-to-horse-hair" or other nonsense`
                   };
                   
                   // Auto-add to installed list if not already there
@@ -432,7 +444,7 @@ When developing mobile apps, you MUST:
               .map((id: string) => skillDefinitions[id]);
             
             if (installedSkills.length > 0) {
-              skillEnhancements = `\n\n🎯 ACTIVE SKILLS (${installedSkills.length} skills installed and ACTIVE):\n${installedSkills.map((s: any) => `\n${s.enhancement}`).join('\n')}\n\nIMPORTANT RULES FOR SKILLS:\n1. When user asks "apa skill [nama] udah terinstall?" or similar, check if that skill is in the ACTIVE SKILLS list above\n2. If the skill is in the list, confirm it's ACTIVE and demonstrate its capabilities\n3. If user asks about a custom skill they installed from URL, it WILL be in the list - confirm it's active\n4. Don't say a skill is not found if it's in the ACTIVE SKILLS list above\n5. When user mentions using a skill, immediately demonstrate that skill's enhanced behavior\n6. For custom skills from URL, they have full capabilities - use them confidently`;
+              skillEnhancements = `\n\n🎯 ACTIVE SKILLS (${installedSkills.length} skills installed and ACTIVE):\n${installedSkills.map((s: any) => `\n${s.enhancement}`).join('\n')}\n\nCRITICAL RULES FOR SKILLS:\n1. When user asks if a skill is installed, check the ACTIVE SKILLS list above\n2. If skill is in the list, confirm it's ACTIVE\n3. ONLY demonstrate capabilities that are EXPLICITLY described in the skill's enhancement above\n4. DO NOT invent, hallucinate, or make up features that are not described\n5. If a skill has no detailed description, honestly say "Skill ini terinstall tapi ga ada deskripsi kemampuan yang detail"\n6. NEVER make up fake capabilities like "text-to-horse-hair", "ASCII art", or other nonsense\n7. When in doubt about a skill's capabilities, ask the user what they want to do instead of guessing`;
             }
           }
         }
@@ -469,6 +481,9 @@ IMPORTANT RULES:
 - Use markdown for code blocks when showing code
 - Be helpful and friendly
 - Use tools when appropriate (web_fetch for URLs, read_file for files, etc.)
+- NEVER invent or hallucinate features/capabilities that don't exist
+- If you don't know something, say so honestly
+- For skills/tools, only claim capabilities that are explicitly defined
 
 Keep responses short and actionable.${skillEnhancements}`,
         },
