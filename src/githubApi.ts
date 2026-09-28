@@ -28,7 +28,7 @@ export async function pushToGitHub(
   token: string,
   repoFullName: string,
   branch: string,
-  files: { path: string; content: string }[],
+  files: { path: string; content: string | null }[],
   commitMessage: string
 ): Promise<{ success: boolean; message: string }> {
   try {
@@ -64,9 +64,20 @@ export async function pushToGitHub(
     const commitData = await commitResponse.json();
     const treeSha = commitData.tree.sha;
 
-    // Create blobs for each file
+    // Create blobs for each file to add/update. Files with content === null
+    // are deletions: a tree entry with sha: null removes that path from the
+    // resulting tree — no blob needed for those.
     const treeItems = await Promise.all(
       files.map(async (file) => {
+        if (file.content === null) {
+          return {
+            path: file.path,
+            mode: '100644',
+            type: 'blob',
+            sha: null,
+          };
+        }
+
         const blobResponse = await fetch(
           `https://api.github.com/repos/${repoFullName}/git/blobs`,
           {
@@ -164,9 +175,15 @@ export async function pushToGitHub(
       throw new Error('Failed to update reference');
     }
 
+    const additions = files.filter(f => f.content !== null).length;
+    const deletions = files.filter(f => f.content === null).length;
+    const parts = [];
+    if (additions > 0) parts.push(`${additions} file ditambah/diupdate`);
+    if (deletions > 0) parts.push(`${deletions} file dihapus`);
+
     return {
       success: true,
-      message: `Successfully pushed ${files.length} file(s) to ${branch}`,
+      message: `Berhasil push ke ${branch}: ${parts.join(', ')}.`,
     };
   } catch (error) {
     return {
