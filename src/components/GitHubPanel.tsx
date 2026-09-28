@@ -1,6 +1,7 @@
 import { useState } from 'react';
-import { Github, GitBranch, GitCommit, GitPullRequest, Upload, RefreshCw, ExternalLink, Check, AlertCircle, Info, FileCode, FolderGit2 } from 'lucide-react';
+import { Github, GitBranch, GitCommit, GitPullRequest, Upload, RefreshCw, ExternalLink, Check, AlertCircle, Info, FileCode, FolderGit2, FolderUp } from 'lucide-react';
 import { useApp } from '../store';
+import { fetchGitHubRepos, pushToGitHub, getGitHubUser } from '../githubApi';
 
 export default function GitHubPanel() {
   const { state, dispatch } = useApp();
@@ -9,46 +10,107 @@ export default function GitHubPanel() {
   const [branch, setBranch] = useState('main');
   const [isPushing, setIsPushing] = useState(false);
   const [pushStatus, setPushStatus] = useState<'idle' | 'success' | 'error'>('idle');
+  const [pushMessage, setPushMessage] = useState('');
   const [selectedRepo, setSelectedRepo] = useState<string>('');
   const [showGuide, setShowGuide] = useState(false);
   const [selectedFiles, setSelectedFiles] = useState<string[]>([]);
+  const [workspaceFiles, setWorkspaceFiles] = useState<Map<string, string>>(new Map());
+  const [isLoadingRepos, setIsLoadingRepos] = useState(false);
+  const [userName, setUserName] = useState<string>('');
   
-  // Mock file changes
-  const fileChanges = [
-    { path: 'src/components/Chat.tsx', status: 'modified' },
-    { path: 'src/components/FileExplorer.tsx', status: 'modified' },
-    { path: 'src/components/Settings.tsx', status: 'modified' },
-    { path: 'src/modelFetcher.ts', status: 'added' },
-    { path: 'README.md', status: 'modified' },
-  ];
+  // Get actual file changes from workspace
+  const fileChanges = Array.from(workspaceFiles.entries()).map(([path]) => ({
+    path,
+    status: 'modified' as const,
+  }));
 
-  const handleConnect = () => {
+  const handleConnect = async () => {
     if (!token.trim()) return;
-    dispatch({ type: 'SET_GITHUB_TOKEN', payload: token });
-    dispatch({ type: 'SET_GITHUB_CONNECTED', payload: true });
-    // Simulate repos
-    dispatch({
-      type: 'SET_GITHUB_REPOS',
-      payload: [
-        { id: 1, name: 'arka-app', fullName: 'user/arka-app', description: 'Arka coding agent application', private: false, defaultBranch: 'main', updatedAt: '2024-01-15' },
-        { id: 2, name: 'my-api', fullName: 'user/my-api', description: 'Backend API server', private: true, defaultBranch: 'main', updatedAt: '2024-01-14' },
-        { id: 3, name: 'portfolio', fullName: 'user/portfolio', description: 'Personal portfolio website', private: false, defaultBranch: 'main', updatedAt: '2024-01-10' },
-        { id: 4, name: 'dotfiles', fullName: 'user/dotfiles', description: 'System configuration files', private: false, defaultBranch: 'master', updatedAt: '2024-01-08' },
-      ],
-    });
+    setIsLoadingRepos(true);
+    
+    try {
+      // Verify token and get user info
+      const user = await getGitHubUser(token);
+      setUserName(user.name);
+      
+      // Fetch real repositories
+      const repos = await fetchGitHubRepos(token);
+      
+      dispatch({ type: 'SET_GITHUB_TOKEN', payload: token });
+      dispatch({ type: 'SET_GITHUB_CONNECTED', payload: true });
+      dispatch({ type: 'SET_GITHUB_REPOS', payload: repos });
+    } catch (error) {
+      console.error('Failed to connect:', error);
+      alert('Gagal terhubung ke GitHub. Periksa token Anda.');
+    } finally {
+      setIsLoadingRepos(false);
+    }
   };
 
-  const handlePush = () => {
-    if (!commitMessage.trim() || selectedFiles.length === 0) return;
+  const handlePush = async () => {
+    if (!commitMessage.trim() || selectedFiles.length === 0 || !selectedRepo) return;
+    
     setIsPushing(true);
     setPushStatus('idle');
-    setTimeout(() => {
+    setPushMessage('');
+
+    try {
+      // Prepare files to push
+      const filesToPush = selectedFiles.map(path => ({
+        path,
+        content: workspaceFiles.get(path) || '',
+      }));
+
+      // Push to GitHub
+      const result = await pushToGitHub(
+        state.githubToken,
+        selectedRepo,
+        branch,
+        filesToPush,
+        commitMessage
+      );
+
+      if (result.success) {
+        setPushStatus('success');
+        setPushMessage(result.message);
+        setCommitMessage('');
+        setSelectedFiles([]);
+        setTimeout(() => setPushStatus('idle'), 5000);
+      } else {
+        setPushStatus('error');
+        setPushMessage(result.message);
+      }
+    } catch (error) {
+      setPushStatus('error');
+      setPushMessage(error instanceof Error ? error.message : 'Unknown error');
+    } finally {
       setIsPushing(false);
-      setPushStatus('success');
-      setCommitMessage('');
-      setSelectedFiles([]);
-      setTimeout(() => setPushStatus('idle'), 3000);
-    }, 2000);
+    }
+  };
+
+  const handleFolderUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files) return;
+
+    const newWorkspaceFiles = new Map<string, string>();
+
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+      const path = file.webkitRelativePath || file.name;
+      
+      // Skip binary files and node_modules
+      if (path.includes('node_modules') || path.includes('.git')) continue;
+      
+      try {
+        const content = await file.text();
+        newWorkspaceFiles.set(path, content);
+      } catch (error) {
+        console.error(`Failed to read ${path}:`, error);
+      }
+    }
+
+    setWorkspaceFiles(newWorkspaceFiles);
+    setSelectedFiles([]);
   };
 
   const toggleFileSelection = (filePath: string) => {
@@ -162,11 +224,20 @@ export default function GitHubPanel() {
                 </div>
                 <button
                   onClick={handleConnect}
-                  disabled={!token.trim()}
+                  disabled={!token.trim() || isLoadingRepos}
                   className="w-full py-2.5 rounded-lg bg-[#334155] text-white font-medium text-sm hover:bg-[#1e293b] disabled:opacity-40 transition-colors flex items-center justify-center gap-2"
                 >
-                  <Github size={16} />
-                  Hubungkan
+                  {isLoadingRepos ? (
+                    <>
+                      <RefreshCw size={16} className="animate-spin" />
+                      Menghubungkan...
+                    </>
+                  ) : (
+                    <>
+                      <Github size={16} />
+                      Hubungkan
+                    </>
+                  )}
                 </button>
               </div>
             </div>
@@ -199,7 +270,10 @@ export default function GitHubPanel() {
             <div className="bg-white rounded-xl border border-[#b8c9db] p-4 flex items-center justify-between">
               <div className="flex items-center gap-3">
                 <div className="w-2 h-2 rounded-full bg-[#86b8a0] animate-pulse" />
-                <span className="text-sm font-medium text-[#334155]">Terhubung ke GitHub</span>
+                <div>
+                  <span className="text-sm font-medium text-[#334155]">Terhubung ke GitHub</span>
+                  {userName && <p className="text-[10px] text-[#94a3b8]">Login sebagai {userName}</p>}
+                </div>
               </div>
               <button
                 onClick={handleDisconnect}
@@ -209,12 +283,48 @@ export default function GitHubPanel() {
               </button>
             </div>
 
+            {/* Workspace Upload */}
+            <div className="bg-white rounded-xl border border-[#b8c9db] p-4">
+              <h4 className="text-xs font-semibold text-[#64748b] uppercase mb-3 flex items-center gap-1">
+                <FolderUp size={12} />
+                Upload Workspace
+              </h4>
+              <label className="flex flex-col items-center justify-center w-full h-32 border-2 border-dashed border-[#b8c9db] rounded-lg cursor-pointer hover:border-[#7c9cbf] hover:bg-[#f8fafc] transition-all">
+                <div className="flex flex-col items-center justify-center pt-5 pb-6">
+                  <FolderUp size={24} className="text-[#7c9cbf] mb-2" />
+                  <p className="text-xs text-[#64748b] mb-1">
+                    <span className="font-semibold text-[#5a7fa0]">Klik untuk upload</span> atau drag & drop
+                  </p>
+                  <p className="text-[10px] text-[#94a3b8]">Pilih folder proyek Anda</p>
+                </div>
+                <input
+                  type="file"
+                  className="hidden"
+                  onChange={handleFolderUpload}
+                  {...({ webkitdirectory: 'true', directory: 'true' } as any)}
+                />
+              </label>
+              {workspaceFiles.size > 0 && (
+                <div className="mt-3 p-2 bg-[#86b8a0]/10 border border-[#86b8a0]/20 rounded-lg">
+                  <p className="text-xs text-[#5a8a6e] font-medium">
+                    ✓ {workspaceFiles.size} file dari workspace ter-load
+                  </p>
+                </div>
+              )}
+            </div>
+
             {/* Repository List */}
             <div className="bg-white rounded-xl border border-[#b8c9db] overflow-hidden">
               <div className="px-4 py-3 border-b border-[#b8c9db] flex items-center justify-between">
-                <span className="text-xs font-semibold text-[#64748b] uppercase">Repositories</span>
-                <button className="p-1 rounded hover:bg-[#e8eef4] text-[#64748b]">
-                  <RefreshCw size={14} />
+                <span className="text-xs font-semibold text-[#64748b] uppercase">
+                  Repositories {isLoadingRepos && '(Loading...)'}
+                </span>
+                <button 
+                  onClick={handleConnect}
+                  disabled={isLoadingRepos}
+                  className="p-1 rounded hover:bg-[#e8eef4] text-[#64748b] disabled:opacity-50"
+                >
+                  <RefreshCw size={14} className={isLoadingRepos ? 'animate-spin' : ''} />
                 </button>
               </div>
               <div className="divide-y divide-[#e8eef4]">
@@ -374,13 +484,13 @@ export default function GitHubPanel() {
                 {pushStatus === 'success' && (
                   <div className="flex items-center gap-2 text-[#86b8a0] text-xs font-medium bg-[#86b8a0]/10 p-2 rounded-lg">
                     <Check size={14} />
-                    <span>Berhasil di-push {selectedFiles.length} file ke branch {branch}!</span>
+                    <span>{pushMessage || `Berhasil di-push ${selectedFiles.length} file ke branch ${branch}!`}</span>
                   </div>
                 )}
                 {pushStatus === 'error' && (
                   <div className="flex items-center gap-2 text-[#c97878] text-xs font-medium bg-[#c97878]/10 p-2 rounded-lg">
                     <AlertCircle size={14} />
-                    <span>Gagal push. Periksa koneksi dan token.</span>
+                    <span>{pushMessage || 'Gagal push. Periksa koneksi dan token.'}</span>
                   </div>
                 )}
               </div>
