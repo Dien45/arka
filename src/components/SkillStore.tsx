@@ -13,6 +13,10 @@ interface Skill {
   installed: boolean;
   version: string;
   repo?: string;
+  config?: {
+    modes?: string[];
+    options?: Record<string, any>;
+  };
 }
 
 const availableSkills: Skill[] = [
@@ -28,6 +32,14 @@ const availableSkills: Skill[] = [
     installed: false,
     version: '1.2.0',
     repo: 'arka-official/code-reviewer',
+    config: {
+      modes: ['Strict', 'Lenient', 'Security-Focused', 'Performance-Focused'],
+      options: {
+        autoFix: true,
+        showExamples: true,
+        checkStyle: true,
+      }
+    }
   },
   {
     id: 'gh-test-gen',
@@ -40,6 +52,14 @@ const availableSkills: Skill[] = [
     installed: false,
     version: '1.0.0',
     repo: 'arka-official/test-generator',
+    config: {
+      modes: ['Unit Tests', 'Integration Tests', 'E2E Tests', 'All'],
+      options: {
+        framework: 'jest',
+        coverage: 80,
+        includeMocks: true,
+      }
+    }
   },
   {
     id: 'gh-doc-writer',
@@ -544,8 +564,123 @@ export default function SkillStore() {
                   </div>
                 </div>
               </div>
+              {/* Mode Selection */}
+              {configuringSkill.config?.modes && (
+                <div>
+                  <label className="text-xs font-medium text-[#64748b] block mb-2">Mode</label>
+                  <div className="grid grid-cols-2 gap-2">
+                    {configuringSkill.config.modes.map((mode) => (
+                      <button
+                        key={mode}
+                        onClick={() => {
+                          setSkillConfigs(prev => ({
+                            ...prev,
+                            [configuringSkill.id]: {
+                              ...prev[configuringSkill.id],
+                              mode: mode
+                            }
+                          }));
+                        }}
+                        className={`px-3 py-2 rounded-lg text-xs font-medium transition-all ${
+                          skillConfigs[configuringSkill.id]?.mode === mode
+                            ? 'bg-[#7c9cbf]/15 text-[#5a7fa0] border-2 border-[#7c9cbf]/30'
+                            : 'bg-[#f0f4f8] text-[#64748b] border border-transparent hover:border-[#b8c9db]'
+                        }`}
+                      >
+                        {mode}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Skill Options */}
+              {configuringSkill.config?.options && (
+                <div>
+                  <label className="text-xs font-medium text-[#64748b] block mb-2">Options</label>
+                  <div className="space-y-2">
+                    {Object.entries(configuringSkill.config.options).map(([key, defaultValue]) => {
+                      const currentValue = skillConfigs[configuringSkill.id]?.options?.[key] ?? defaultValue;
+                      
+                      if (typeof defaultValue === 'boolean') {
+                        return (
+                          <label key={key} className="flex items-center gap-2">
+                            <input 
+                              type="checkbox" 
+                              checked={currentValue}
+                              onChange={(e) => {
+                                setSkillConfigs(prev => ({
+                                  ...prev,
+                                  [configuringSkill.id]: {
+                                    ...prev[configuringSkill.id],
+                                    options: {
+                                      ...prev[configuringSkill.id]?.options,
+                                      [key]: e.target.checked
+                                    }
+                                  }
+                                }));
+                              }}
+                              className="rounded border-[#b8c9db] text-[#7c9cbf] focus:ring-[#7c9cbf]" 
+                            />
+                            <span className="text-xs text-[#334155] capitalize">{key.replace(/([A-Z])/g, ' $1').trim()}</span>
+                          </label>
+                        );
+                      } else if (typeof defaultValue === 'number') {
+                        return (
+                          <div key={key} className="flex items-center justify-between">
+                            <span className="text-xs text-[#334155] capitalize">{key.replace(/([A-Z])/g, ' $1').trim()}</span>
+                            <input 
+                              type="number"
+                              value={currentValue}
+                              onChange={(e) => {
+                                setSkillConfigs(prev => ({
+                                  ...prev,
+                                  [configuringSkill.id]: {
+                                    ...prev[configuringSkill.id],
+                                    options: {
+                                      ...prev[configuringSkill.id]?.options,
+                                      [key]: parseInt(e.target.value)
+                                    }
+                                  }
+                                }));
+                              }}
+                              className="w-20 px-2 py-1 rounded border border-[#b8c9db] text-xs text-[#334155] focus:border-[#7c9cbf] focus:outline-none"
+                            />
+                          </div>
+                        );
+                      } else if (typeof defaultValue === 'string') {
+                        return (
+                          <div key={key} className="flex items-center justify-between">
+                            <span className="text-xs text-[#334155] capitalize">{key.replace(/([A-Z])/g, ' $1').trim()}</span>
+                            <input 
+                              type="text"
+                              value={currentValue}
+                              onChange={(e) => {
+                                setSkillConfigs(prev => ({
+                                  ...prev,
+                                  [configuringSkill.id]: {
+                                    ...prev[configuringSkill.id],
+                                    options: {
+                                      ...prev[configuringSkill.id]?.options,
+                                      [key]: e.target.value
+                                    }
+                                  }
+                                }));
+                              }}
+                              className="w-32 px-2 py-1 rounded border border-[#b8c9db] text-xs text-[#334155] focus:border-[#7c9cbf] focus:outline-none"
+                            />
+                          </div>
+                        );
+                      }
+                      return null;
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {/* General Settings */}
               <div>
-                <label className="text-xs font-medium text-[#64748b] block mb-1">Skill Settings</label>
+                <label className="text-xs font-medium text-[#64748b] block mb-1">General Settings</label>
                 <div className="space-y-2">
                   <label className="flex items-center gap-2">
                     <input 
@@ -580,23 +715,6 @@ export default function SkillStore() {
                       className="rounded border-[#b8c9db] text-[#7c9cbf] focus:ring-[#7c9cbf]" 
                     />
                     <span className="text-xs text-[#334155]">Show notifications</span>
-                  </label>
-                  <label className="flex items-center gap-2">
-                    <input 
-                      type="checkbox" 
-                      checked={skillConfigs[configuringSkill.id]?.advancedMode ?? false}
-                      onChange={(e) => {
-                        setSkillConfigs(prev => ({
-                          ...prev,
-                          [configuringSkill.id]: {
-                            ...prev[configuringSkill.id],
-                            advancedMode: e.target.checked
-                          }
-                        }));
-                      }}
-                      className="rounded border-[#b8c9db] text-[#7c9cbf] focus:ring-[#7c9cbf]" 
-                    />
-                    <span className="text-xs text-[#334155]">Advanced mode</span>
                   </label>
                 </div>
               </div>

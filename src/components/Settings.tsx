@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Settings as SettingsIcon, Key, Globe, Check, Eye, EyeOff, Save, RefreshCw, Sparkles, AlertCircle } from 'lucide-react';
 import { useApp } from '../store';
 import { Provider } from '../types';
@@ -9,6 +9,51 @@ export default function Settings() {
   const [showKeys, setShowKeys] = useState<Record<string, boolean>>({});
   const [editingProvider, setEditingProvider] = useState<Provider | null>(null);
   const [editForm, setEditForm] = useState({ apiKey: '', baseUrl: '', model: '' });
+  const [theme, setTheme] = useState<'light' | 'dark' | 'auto'>(() => {
+    return (localStorage.getItem('arka-theme') as 'light' | 'dark' | 'auto') || 'light';
+  });
+  const [fontSize, setFontSize] = useState<'small' | 'medium' | 'large'>(() => {
+    return (localStorage.getItem('arka-font-size') as 'small' | 'medium' | 'large') || 'medium';
+  });
+  const [language, setLanguage] = useState<'id' | 'en'>(() => {
+    return (localStorage.getItem('arka-language') as 'id' | 'en') || 'id';
+  });
+
+  // Apply theme
+  useEffect(() => {
+    localStorage.setItem('arka-theme', theme);
+    const root = document.documentElement;
+    
+    if (theme === 'dark') {
+      root.classList.add('dark');
+      root.classList.remove('light');
+    } else if (theme === 'light') {
+      root.classList.add('light');
+      root.classList.remove('dark');
+    } else {
+      // Auto mode - check system preference
+      const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+      if (prefersDark) {
+        root.classList.add('dark');
+        root.classList.remove('light');
+      } else {
+        root.classList.add('light');
+        root.classList.remove('dark');
+      }
+    }
+  }, [theme]);
+
+  // Apply font size
+  useEffect(() => {
+    localStorage.setItem('arka-font-size', fontSize);
+    const root = document.documentElement;
+    root.style.fontSize = fontSize === 'small' ? '14px' : fontSize === 'medium' ? '16px' : '18px';
+  }, [fontSize]);
+
+  // Apply language
+  useEffect(() => {
+    localStorage.setItem('arka-language', language);
+  }, [language]);
   const [modelMode, setModelMode] = useState<'auto' | 'manual'>('auto');
   const [availableModels, setAvailableModels] = useState<ModelInfo[]>([]);
   const [isLoadingModels, setIsLoadingModels] = useState(false);
@@ -149,30 +194,59 @@ export default function Settings() {
             <div className="flex items-center justify-between">
               <span className="text-sm text-[#334155]">Tema</span>
               <div className="flex gap-2">
-                <button className="px-3 py-1.5 rounded-lg bg-[#7c9cbf]/10 text-[#5a7fa0] text-xs font-medium border border-[#7c9cbf]/30">
+                <button 
+                  onClick={() => setTheme('light')}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                    theme === 'light' 
+                      ? 'bg-[#7c9cbf]/10 text-[#5a7fa0] border border-[#7c9cbf]/30' 
+                      : 'text-[#64748b] hover:bg-[#e8eef4]'
+                  }`}
+                >
                   Light
                 </button>
-                <button className="px-3 py-1.5 rounded-lg text-[#64748b] text-xs font-medium hover:bg-[#e8eef4]">
+                <button 
+                  onClick={() => setTheme('dark')}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                    theme === 'dark' 
+                      ? 'bg-[#7c9cbf]/10 text-[#5a7fa0] border border-[#7c9cbf]/30' 
+                      : 'text-[#64748b] hover:bg-[#e8eef4]'
+                  }`}
+                >
                   Dark
                 </button>
-                <button className="px-3 py-1.5 rounded-lg text-[#64748b] text-xs font-medium hover:bg-[#e8eef4]">
+                <button 
+                  onClick={() => setTheme('auto')}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                    theme === 'auto' 
+                      ? 'bg-[#7c9cbf]/10 text-[#5a7fa0] border border-[#7c9cbf]/30' 
+                      : 'text-[#64748b] hover:bg-[#e8eef4]'
+                  }`}
+                >
                   Auto
                 </button>
               </div>
             </div>
             <div className="flex items-center justify-between">
               <span className="text-sm text-[#334155]">Font Size</span>
-              <select className="px-3 py-1.5 rounded-lg border border-[#b8c9db] text-xs text-[#64748b] focus:outline-none focus:border-[#7c9cbf]">
-                <option>Small</option>
-                <option selected>Medium</option>
-                <option>Large</option>
+              <select 
+                value={fontSize}
+                onChange={(e) => setFontSize(e.target.value as 'small' | 'medium' | 'large')}
+                className="px-3 py-1.5 rounded-lg border border-[#b8c9db] text-xs text-[#64748b] focus:outline-none focus:border-[#7c9cbf]"
+              >
+                <option value="small">Small</option>
+                <option value="medium">Medium</option>
+                <option value="large">Large</option>
               </select>
             </div>
             <div className="flex items-center justify-between">
               <span className="text-sm text-[#334155]">Bahasa</span>
-              <select className="px-3 py-1.5 rounded-lg border border-[#b8c9db] text-xs text-[#64748b] focus:outline-none focus:border-[#7c9cbf]">
-                <option>Bahasa Indonesia</option>
-                <option>English</option>
+              <select 
+                value={language}
+                onChange={(e) => setLanguage(e.target.value as 'id' | 'en')}
+                className="px-3 py-1.5 rounded-lg border border-[#b8c9db] text-xs text-[#64748b] focus:outline-none focus:border-[#7c9cbf]"
+              >
+                <option value="id">Bahasa Indonesia</option>
+                <option value="en">English</option>
               </select>
             </div>
           </div>

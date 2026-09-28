@@ -15,6 +15,26 @@
   --arka-error: #c97878;
 }
 
+.dark {
+  --arka-bg: #1e293b;
+  --arka-surface: #334155;
+  --arka-surface-2: #475569;
+  --arka-primary: #7c9cbf;
+  --arka-primary-dark: #5a7fa0;
+  --arka-accent: #93b5d3;
+  --arka-text: #e2e8f0;
+  --arka-text-muted: #94a3b8;
+  --arka-border: #475569;
+  --arka-success: #86b8a0;
+  --arka-warning: #d4a574;
+  --arka-error: #c97878;
+}
+
+.dark body {
+  background-color: var(--arka-bg);
+  color: var(--arka-text);
+}
+
 * {
   scrollbar-width: thin;
   scrollbar-color: var(--arka-primary) transparent;
