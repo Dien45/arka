@@ -2,6 +2,7 @@ import { useEffect } from 'react';
 import { Menu } from 'lucide-react';
 import { AppProvider, useApp } from './store';
 import { LanguageProvider } from './LanguageContext';
+import { View } from './types';
 import Sidebar from './components/Sidebar';
 import Chat from './components/Chat';
 import FileExplorer from './components/FileExplorer';
@@ -31,25 +32,23 @@ function MainContent() {
     return <Unlock />;
   }
 
-  const renderView = () => {
-
-    switch (state.currentView) {
-      case 'chat':
-        return <Chat />;
-      case 'files':
-        return <FileExplorer />;
-      case 'prd':
-        return <PRDGenerator />;
-      case 'skills':
-        return <SkillStore />;
-      case 'github':
-        return <GitHubPanel />;
-      case 'settings':
-        return <Settings />;
-      default:
-        return <Chat />;
-    }
-  };
+  // Previously this only ever rendered the ONE active view — switching tabs
+  // unmounted whatever was on screen. For Chat that meant navigating away
+  // while the AI was mid-response (or, worse, while it was waiting on a
+  // sensitive-tool approval click) tore down its component state entirely:
+  // the in-flight tool-call loop lost its UI, any pending approval could
+  // never be resolved, and the run looked like it "just stopped". Every view
+  // now stays mounted all the time; only the active one is shown (others get
+  // `hidden`), so background work (and any approval prompt) keeps running
+  // and is still there when the user switches back.
+  const views: { key: View; node: JSX.Element }[] = [
+    { key: 'chat', node: <Chat /> },
+    { key: 'files', node: <FileExplorer /> },
+    { key: 'prd', node: <PRDGenerator /> },
+    { key: 'skills', node: <SkillStore /> },
+    { key: 'github', node: <GitHubPanel /> },
+    { key: 'settings', node: <Settings /> },
+  ];
 
   return (
     // h-dvh (dynamic viewport height) instead of h-screen (100vh): on mobile
@@ -75,9 +74,13 @@ function MainContent() {
             <span className="font-semibold text-[#334155] text-sm">Arka</span>
           </div>
         </div>
-        {/* Content */}
-        <div className="flex-1 overflow-hidden">
-          {renderView()}
+        {/* Content — all views stay mounted; only the active one is visible */}
+        <div className="flex-1 overflow-hidden relative">
+          {views.map(({ key, node }) => (
+            <div key={key} className={state.currentView === key ? 'h-full' : 'hidden'}>
+              {node}
+            </div>
+          ))}
         </div>
       </main>
     </div>
