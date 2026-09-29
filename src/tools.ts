@@ -42,6 +42,7 @@ const UNTRUSTED_CONTENT_BANNER =
 const MAX_FETCH_CHARS = 10000;
 const MAX_FILE_BYTES = 1_000_000; // 1 MB per file
 const MAX_TOTAL_VIRTUAL_BYTES = 8_000_000; // ~8 MB total (localStorage budget)
+const MAX_STAGED_COMMITS_BYTES = 8_000_000; // ~8 MB total (localStorage budget)
 
 /** Basic SSRF guard: only allow http(s) to public hosts. */
 function assertSafeFetchTarget(rawUrl: string): URL {
@@ -323,6 +324,75 @@ export const availableTools: Tool[] = [
         return `📁 Files in virtual workspace (${filteredFiles.length} files):\n\n${fileList}`;
       } catch (error) {
         return `❌ Error listing files: ${error instanceof Error ? error.message : 'Unknown error'}`;
+      }
+    },
+  },
+  {
+    name: 'stage_commit',
+    description: 'Snapshot the changes made to the virtual workspace since the last checkpoint (files added, edited, or deleted via write_file) into a named git-style commit, staged locally for the user to review and push to GitHub from the GitHub panel ("Staged AI Commits"). Call this after finishing a meaningful, self-contained chunk of work (e.g. "added login form", "fixed the bug in cart total"), or whenever the user asks to save/checkpoint/push progress. Does NOT push anything by itself — the user still has to click a button in the GitHub panel to actually push. Requires user approval before running.',
+    parameters: {
+      message: { type: 'string', description: 'A short, descriptive commit message summarizing what changed since the last checkpoint' },
+    },
+    sensitive: true,
+    execute: async (params: { message: string }) => {
+      try {
+        if (typeof params.message !== 'string' || !params.message.trim()) {
+          return '❌ Pesan commit tidak boleh kosong.';
+        }
+
+        const virtualFiles = JSON.parse(localStorage.getItem('arka-virtual-files') || '{}');
+        const checkpoint = JSON.parse(localStorage.getItem('arka-patch-checkpoint') || '{}');
+
+        const files: { path: string; content: string | null }[] = [];
+
+        // Added or modified since the last checkpoint.
+        for (const path of Object.keys(virtualFiles)) {
+          const newContent: string = virtualFiles[path]?.content ?? '';
+          if (!(path in checkpoint) || checkpoint[path] !== newContent) {
+            files.push({ path, content: newContent });
+          }
+        }
+        // Removed from the workspace since the last checkpoint.
+        for (const path of Object.keys(checkpoint)) {
+          if (!(path in virtualFiles)) {
+            files.push({ path, content: null });
+          }
+        }
+
+        if (files.length === 0) {
+          return 'ℹ️ Tidak ada perubahan file sejak checkpoint terakhir — tidak ada yang di-stage.';
+        }
+
+        const staged = JSON.parse(localStorage.getItem('arka-staged-commits') || '[]');
+        const commitEntry = {
+          id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+          message: params.message.trim(),
+          files,
+          createdAt: new Date().toISOString(),
+        };
+        const candidateStaged = [...staged, commitEntry];
+
+        if (JSON.stringify(candidateStaged).length > MAX_STAGED_COMMITS_BYTES) {
+          return '❌ Staged commits sudah terlalu besar untuk disimpan di localStorage. Minta user push/terapkan dulu staged commits yang ada dari panel GitHub sebelum bikin checkpoint baru.';
+        }
+
+        localStorage.setItem('arka-staged-commits', JSON.stringify(candidateStaged));
+
+        // Advance the checkpoint to the current state so the next
+        // stage_commit call only picks up further changes.
+        const newCheckpoint: Record<string, string> = {};
+        for (const path of Object.keys(virtualFiles)) {
+          newCheckpoint[path] = virtualFiles[path]?.content ?? '';
+        }
+        localStorage.setItem('arka-patch-checkpoint', JSON.stringify(newCheckpoint));
+
+        window.dispatchEvent(new CustomEvent('staged-commits-updated'));
+
+        const added = files.filter(f => f.content !== null).length;
+        const deleted = files.filter(f => f.content === null).length;
+        return `✅ Checkpoint "${commitEntry.message}" dibuat: ${added} file ditambah/diupdate, ${deleted} file dihapus. Total ${candidateStaged.length} commit siap di-push dari panel GitHub (bagian "Staged AI Commits").`;
+      } catch (error) {
+        return `❌ Error membuat checkpoint: ${error instanceof Error ? error.message : 'Unknown error'}`;
       }
     },
   },

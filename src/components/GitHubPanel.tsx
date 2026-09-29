@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
-import { Github, GitBranch, GitCommit, GitPullRequest, Upload, RefreshCw, ExternalLink, Check, AlertCircle, Info, FileCode, FolderGit2, FolderUp, Trash2, X, Bot } from 'lucide-react';
+import { Github, GitBranch, GitCommit, GitPullRequest, Upload, RefreshCw, ExternalLink, Check, AlertCircle, Info, FileCode, FolderGit2, FolderUp, Trash2, X, Bot, Download } from 'lucide-react';
 import { useApp } from '../store';
 import { fetchGitHubRepos, pushToGitHub, getGitHubUser, getExcessiveScopes } from '../githubApi';
 
@@ -48,6 +48,12 @@ export default function GitHubPanel() {
   const [syncFileName, setSyncFileName] = useState('');
   const [isApplyingSync, setIsApplyingSync] = useState(false);
   const [syncLog, setSyncLog] = useState<string[]>([]);
+  // Commits checkpointed by the AI itself via the `stage_commit` tool,
+  // waiting for the human to review and actually push them.
+  const [stagedCommits, setStagedCommits] = useState<(SyncCommit & { id: string; createdAt: string })[]>([]);
+  const [isPushingStaged, setIsPushingStaged] = useState(false);
+  const [stagedLog, setStagedLog] = useState<string[]>([]);
+
 
   // Combined view used for selection/push — virtual (AI-written) files win
   // over an uploaded file at the same path, since they're the live source.
@@ -66,17 +72,31 @@ export default function GitHubPanel() {
     }
   };
 
+  const loadStagedCommits = () => {
+    try {
+      const staged = JSON.parse(localStorage.getItem('arka-staged-commits') || '[]');
+      setStagedCommits(Array.isArray(staged) ? staged : []);
+    } catch (error) {
+      console.error('Failed to load staged commits:', error);
+    }
+  };
+
   useEffect(() => {
     loadVirtualFiles();
+    loadStagedCommits();
     const handleStorageChange = (e: StorageEvent) => {
       if (e.key === 'arka-virtual-files') loadVirtualFiles();
+      if (e.key === 'arka-staged-commits') loadStagedCommits();
     };
     window.addEventListener('storage', handleStorageChange);
     // Dispatched by the AI's write_file tool and by FileExplorer.
     window.addEventListener('virtual-files-updated', loadVirtualFiles);
+    // Dispatched by the AI's stage_commit tool.
+    window.addEventListener('staged-commits-updated', loadStagedCommits);
     return () => {
       window.removeEventListener('storage', handleStorageChange);
       window.removeEventListener('virtual-files-updated', loadVirtualFiles);
+      window.removeEventListener('staged-commits-updated', loadStagedCommits);
     };
   }, []);
 
@@ -279,6 +299,74 @@ export default function GitHubPanel() {
       setSyncManifest(null);
       setSyncFileName('');
     }
+  };
+
+  const handlePushStaged = async () => {
+    if (stagedCommits.length === 0 || !selectedRepo) return;
+    setIsPushingStaged(true);
+    setStagedLog([]);
+
+    const total = stagedCommits.length;
+    let pushedIds: string[] = [];
+
+    for (let i = 0; i < total; i++) {
+      const commit = stagedCommits[i];
+      const label = `(${i + 1}/${total}) ${commit.message}`;
+      setStagedLog(prev => [...prev, `⏳ ${label}...`]);
+
+      const result = await pushToGitHub(state.githubToken, selectedRepo, branch, commit.files, commit.message);
+
+      setStagedLog(prev => {
+        const withoutLast = prev.slice(0, -1);
+        return [...withoutLast, result.success ? `✅ ${label}` : `❌ ${label}: ${result.message}`];
+      });
+
+      if (!result.success) break; // stop so later commits don't build on a half-applied state
+      pushedIds.push(commit.id);
+    }
+
+    // Remove only the commits that actually got pushed, in case of a
+    // failure partway through — the rest stay staged for a retry.
+    if (pushedIds.length > 0) {
+      const remaining = JSON.parse(localStorage.getItem('arka-staged-commits') || '[]')
+        .filter((c: any) => !pushedIds.includes(c.id));
+      localStorage.setItem('arka-staged-commits', JSON.stringify(remaining));
+      window.dispatchEvent(new CustomEvent('staged-commits-updated'));
+    }
+
+    setIsPushingStaged(false);
+  };
+
+  const handleDiscardStagedCommit = (id: string) => {
+    const remaining = JSON.parse(localStorage.getItem('arka-staged-commits') || '[]')
+      .filter((c: any) => c.id !== id);
+    localStorage.setItem('arka-staged-commits', JSON.stringify(remaining));
+    window.dispatchEvent(new CustomEvent('staged-commits-updated'));
+  };
+
+  const handleDiscardAllStaged = () => {
+    localStorage.setItem('arka-staged-commits', JSON.stringify([]));
+    window.dispatchEvent(new CustomEvent('staged-commits-updated'));
+    setStagedLog([]);
+  };
+
+  // Lets a staged checkpoint be handed to a *different* Arka
+  // session/browser (same idea as the "Import Patch" card above, just in
+  // the opposite direction) without needing this session's GitHub token.
+  const handleDownloadStaged = () => {
+    const manifest: SyncManifest = {
+      version: 1,
+      commits: stagedCommits.map(({ message, files }) => ({ message, files })),
+    };
+    const blob = new Blob([JSON.stringify(manifest, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `arka-patch-${new Date().toISOString().replace(/[:.]/g, '-')}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
   };
 
   const toggleFileSelection = (filePath: string) => {
@@ -619,6 +707,79 @@ export default function GitHubPanel() {
                 </div>
               )}
             </div>
+
+            {/* Commits checkpointed by the AI itself via the stage_commit tool */}
+            {stagedCommits.length > 0 && (
+              <div className="bg-white rounded-xl border border-[#b8c9db] p-4">
+                <div className="flex items-center justify-between mb-2">
+                  <h4 className="text-xs font-semibold text-[#64748b] uppercase flex items-center gap-1">
+                    <Bot size={12} />
+                    Staged AI Commits
+                  </h4>
+                  <span className="text-[10px] bg-[#5a7fa0]/10 text-[#5a7fa0] px-2 py-0.5 rounded-full font-medium">
+                    {stagedCommits.length}
+                  </span>
+                </div>
+                <p className="text-[10px] text-[#94a3b8] mb-3">
+                  AI di chat sudah bikin checkpoint dari progres kerjanya. Review dulu, lalu push semuanya ke repo yang dipilih di bawah — urut sesuai waktu dibuat.
+                </p>
+
+                <ul className="space-y-1.5 mb-3 max-h-40 overflow-y-auto">
+                  {stagedCommits.map((c) => (
+                    <li key={c.id} className="flex items-start justify-between gap-2 bg-[#f8fafc] rounded-lg px-2.5 py-1.5">
+                      <div className="min-w-0">
+                        <p className="text-[11px] font-medium text-[#334155] truncate">{c.message}</p>
+                        <p className="text-[10px] text-[#94a3b8]">{c.files.length} file · {new Date(c.createdAt).toLocaleString('id-ID')}</p>
+                      </div>
+                      <button
+                        onClick={() => handleDiscardStagedCommit(c.id)}
+                        disabled={isPushingStaged}
+                        className="p-1 rounded hover:bg-[#c97878]/10 text-[#c97878] shrink-0"
+                        title="Buang checkpoint ini (tidak di-push)"
+                      >
+                        <X size={12} />
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+
+                <div className="flex gap-2">
+                  <button
+                    onClick={handlePushStaged}
+                    disabled={!selectedRepo || isPushingStaged}
+                    className="flex-1 py-2 rounded-lg bg-[#86b8a0] text-white text-xs font-medium hover:bg-[#6fa085] disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                  >
+                    {isPushingStaged ? 'Mendorong...' : `Push ${stagedCommits.length} Commit ke GitHub`}
+                  </button>
+                  <button
+                    onClick={handleDownloadStaged}
+                    disabled={isPushingStaged}
+                    className="px-3 py-2 rounded-lg border border-[#b8c9db] text-[#5a7fa0] text-xs font-medium hover:bg-[#f8fafc] disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                    title="Download sebagai file .json untuk dipakai di sesi Arka lain"
+                  >
+                    <Download size={12} />
+                  </button>
+                  <button
+                    onClick={handleDiscardAllStaged}
+                    disabled={isPushingStaged}
+                    className="px-3 py-2 rounded-lg border border-[#c97878]/40 text-[#c97878] text-xs font-medium hover:bg-[#c97878]/10 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                    title="Buang semua checkpoint"
+                  >
+                    Buang Semua
+                  </button>
+                </div>
+                {!selectedRepo && (
+                  <p className="text-[10px] text-[#c97878] mt-2">Pilih repo dulu di bagian Repositories di bawah.</p>
+                )}
+                {stagedLog.length > 0 && (
+                  <div className="bg-[#f8fafc] rounded-lg p-2 space-y-1 max-h-32 overflow-y-auto mt-2">
+                    {stagedLog.map((line, i) => (
+                      <p key={i} className="text-[10px] font-mono text-[#334155]">{line}</p>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
 
             {/* Import & apply a patch manifest from another session/sandbox */}
             <div className="bg-white rounded-xl border border-[#b8c9db] p-4">
