@@ -1,4 +1,5 @@
-import { MessageSquare, FolderOpen, Github, Settings, Plus, X, MessageCircle, Trash2, Package, FileText } from 'lucide-react';
+import { useState, useRef, useEffect } from 'react';
+import { MessageSquare, FolderOpen, Github, Settings, Plus, X, MessageCircle, Trash2, Package, FileText, Pencil, Check } from 'lucide-react';
 import { useApp } from '../store';
 import { View } from '../types';
 
@@ -15,20 +16,46 @@ const menuItems: { view: View; icon: typeof MessageSquare; label: string }[] = [
 
 export default function Sidebar() {
   const { state, dispatch } = useApp();
+  const [renamingSessionId, setRenamingSessionId] = useState<string | null>(null);
+  const [renameValue, setRenameValue] = useState('');
+  const renameInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (renamingSessionId) {
+      renameInputRef.current?.focus();
+      renameInputRef.current?.select();
+    }
+  }, [renamingSessionId]);
+
+  const startRenaming = (sessionId: string, currentTitle: string) => {
+    setRenamingSessionId(sessionId);
+    setRenameValue(currentTitle);
+  };
+
+  const commitRename = () => {
+    if (renamingSessionId) {
+      dispatch({ type: 'RENAME_SESSION', payload: { sessionId: renamingSessionId, title: renameValue } });
+    }
+    setRenamingSessionId(null);
+  };
 
   return (
     <>
-      {/* Overlay for mobile */}
+      {/* Overlay for mobile — must sit above ANY in-page z-50 header (e.g.
+          Chat's translucent top bar) or that header bleeds/paints on top of
+          the drawer instead of being dimmed underneath it. */}
       {state.sidebarOpen && (
         <div
-          className="fixed inset-0 bg-black/20 z-40 md:hidden"
+          className="fixed inset-0 bg-black/20 z-[60] md:hidden"
           onClick={() => dispatch({ type: 'TOGGLE_SIDEBAR' })}
         />
       )}
 
-      {/* Sidebar */}
+      {/* Sidebar — opaque background + z-index above every page-level z-50
+          element so the mobile drawer never lets content underneath show
+          or paint through/over it. */}
       <aside
-        className={`fixed md:relative top-0 left-0 h-full z-50 w-72 flex flex-col transition-transform duration-300
+        className={`fixed md:relative top-0 left-0 h-full z-[70] w-72 flex flex-col transition-transform duration-300
           ${state.sidebarOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}
           bg-[#e8eef4] border-r border-[#b8c9db]`}
       >
@@ -97,32 +124,80 @@ export default function Sidebar() {
             </p>
           ) : (
             <div className="space-y-1">
-              {state.sessions.map(session => (
-                <div
-                  key={session.id}
-                  className={`group flex items-center gap-2 px-3 py-2 rounded-lg cursor-pointer transition-all
-                    ${state.currentSessionId === session.id
-                      ? 'bg-[#7c9cbf]/15 text-[#5a7fa0]'
-                      : 'hover:bg-[#cbd5e1]/50 text-[#64748b]'
-                    }`}
-                  onClick={() => {
-                    dispatch({ type: 'SET_SESSION', payload: session.id });
-                    dispatch({ type: 'SET_VIEW', payload: 'chat' });
-                  }}
-                >
-                  <MessageCircle size={14} className="shrink-0" />
-                  <span className="text-sm truncate flex-1">{session.title}</span>
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      dispatch({ type: 'DELETE_SESSION', payload: session.id });
+              {state.sessions.map(session => {
+                const isRenaming = renamingSessionId === session.id;
+                return (
+                  <div
+                    key={session.id}
+                    className={`group flex items-center gap-2 px-3 py-2 rounded-lg transition-all
+                      ${isRenaming ? 'cursor-default' : 'cursor-pointer'}
+                      ${state.currentSessionId === session.id
+                        ? 'bg-[#7c9cbf]/15 text-[#5a7fa0]'
+                        : 'hover:bg-[#cbd5e1]/50 text-[#64748b]'
+                      }`}
+                    onClick={() => {
+                      if (isRenaming) return;
+                      dispatch({ type: 'SET_SESSION', payload: session.id });
+                      dispatch({ type: 'SET_VIEW', payload: 'chat' });
                     }}
-                    className="opacity-0 group-hover:opacity-100 p-0.5 rounded hover:bg-red-100 text-red-400 transition-opacity"
                   >
-                    <Trash2 size={12} />
-                  </button>
-                </div>
-              ))}
+                    <MessageCircle size={14} className="shrink-0" />
+                    {isRenaming ? (
+                      <input
+                        ref={renameInputRef}
+                        value={renameValue}
+                        onChange={(e) => setRenameValue(e.target.value)}
+                        onClick={(e) => e.stopPropagation()}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault();
+                            commitRename();
+                          } else if (e.key === 'Escape') {
+                            e.preventDefault();
+                            setRenamingSessionId(null);
+                          }
+                        }}
+                        onBlur={commitRename}
+                        className="flex-1 min-w-0 text-sm bg-white border border-[#7c9cbf] rounded px-1.5 py-0.5 outline-none text-[#334155]"
+                      />
+                    ) : (
+                      <span className="text-sm truncate flex-1">{session.title}</span>
+                    )}
+                    {isRenaming ? (
+                      <button
+                        onClick={(e) => { e.stopPropagation(); commitRename(); }}
+                        className="p-0.5 rounded hover:bg-[#cbd5e1] text-[#5a7fa0]"
+                        title="Simpan nama"
+                      >
+                        <Check size={12} />
+                      </button>
+                    ) : (
+                      <>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            startRenaming(session.id, session.title);
+                          }}
+                          className="opacity-0 group-hover:opacity-100 p-0.5 rounded hover:bg-[#cbd5e1] transition-opacity"
+                          title="Ganti nama sesi"
+                        >
+                          <Pencil size={12} />
+                        </button>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            dispatch({ type: 'DELETE_SESSION', payload: session.id });
+                          }}
+                          className="opacity-0 group-hover:opacity-100 p-0.5 rounded hover:bg-red-100 text-red-400 transition-opacity"
+                          title="Hapus sesi"
+                        >
+                          <Trash2 size={12} />
+                        </button>
+                      </>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           )}
         </div>

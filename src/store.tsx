@@ -45,6 +45,7 @@ type Action =
   | { type: 'ADD_MESSAGE'; payload: { sessionId: string; message: Message } }
   | { type: 'UPDATE_MESSAGE'; payload: { sessionId: string; messageId: string; content: string } }
   | { type: 'DELETE_SESSION'; payload: string }
+  | { type: 'RENAME_SESSION'; payload: { sessionId: string; title: string } }
   | { type: 'SET_PROVIDERS'; payload: ProviderConfig[] }
   | { type: 'UPDATE_PROVIDER'; payload: ProviderConfig }
   | { type: 'SET_AGENTS'; payload: Agent[] }
@@ -222,6 +223,16 @@ function reducer(state: AppState, action: Action): AppState {
         sessions: state.sessions.filter(s => s.id !== action.payload),
         currentSessionId: state.currentSessionId === action.payload ? null : state.currentSessionId,
       };
+    case 'RENAME_SESSION': {
+      const title = action.payload.title.trim();
+      if (!title) return state;
+      return {
+        ...state,
+        sessions: state.sessions.map(s =>
+          s.id === action.payload.sessionId ? { ...s, title } : s
+        ),
+      };
+    }
     case 'SET_PROVIDERS':
       return { ...state, providers: action.payload };
     case 'UPDATE_PROVIDER':

@@ -760,18 +760,31 @@ Keep responses short and actionable.${skillEnhancements}${CHAT_MODE_SYSTEM_PROMP
               }],
             };
             dispatch({ type: 'ADD_MESSAGE', payload: { sessionId, message: toolCallMessage } });
-            
+
+            // Hard defense-in-depth guard for Plan mode: we already omit
+            // write_file/run_command/memory/stage_commit from the tool
+            // schema sent to the model, but some providers (esp. custom /
+            // self-hosted endpoints without strict function-calling
+            // enforcement) can still hallucinate a call to a tool name we
+            // never declared. Refuse it outright here — no approval dialog,
+            // no execution — instead of trusting the model's own restraint.
+            const isPlanModeBlocked = chatMode === 'plan' && !PLAN_MODE_ALLOWED_TOOLS.has(toolCall.name);
+
             // Sensitive tools (network egress / persistent writes) require
             // explicit user approval first — the model may have been steered
             // into calling them by untrusted content (fetched pages,
             // installed skills, prior memory). See tools.ts for rationale.
             let toolResult: string;
             let approvedOrNotSensitive = true;
-            if (isSensitiveTool(toolCall.name)) {
+            if (isPlanModeBlocked) {
+              approvedOrNotSensitive = false;
+            } else if (isSensitiveTool(toolCall.name)) {
               approvedOrNotSensitive = await requestToolApproval(toolCall.name, params);
             }
 
-            if (approvedOrNotSensitive) {
+            if (isPlanModeBlocked) {
+              toolResult = `⛔ Tool "${toolCall.name}" is disabled in Plan mode (read-only/discussion only). Do not attempt it again — tell the user to switch to Build or Agent mode if they want this action performed.`;
+            } else if (approvedOrNotSensitive) {
               toolResult = await executeTool(toolCall.name, params);
             } else {
               toolResult = `⛔ User denied execution of tool "${toolCall.name}" with these arguments. Do not retry the same action; ask the user what they'd like instead.`;
