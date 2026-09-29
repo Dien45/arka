@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { 
   FolderOpen, File, ChevronRight, ChevronDown, FileCode, FileText, 
   Image, Copy, Check, Plus, Trash2, Edit2, X, Download, 
-  FileJson, FileSpreadsheet, Hash, Braces, Type, Folder
+  FileJson, FileSpreadsheet, Hash, Braces, Type, Folder, Loader2
 } from 'lucide-react';
 
 interface FileNode {
@@ -386,6 +386,45 @@ export default function FileExplorer() {
     return content.split('\n').length;
   };
 
+  const [isZipping, setIsZipping] = useState(false);
+
+  // Bundles every real (virtual) file the AI has written into a single .zip,
+  // preserving the folder structure — so the whole workspace can be grabbed
+  // in one go instead of downloading files one at a time.
+  const handleDownloadWorkspaceZip = async () => {
+    const entries = Object.entries(virtualFiles).filter(([path]) => !path.endsWith('/.gitkeep'));
+    if (entries.length === 0) {
+      alert('Workspace masih kosong — belum ada file untuk di-download.');
+      return;
+    }
+
+    setIsZipping(true);
+    try {
+      // Lazy-loaded so the ~100KB zip library only downloads when someone
+      // actually uses this button, instead of bloating the main app bundle.
+      const { default: JSZip } = await import('jszip');
+      const zip = new JSZip();
+      entries.forEach(([path, file]) => {
+        zip.file(path, (file as { content: string }).content ?? '');
+      });
+      const blob = await zip.generateAsync({ type: 'blob' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
+      a.href = url;
+      a.download = `arka-workspace-${stamp}.zip`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      console.error('Gagal membuat ZIP workspace:', error);
+      alert('Gagal membuat file ZIP. Coba lagi.');
+    } finally {
+      setIsZipping(false);
+    }
+  };
+
   // Convert virtual files (flat path -> content map) into a nested FileNode tree,
   // so files like "src/components/Foo.tsx" render inside proper "src" / "components" folders
   // instead of being dumped flat into the workspace root.
@@ -484,19 +523,33 @@ export default function FileExplorer() {
       {/* Header */}
       <div className="px-4 py-3 border-b border-[#b8c9db] bg-white/50 backdrop-blur-sm">
         <div className="flex items-center gap-3">
-          <FolderOpen size={18} className="text-[#7c9cbf]" />
-          <div className="flex-1">
+          <FolderOpen size={18} className="text-[#7c9cbf] shrink-0" />
+          <div className="flex-1 min-w-0">
             <h2 className="font-semibold text-[#334155] text-sm">Workspace</h2>
-            <p className="text-[10px] text-[#94a3b8]">
+            <p className="text-[10px] text-[#94a3b8] truncate">
               {activeTab ? `${activeTab.name} • ${activeTab.size} • ${activeTab.modified}` : 'Pilih file untuk melihat'}
             </p>
           </div>
           <button
+            onClick={handleDownloadWorkspaceZip}
+            disabled={isZipping}
+            title="Download semua file di workspace sebagai .zip"
+            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-[#7c9cbf]/10 text-[#5a7fa0] text-xs font-medium hover:bg-[#7c9cbf]/20 disabled:opacity-50 transition-colors shrink-0"
+          >
+            {isZipping ? (
+              <Loader2 size={12} className="animate-spin" />
+            ) : (
+              <Download size={12} />
+            )}
+            <span className="hidden sm:inline">{isZipping ? 'Membuat ZIP...' : 'Download ZIP'}</span>
+          </button>
+          <button
             onClick={() => setShowFolderPicker(true)}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#7c9cbf]/10 text-[#5a7fa0] text-xs font-medium hover:bg-[#7c9cbf]/20 transition-colors"
+            title="Pilih Folder"
+            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-[#7c9cbf]/10 text-[#5a7fa0] text-xs font-medium hover:bg-[#7c9cbf]/20 transition-colors shrink-0"
           >
             <Folder size={12} />
-            Pilih Folder
+            <span className="hidden sm:inline">Pilih Folder</span>
           </button>
         </div>
         {/* Workspace Path */}
