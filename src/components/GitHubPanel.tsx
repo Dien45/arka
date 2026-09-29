@@ -3,6 +3,23 @@ import { Github, GitBranch, GitCommit, GitPullRequest, Upload, RefreshCw, Extern
 import { useApp } from '../store';
 import { fetchGitHubRepos, pushToGitHub, getGitHubUser, getExcessiveScopes } from '../githubApi';
 
+// A "patch manifest" is Arka's answer to a raw git bundle: instead of the
+// browser having to parse git's binary pack format (which the browser can't
+// push to GitHub anyway — see the CORS note on handleApplySync below), it's
+// just an ordered list of commits, each with the files it adds/updates
+// (string content) or deletes (content: null). Any Arka session can export
+// one of these, and any Arka session can replay it as real commits via the
+// same Git Data API pushToGitHub() already uses.
+interface SyncCommit {
+  message: string;
+  files: { path: string; content: string | null }[];
+}
+interface SyncManifest {
+  version: 1;
+  commits: SyncCommit[];
+}
+
+
 export default function GitHubPanel() {
   const { state, dispatch } = useApp();
   const [token, setToken] = useState(state.githubToken);
@@ -27,6 +44,10 @@ export default function GitHubPanel() {
   const [isLoadingRepos, setIsLoadingRepos] = useState(false);
   const [userName, setUserName] = useState<string>('');
   const [excessiveScopes, setExcessiveScopes] = useState<string[]>([]);
+  const [syncManifest, setSyncManifest] = useState<SyncManifest | null>(null);
+  const [syncFileName, setSyncFileName] = useState('');
+  const [isApplyingSync, setIsApplyingSync] = useState(false);
+  const [syncLog, setSyncLog] = useState<string[]>([]);
 
   // Combined view used for selection/push — virtual (AI-written) files win
   // over an uploaded file at the same path, since they're the live source.
@@ -188,6 +209,76 @@ export default function GitHubPanel() {
       setDeletionPaths(prev => [...prev, path]);
     }
     setDeletionInput('');
+  };
+
+  const handleSyncFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = ''; // allow re-selecting the same file later
+    if (!file) return;
+
+    try {
+      const text = await file.text();
+      const parsed = JSON.parse(text);
+
+      if (!parsed || !Array.isArray(parsed.commits)) {
+        alert('File patch tidak valid: field "commits" tidak ditemukan.');
+        return;
+      }
+      for (const c of parsed.commits) {
+        if (typeof c?.message !== 'string' || !Array.isArray(c?.files)) {
+          alert('File patch tidak valid: setiap commit harus punya "message" (string) dan "files" (array).');
+          return;
+        }
+      }
+
+      setSyncManifest(parsed as SyncManifest);
+      setSyncFileName(file.name);
+      setSyncLog([]);
+    } catch (err) {
+      alert('Gagal membaca file patch: ' + (err instanceof Error ? err.message : 'format JSON tidak valid'));
+    }
+  };
+
+  // NOTE on why this isn't a real `git push`: GitHub's git smart-HTTP
+  // endpoints (git-receive-pack) don't send CORS headers, so a browser can't
+  // speak the real git protocol to github.com without routing the request
+  // (and the user's PAT) through a third-party CORS proxy — a security
+  // regression we specifically want to avoid. Instead, each commit in the
+  // manifest is replayed one at a time through the same GitHub Git Data API
+  // (blob -> tree -> commit -> ref update) as the manual push button above,
+  // which GitHub does serve with proper CORS headers.
+  const handleApplySync = async () => {
+    if (!syncManifest || !selectedRepo) return;
+    setIsApplyingSync(true);
+    setSyncLog([]);
+
+    const total = syncManifest.commits.length;
+    let successCount = 0;
+
+    for (let i = 0; i < total; i++) {
+      const commit = syncManifest.commits[i];
+      const label = `(${i + 1}/${total}) ${commit.message}`;
+      setSyncLog(prev => [...prev, `⏳ ${label}...`]);
+
+      // Sequential (not parallel) on purpose: each call fetches the branch's
+      // current HEAD fresh, so committing one at a time keeps them properly
+      // chained as parent -> child, in the same order as the original session.
+      const result = await pushToGitHub(state.githubToken, selectedRepo, branch, commit.files, commit.message);
+
+      setSyncLog(prev => {
+        const withoutLast = prev.slice(0, -1);
+        return [...withoutLast, result.success ? `✅ ${label}` : `❌ ${label}: ${result.message}`];
+      });
+
+      if (!result.success) break; // stop so later commits don't build on a half-applied state
+      successCount++;
+    }
+
+    setIsApplyingSync(false);
+    if (successCount === total) {
+      setSyncManifest(null);
+      setSyncFileName('');
+    }
   };
 
   const toggleFileSelection = (filePath: string) => {
@@ -525,6 +616,61 @@ export default function GitHubPanel() {
                       </button>
                     </span>
                   ))}
+                </div>
+              )}
+            </div>
+
+            {/* Import & apply a patch manifest from another session/sandbox */}
+            <div className="bg-white rounded-xl border border-[#b8c9db] p-4">
+              <h4 className="text-xs font-semibold text-[#64748b] uppercase flex items-center gap-1 mb-2">
+                <Upload size={12} />
+                Import Patch (.json)
+              </h4>
+              <p className="text-[10px] text-[#94a3b8] mb-3">
+                Kalau ada perubahan dari sesi/sandbox Arka lain (mis. file yang saya kirim di chat), upload file patch-nya di sini — akan langsung dibuat jadi commit asli ke repo yang dipilih di bawah, tanpa perlu terminal.
+              </p>
+
+              {!syncManifest ? (
+                <label className="flex flex-col items-center justify-center w-full h-20 border-2 border-dashed border-[#b8c9db] rounded-lg cursor-pointer hover:border-[#7c9cbf] hover:bg-[#f8fafc] transition-all">
+                  <p className="text-xs text-[#64748b]">
+                    <span className="font-semibold text-[#5a7fa0]">Klik untuk pilih file</span> patch (.json)
+                  </p>
+                  <input type="file" accept=".json,application/json" className="hidden" onChange={handleSyncFileSelect} />
+                </label>
+              ) : (
+                <div className="border border-[#b8c9db] rounded-lg p-3 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-mono text-[#334155] truncate">{syncFileName}</span>
+                    <button
+                      onClick={() => { setSyncManifest(null); setSyncFileName(''); setSyncLog([]); }}
+                      className="p-1 rounded hover:bg-[#c97878]/10 text-[#c97878]"
+                      title="Batal"
+                    >
+                      <X size={12} />
+                    </button>
+                  </div>
+                  <p className="text-[10px] text-[#64748b]">
+                    {syncManifest.commits.length} commit siap diterapkan ke <span className="font-mono">{selectedRepo || '(pilih repo dulu di bawah)'}</span> @ <span className="font-mono">{branch}</span>
+                  </p>
+                  <ul className="text-[10px] text-[#334155] space-y-0.5 max-h-24 overflow-y-auto">
+                    {syncManifest.commits.map((c, i) => (
+                      <li key={i} className="truncate">• {c.message} <span className="text-[#94a3b8]">({c.files.length} file)</span></li>
+                    ))}
+                  </ul>
+                  <button
+                    onClick={handleApplySync}
+                    disabled={!selectedRepo || isApplyingSync}
+                    className="w-full py-2 rounded-lg bg-[#86b8a0] text-white text-xs font-medium hover:bg-[#6fa085] disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                  >
+                    {isApplyingSync ? 'Menerapkan...' : `Terapkan ${syncManifest.commits.length} Commit`}
+                  </button>
+                  {syncLog.length > 0 && (
+                    <div className="bg-[#f8fafc] rounded-lg p-2 space-y-1 max-h-32 overflow-y-auto">
+                      {syncLog.map((line, i) => (
+                        <p key={i} className="text-[10px] font-mono text-[#334155]">{line}</p>
+                      ))}
+                    </div>
+                  )}
                 </div>
               )}
             </div>

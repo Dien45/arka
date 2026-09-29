@@ -98,27 +98,66 @@ export const availableTools: Tool[] = [
         const url = assertSafeFetchTarget(params.url).toString();
 
         // Check if it's a GitHub repository URL — served straight from
-        // GitHub's own API, no third-party proxy involved.
+        // GitHub's own REST API (api.github.com sends proper CORS headers),
+        // no third-party proxy involved. Try README first, then fall back to
+        // repo metadata + a root directory listing before giving up on the
+        // GitHub API entirely — a repo without a README (or a transient
+        // README-endpoint hiccup) shouldn't force us straight to flaky
+        // third-party CORS proxies.
         const githubRepoMatch = url.match(/github\.com\/([^\/\?#]+\/[^\/\?#]+)/);
         if (githubRepoMatch) {
           const repoPath = githubRepoMatch[1].replace(/\.git$/, '').replace(/\/$/, '');
+          const ghHeaders = { 'Accept': 'application/vnd.github.v3+json' };
 
           try {
-            const apiUrl = `https://api.github.com/repos/${repoPath}/readme`;
-            const response = await fetch(apiUrl, {
-              headers: {
-                'Accept': 'application/vnd.github.v3.raw',
-              },
+            const readmeResponse = await fetch(`https://api.github.com/repos/${repoPath}/readme`, {
+              headers: { 'Accept': 'application/vnd.github.v3.raw' },
             });
 
-            if (response.ok) {
-              const text = await response.text();
+            if (readmeResponse.ok) {
+              const text = await readmeResponse.text();
               return `# GitHub Repository: ${repoPath}\n\n${UNTRUSTED_CONTENT_BANNER}${text.substring(0, MAX_FETCH_CHARS)}`;
             }
+
+            // No README (404) or some other API hiccup — try metadata + file
+            // listing instead of jumping straight to a proxy.
+            const [repoInfoResponse, contentsResponse] = await Promise.all([
+              fetch(`https://api.github.com/repos/${repoPath}`, { headers: ghHeaders }),
+              fetch(`https://api.github.com/repos/${repoPath}/contents/`, { headers: ghHeaders }),
+            ]);
+
+            if (repoInfoResponse.ok) {
+              const info = await repoInfoResponse.json();
+              let out = `# GitHub Repository: ${repoPath}\n\n${UNTRUSTED_CONTENT_BANNER}`;
+              out += `**${info.full_name}**${info.private ? ' (private)' : ''}\n`;
+              out += `${info.description || '(tidak ada deskripsi)'}\n\n`;
+              out += `⭐ ${info.stargazers_count ?? 0} | 🍴 ${info.forks_count ?? 0} | Bahasa: ${info.language || 'N/A'} | Default branch: ${info.default_branch}\n`;
+              out += `URL: ${info.html_url}\n`;
+
+              if (contentsResponse.ok) {
+                const items = await contentsResponse.json();
+                if (Array.isArray(items) && items.length > 0) {
+                  out += `\nIsi folder root:\n`;
+                  out += items
+                    .map((it: any) => `- ${it.type === 'dir' ? '📁' : '📄'} ${it.name}`)
+                    .join('\n');
+                }
+              }
+
+              return out.substring(0, MAX_FETCH_CHARS);
+            }
+
+            if (repoInfoResponse.status === 404) {
+              return `❌ Repository "${repoPath}" tidak ditemukan (404) — cek ejaan owner/nama repo, atau repo tersebut private dan butuh token.`;
+            }
+            if (repoInfoResponse.status === 403) {
+              return `❌ GitHub API rate-limited (403) saat mengakses "${repoPath}". Coba lagi beberapa menit lagi, atau hubungkan GitHub token di Settings untuk limit yang lebih tinggi.`;
+            }
           } catch (apiError) {
-            console.log('GitHub API failed, trying CORS proxy');
+            console.log('GitHub API failed, trying CORS proxy', apiError);
           }
         }
+
 
         // For other URLs, fall back to a public CORS proxy. NOTE: this means
         // the proxy operator can observe (and, if malicious, tamper with)
