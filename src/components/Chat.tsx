@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
-import { Send, Paperclip, Sparkles, User, Bot, Loader2, Code, Terminal, FileCode, Eye, ChevronDown, Check, AlertCircle, ShieldAlert, ShieldCheck, ListChecks, Hammer } from 'lucide-react';
+import { Send, Paperclip, Sparkles, User, Bot, Loader2, Code, Terminal, FileCode, Eye, ChevronDown, Check, AlertCircle, ShieldAlert, ShieldCheck, ListChecks, Hammer, X, File as FileIcon } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import { useApp } from '../store';
 import { Message, ToolCall } from '../types';
@@ -18,6 +18,19 @@ import { memoryManager } from '../memorySystem';
 interface PendingToolApproval {
   name: string;
   params: Record<string, unknown>;
+}
+
+/** A file the user has attached but not yet sent — shown as a removable chip above the composer. */
+interface PendingAttachment {
+  id: string;
+  name: string;
+  content: string;
+  size: number;
+}
+
+function formatAttachmentSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  return `${(bytes / 1024).toFixed(1)} KB`;
 }
 
 function ToolApprovalCard({
@@ -209,7 +222,26 @@ function MessageBubble({ message, selectedModel }: { message: Message; selectedM
             : 'bg-white border border-[#b8c9db] text-[#334155] rounded-tl-sm shadow-sm'
         }`}>
           {isUser ? (
-            <p className="text-sm whitespace-pre-wrap">{message.content}</p>
+            <>
+              {message.attachments && message.attachments.length > 0 && (
+                <div className={`flex flex-wrap gap-1.5 ${message.content ? 'mb-2' : ''} ${isUser ? 'justify-end' : ''}`}>
+                  {message.attachments.map((a, i) => (
+                    <span
+                      key={i}
+                      className="inline-flex items-center gap-1.5 bg-white/15 border border-white/25 rounded-lg px-2 py-1 text-[11px] text-white"
+                      title={a.name}
+                    >
+                      <FileIcon size={11} className="shrink-0" />
+                      <span className="max-w-[140px] truncate">{a.name}</span>
+                      <span className="text-white/70 shrink-0">{formatAttachmentSize(a.size)}</span>
+                    </span>
+                  ))}
+                </div>
+              )}
+              {message.content && (
+                <p className="text-sm whitespace-pre-wrap">{message.content}</p>
+              )}
+            </>
           ) : (
             <div className="markdown-body text-sm">
               <ReactMarkdown>{message.content}</ReactMarkdown>
@@ -260,6 +292,7 @@ const CHAT_MODE_SYSTEM_PROMPTS: Record<ChatMode, string> = {
 export default function Chat() {
   const { state, dispatch } = useApp();
   const [input, setInput] = useState('');
+  const [attachments, setAttachments] = useState<PendingAttachment[]>([]);
   const [isTyping, setIsTyping] = useState(false);
   const [selectedModel, setSelectedModel] = useState(() => {
     return localStorage.getItem('arka-selected-model') || 'gpt-4o';
@@ -343,14 +376,21 @@ export default function Chat() {
         throw new Error('Provider tidak ditemukan atau belum diaktifkan. Buka Settings untuk setup.');
       }
 
-      // Build message history from current session
+      // Build message history from current session. For user messages that
+      // had file attachments, splice the attachment content back in here —
+      // it's kept out of `m.content` so the chat bubble shows just the
+      // typed text with tidy chips instead of a huge dumped code block, but
+      // the model still needs the actual file content for context.
       const session = state.sessions.find(s => s.id === sessionId);
       const previousMessages = session?.messages
         .filter(m => m.role === 'user' || m.role === 'assistant')
         .map(m => ({
           role: m.role as 'user' | 'assistant',
-          content: m.content,
+          content: m.role === 'user' && m.attachmentContent
+            ? `${m.content}${m.content ? '\n\n' : ''}${m.attachmentContent}`
+            : m.content,
         })) || [];
+
 
       // Add current user message to history
       const messageHistory = [
@@ -824,37 +864,51 @@ Keep responses short and actionable.${skillEnhancements}${CHAT_MODE_SYSTEM_PROMP
       const files = Array.from(fileInput.files || []);
       if (files.length === 0) return;
 
-      const blocks: string[] = [];
+      const newAttachments: PendingAttachment[] = [];
+      const skipped: string[] = [];
       for (const file of files) {
         if (file.size > MAX_ATTACH_BYTES) {
-          blocks.push(`[File "${file.name}" dilewati: ukuran ${(file.size / 1024).toFixed(0)} KB melebihi batas ${MAX_ATTACH_BYTES / 1024} KB]`);
+          skipped.push(`"${file.name}" (${(file.size / 1024).toFixed(0)} KB > batas ${MAX_ATTACH_BYTES / 1024} KB)`);
           continue;
         }
         try {
           const text = await file.text();
-          const ext = file.name.split('.').pop() || '';
-          blocks.push(`**${file.name}**\n\`\`\`${ext}\n${text}\n\`\`\``);
+          newAttachments.push({
+            id: `${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+            name: file.name,
+            content: text,
+            size: file.size,
+          });
         } catch {
-          blocks.push(`[Gagal membaca file "${file.name}" — mungkin bukan file teks]`);
+          skipped.push(`"${file.name}" (gagal dibaca — mungkin bukan file teks)`);
         }
       }
 
-      const attachment = blocks.join('\n\n');
-      setInput(prev => (prev.trim() ? `${prev}\n\n${attachment}` : attachment));
+      if (newAttachments.length > 0) {
+        setAttachments(prev => [...prev, ...newAttachments]);
+      }
+      if (skipped.length > 0) {
+        alert(`File berikut dilewati:\n${skipped.join('\n')}`);
+      }
       inputRef.current?.focus();
     };
     fileInput.click();
   };
 
+  const handleRemoveAttachment = (id: string) => {
+    setAttachments(prev => prev.filter(a => a.id !== id));
+  };
+
   const handleSend = () => {
-    if (!input.trim()) return;
+    if (!input.trim() && attachments.length === 0) return;
 
     let sessionId: string = state.currentSessionId || '';
 
     if (!sessionId) {
+      const titleSource = input.trim() || attachments[0]?.name || 'Chat Baru';
       const newSession = {
         id: Date.now().toString(),
-        title: input.slice(0, 40) + (input.length > 40 ? '...' : ''),
+        title: titleSource.slice(0, 40) + (titleSource.length > 40 ? '...' : ''),
         messages: [],
         createdAt: new Date(),
         provider: 'openai' as const,
@@ -864,16 +918,35 @@ Keep responses short and actionable.${skillEnhancements}${CHAT_MODE_SYSTEM_PROMP
       sessionId = newSession.id;
     }
 
+    // The rendered bubble only ever shows the typed text + small file chips
+    // (see MessageBubble) — the actual file content is kept in
+    // `attachmentContent` and spliced back in only when building the
+    // history sent to the AI (see getAIResponse's `previousMessages`).
+    const attachmentContent = attachments.length > 0
+      ? attachments
+          .map(a => `**${a.name}**\n\`\`\`${a.name.split('.').pop() || ''}\n${a.content}\n\`\`\``)
+          .join('\n\n')
+      : undefined;
+
     const userMessage: Message = {
       id: Date.now().toString(),
       role: 'user',
-      content: input,
+      content: input.trim(),
       timestamp: new Date(),
+      ...(attachments.length > 0
+        ? { attachments: attachments.map(a => ({ name: a.name, size: a.size })), attachmentContent }
+        : {}),
     };
 
     dispatch({ type: 'ADD_MESSAGE', payload: { sessionId, message: userMessage } });
+
+    const fullMessageForAI = attachmentContent
+      ? (input.trim() ? `${input.trim()}\n\n${attachmentContent}` : attachmentContent)
+      : input.trim();
+
     setInput('');
-    getAIResponse(input, sessionId);
+    setAttachments([]);
+    getAIResponse(fullMessageForAI, sessionId);
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -881,6 +954,7 @@ Keep responses short and actionable.${skillEnhancements}${CHAT_MODE_SYSTEM_PROMP
       e.preventDefault();
       handleSend();
     }
+
   };
 
   return (
@@ -1100,6 +1174,28 @@ Keep responses short and actionable.${skillEnhancements}${CHAT_MODE_SYSTEM_PROMP
 
       {/* Input Area */}
       <div className="p-3 border-t border-[#b8c9db] bg-white/50 backdrop-blur-sm">
+        {attachments.length > 0 && (
+          <div className="flex flex-wrap gap-1.5 mb-2">
+            {attachments.map(a => (
+              <span
+                key={a.id}
+                className="inline-flex items-center gap-1.5 bg-white border border-[#b8c9db] rounded-lg pl-2 pr-1 py-1 text-xs text-[#334155]"
+                title={a.name}
+              >
+                <FileIcon size={12} className="text-[#7c9cbf] shrink-0" />
+                <span className="max-w-[160px] truncate">{a.name}</span>
+                <span className="text-[#94a3b8] shrink-0">{formatAttachmentSize(a.size)}</span>
+                <button
+                  onClick={() => handleRemoveAttachment(a.id)}
+                  className="p-0.5 rounded hover:bg-[#e8eef4] text-[#94a3b8] hover:text-[#c97878] shrink-0"
+                  title="Hapus lampiran"
+                >
+                  <X size={12} />
+                </button>
+              </span>
+            ))}
+          </div>
+        )}
         <div className="flex items-end gap-2 bg-white rounded-2xl border border-[#b8c9db] p-2 shadow-sm focus-within:border-[#7c9cbf] focus-within:shadow-md transition-all">
           <button
             onClick={handleAttachFile}
@@ -1120,7 +1216,7 @@ Keep responses short and actionable.${skillEnhancements}${CHAT_MODE_SYSTEM_PROMP
           />
           <button
             onClick={handleSend}
-            disabled={!input.trim() || state.isLoading}
+            disabled={(!input.trim() && attachments.length === 0) || state.isLoading}
             className="p-2 rounded-lg bg-[#7c9cbf] text-white hover:bg-[#5a7fa0] disabled:opacity-40 disabled:cursor-not-allowed transition-all shrink-0"
           >
             <Send size={18} />

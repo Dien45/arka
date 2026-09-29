@@ -551,7 +551,18 @@ dist-ssr
   }
 ];
 
+// Only files/folders that live in the AI's virtual workspace (localStorage)
+// can be deleted from here — the rest of the tree below is static demo data
+// with no backing store to delete from.
+function isVirtualFileNode(node: FileNode): boolean {
+  return node.type === 'file' && node.id.startsWith('virtual-') && node.id !== 'virtual-empty';
+}
+function isVirtualFolderNode(node: FileNode): boolean {
+  return node.type === 'folder' && node.id.startsWith('virtual/');
+}
+
 function getFileIcon(name: string, language?: string) {
+
   if (language === 'typescript' || name.endsWith('.tsx') || name.endsWith('.ts')) {
     return <Braces size={14} className="text-[#3b82f6]" />;
   }
@@ -579,7 +590,9 @@ function FileTreeItem({
   selectedFile, 
   onSelect,
   expandedFolders,
-  toggleFolder
+  toggleFolder,
+  onDeleteFile,
+  onDeleteFolder,
 }: { 
   node: FileNode; 
   depth?: number; 
@@ -587,25 +600,41 @@ function FileTreeItem({
   onSelect: (node: FileNode) => void;
   expandedFolders: Set<string>;
   toggleFolder: (id: string) => void;
+  onDeleteFile: (node: FileNode) => void;
+  onDeleteFolder: (node: FileNode) => void;
 }) {
   const isExpanded = expandedFolders.has(node.id);
 
   if (node.type === 'folder') {
+    const canDelete = isVirtualFolderNode(node);
     return (
       <div>
-        <button
-          onClick={() => toggleFolder(node.id)}
-          className="w-full flex items-center gap-1.5 px-2 py-1.5 rounded hover:bg-[#e8eef4] text-left group"
+        <div
+          className="w-full flex items-center gap-1.5 px-2 py-1.5 rounded hover:bg-[#e8eef4] group"
           style={{ paddingLeft: `${depth * 12 + 8}px` }}
         >
-          {isExpanded ? (
-            <ChevronDown size={12} className="text-[#94a3b8] shrink-0" />
-          ) : (
-            <ChevronRight size={12} className="text-[#94a3b8] shrink-0" />
+          <button
+            onClick={() => toggleFolder(node.id)}
+            className="flex-1 min-w-0 flex items-center gap-1.5 text-left"
+          >
+            {isExpanded ? (
+              <ChevronDown size={12} className="text-[#94a3b8] shrink-0" />
+            ) : (
+              <ChevronRight size={12} className="text-[#94a3b8] shrink-0" />
+            )}
+            <FolderOpen size={14} className="text-[#d4a574] shrink-0" />
+            <span className="text-xs text-[#334155] font-medium truncate">{node.name}</span>
+          </button>
+          {canDelete && (
+            <button
+              onClick={(e) => { e.stopPropagation(); onDeleteFolder(node); }}
+              className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-[#c97878]/10 text-[#c97878] shrink-0 transition-opacity"
+              title="Hapus folder ini beserta semua isinya"
+            >
+              <Trash2 size={11} />
+            </button>
           )}
-          <FolderOpen size={14} className="text-[#d4a574] shrink-0" />
-          <span className="text-xs text-[#334155] font-medium truncate">{node.name}</span>
-        </button>
+        </div>
         {isExpanded && node.children?.map(child => (
           <FileTreeItem 
             key={child.id} 
@@ -615,6 +644,8 @@ function FileTreeItem({
             onSelect={onSelect}
             expandedFolders={expandedFolders}
             toggleFolder={toggleFolder}
+            onDeleteFile={onDeleteFile}
+            onDeleteFolder={onDeleteFolder}
           />
         ))}
       </div>
@@ -635,28 +666,44 @@ function FileTreeItem({
     staged: 'S',
   };
 
+  const canDeleteFile = isVirtualFileNode(node);
+
   return (
-    <button
-      onClick={() => onSelect(node)}
-      className={`w-full flex items-center gap-1.5 px-2 py-1.5 rounded text-left transition-colors ${
+    <div
+      className={`w-full flex items-center gap-1.5 px-2 py-1.5 rounded transition-colors group ${
         selectedFile?.id === node.id ? 'bg-[#7c9cbf]/15 text-[#5a7fa0]' : 'hover:bg-[#e8eef4]'
       }`}
       style={{ paddingLeft: `${depth * 12 + 20}px` }}
     >
-      {getFileIcon(node.name, node.language)}
-      <span className={`text-xs truncate flex-1 ${
-        node.gitStatus ? gitStatusColors[node.gitStatus] : 'text-[#334155]'
-      }`}>
-        {node.name}
-      </span>
-      {node.gitStatus && (
-        <span className={`text-[9px] font-bold ${gitStatusColors[node.gitStatus]}`}>
-          {gitStatusLabels[node.gitStatus]}
+      <button
+        onClick={() => onSelect(node)}
+        className="flex-1 min-w-0 flex items-center gap-1.5 text-left"
+      >
+        {getFileIcon(node.name, node.language)}
+        <span className={`text-xs truncate flex-1 ${
+          node.gitStatus ? gitStatusColors[node.gitStatus] : 'text-[#334155]'
+        }`}>
+          {node.name}
         </span>
+        {node.gitStatus && (
+          <span className={`text-[9px] font-bold ${gitStatusColors[node.gitStatus]}`}>
+            {gitStatusLabels[node.gitStatus]}
+          </span>
+        )}
+      </button>
+      {canDeleteFile && (
+        <button
+          onClick={(e) => { e.stopPropagation(); onDeleteFile(node); }}
+          className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-[#c97878]/10 text-[#c97878] shrink-0 transition-opacity"
+          title="Hapus file ini dari workspace"
+        >
+          <Trash2 size={11} />
+        </button>
       )}
-    </button>
+    </div>
   );
 }
+
 
 export default function FileExplorer() {
   const [selectedFile, setSelectedFile] = useState<FileNode | null>(null);
@@ -785,6 +832,48 @@ export default function FileExplorer() {
       newExpanded.add(id);
     }
     setExpandedFolders(newExpanded);
+  };
+
+  // Closes any open tab / clears selection for paths that no longer exist
+  // after a delete, so the content pane doesn't keep showing stale content.
+  const forgetTabsForIds = (ids: Set<string>) => {
+    setOpenTabs(prev => prev.filter(t => !ids.has(t.id)));
+    setActiveTab(prev => (prev && ids.has(prev.id) ? null : prev));
+    setSelectedFile(prev => (prev && ids.has(prev.id) ? null : prev));
+  };
+
+  const handleDeleteFile = (node: FileNode) => {
+    if (!window.confirm(`Hapus file "${node.name}" dari workspace? Tindakan ini tidak bisa dibatalkan.`)) return;
+    try {
+      const path = node.id.replace(/^virtual-/, '');
+      const files = JSON.parse(localStorage.getItem('arka-virtual-files') || '{}');
+      delete files[path];
+      localStorage.setItem('arka-virtual-files', JSON.stringify(files));
+      window.dispatchEvent(new CustomEvent('virtual-files-updated'));
+      setVirtualFiles(files);
+      forgetTabsForIds(new Set([node.id]));
+    } catch (error) {
+      console.error('Gagal menghapus file virtual:', error);
+      window.alert('Gagal menghapus file.');
+    }
+  };
+
+  const handleDeleteFolder = (node: FileNode) => {
+    const folderPath = node.id.replace(/^virtual\//, '');
+    if (!window.confirm(`Hapus folder "${node.name}" beserta SEMUA isinya dari workspace? Tindakan ini tidak bisa dibatalkan.`)) return;
+    try {
+      const files = JSON.parse(localStorage.getItem('arka-virtual-files') || '{}');
+      const prefix = `${folderPath}/`;
+      const pathsToDelete = Object.keys(files).filter(p => p === folderPath || p.startsWith(prefix));
+      pathsToDelete.forEach(p => delete files[p]);
+      localStorage.setItem('arka-virtual-files', JSON.stringify(files));
+      window.dispatchEvent(new CustomEvent('virtual-files-updated'));
+      setVirtualFiles(files);
+      forgetTabsForIds(new Set(pathsToDelete.map(p => `virtual-${p}`)));
+    } catch (error) {
+      console.error('Gagal menghapus folder virtual:', error);
+      window.alert('Gagal menghapus folder.');
+    }
   };
 
   const handleFileSelect = (file: FileNode) => {
@@ -1023,16 +1112,29 @@ export default function FileExplorer() {
                   }
                   return [];
                 }).map(file => (
-                  <button
+                  <div
                     key={file.id}
-                    onClick={() => handleFileSelect(file)}
-                    className={`w-full flex items-center gap-1.5 px-2 py-1.5 rounded text-left ${
+                    className={`w-full flex items-center gap-1.5 px-2 py-1.5 rounded group ${
                       selectedFile?.id === file.id ? 'bg-[#7c9cbf]/15' : 'hover:bg-[#e8eef4]'
                     }`}
                   >
-                    {getFileIcon(file.name, file.language)}
-                    <span className="text-xs text-[#334155] truncate">{file.name}</span>
-                  </button>
+                    <button
+                      onClick={() => handleFileSelect(file)}
+                      className="flex-1 min-w-0 flex items-center gap-1.5 text-left"
+                    >
+                      {getFileIcon(file.name, file.language)}
+                      <span className="text-xs text-[#334155] truncate">{file.name}</span>
+                    </button>
+                    {isVirtualFileNode(file) && (
+                      <button
+                        onClick={(e) => { e.stopPropagation(); handleDeleteFile(file); }}
+                        className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-[#c97878]/10 text-[#c97878] shrink-0 transition-opacity"
+                        title="Hapus file ini dari workspace"
+                      >
+                        <Trash2 size={11} />
+                      </button>
+                    )}
+                  </div>
                 ))}
               </div>
             ) : (
@@ -1044,6 +1146,8 @@ export default function FileExplorer() {
                   onSelect={handleFileSelect}
                   expandedFolders={expandedFolders}
                   toggleFolder={toggleFolder}
+                  onDeleteFile={handleDeleteFile}
+                  onDeleteFolder={handleDeleteFolder}
                 />
               ))
             )}
@@ -1124,6 +1228,15 @@ export default function FileExplorer() {
                 >
                   <Download size={14} />
                 </button>
+                {isVirtualFileNode(activeTab) && (
+                  <button
+                    onClick={() => handleDeleteFile(activeTab)}
+                    className="p-1 rounded hover:bg-[#c97878]/10 text-[#c97878]"
+                    title="Hapus file ini dari workspace"
+                  >
+                    <Trash2 size={14} />
+                  </button>
+                )}
               </div>
             </div>
           )}

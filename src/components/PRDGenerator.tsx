@@ -9,7 +9,9 @@ import { callAIProviderFull, ChatMessage } from '../aiService';
 
 const PRD_SYSTEM_PROMPT = `You are a senior product manager. Given a short product idea from the user, write a complete, well-structured Product Requirements Document (PRD) in Markdown.
 
-Always include these sections (adapt the exact wording to the idea, but keep this overall structure and use "##" headings):
+Start with a single "# " (H1) line containing a short, professional document title that you write yourself (e.g. "# PRD: Aplikasi Pengingat Minum Obat") — never the idea copy-pasted verbatim as the title.
+
+Then always include these sections (adapt the exact wording to the idea, but keep this overall structure and use "##" headings):
 1. Ringkasan (Summary) — one short paragraph
 2. Asumsi — if the idea is vague or missing details, state the assumptions you made here instead of asking clarifying questions back (this is a one-shot generation)
 3. Latar Belakang & Masalah — what problem this solves and why it matters
@@ -27,7 +29,8 @@ Rules:
 - Be concrete and specific to the idea given — never use generic filler text.
 - Use proper Markdown: headings, bullet/numbered lists, and a table where it helps (e.g. requirement priority).
 - When asked to revise, keep the same overall structure and only change what the revision instruction asks for, returning the FULL updated document again (not a diff).
-- Do not repeat the idea back verbatim as a title; start directly with the "## Ringkasan" section.`;
+- CRITICAL: your entire reply must be ONLY the document itself (the "# " title line through the end of "## Risiko & Pertanyaan Terbuka"). Do NOT add any greeting, preamble, or closing remark before or after it — no "Berikut PRD-nya:", no "Semoga membantu!", and especially no closing question offering to do more work (e.g. "Mau saya lanjutkan ke desain mockup?"). This output is saved directly as a file, so anything other than the document itself would end up inside that file.`;
+
 
 interface PRDDoc {
   id: string;
@@ -42,6 +45,15 @@ function deriveTitle(idea: string): string {
   const words = firstLine.split(/\s+/).slice(0, 8).join(' ');
   if (!words) return 'PRD Tanpa Judul';
   return words.length < firstLine.length ? `${words}...` : words;
+}
+
+/** Pulls the "# Title" the model was instructed to open the document with, if present. */
+function extractTitleFromContent(content: string): string | null {
+  const firstLine = content.trim().split('\n')[0]?.trim();
+  if (firstLine && firstLine.startsWith('# ')) {
+    return firstLine.slice(2).trim() || null;
+  }
+  return null;
 }
 
 function slugify(text: string): string {
@@ -102,7 +114,7 @@ export default function PRDGenerator() {
         userMsg,
       ];
       const response = await callAIProviderFull(activeProvider, messages);
-      const title = customTitle.trim() || deriveTitle(idea);
+      const title = customTitle.trim() || extractTitleFromContent(response.content) || deriveTitle(idea);
       const now = new Date().toISOString();
       const doc: PRDDoc = {
         id: `${Date.now()}`,

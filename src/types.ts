@@ -17,6 +17,10 @@ export interface Message {
   timestamp: Date;
   toolCalls?: ToolCall[];
   files?: FileChange[];
+  /** Metadata only (name/size), for rendering attachment chips on the bubble. */
+  attachments?: { name: string; size: number }[];
+  /** The actual attached file content (as code-block text), sent to the AI but hidden from the rendered bubble. */
+  attachmentContent?: string;
 }
 
 export interface ToolCall {
