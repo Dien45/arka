@@ -1,4 +1,5 @@
 import { memoryManager } from './memorySystem';
+import { loadVirtualFiles, saveVirtualFiles, loadCheckpoint, saveCheckpoint } from './virtualFs';
 
 // Tool calling system for Arka AI
 //
@@ -22,6 +23,11 @@ import { memoryManager } from './memorySystem';
 //  4. Size caps on write_file / virtual storage to prevent local storage
 //     exhaustion DoS from a single malicious response.
 
+export interface ToolContext {
+  /** The chat session the tool call originated from — used to scope the virtual filesystem (see virtualFs.ts) so each session gets its own isolated workspace. */
+  sessionId?: string | null;
+}
+
 export interface Tool {
   name: string;
   description: string;
@@ -31,7 +37,7 @@ export interface Tool {
    * must be confirmed by the user before running (see Chat.tsx).
    */
   sensitive?: boolean;
-  execute: (params: any) => Promise<any>;
+  execute: (params: any, context?: ToolContext) => Promise<any>;
 }
 
 const UNTRUSTED_CONTENT_BANNER =
@@ -232,9 +238,9 @@ export const availableTools: Tool[] = [
     parameters: {
       path: { type: 'string', description: 'The file path to read' },
     },
-    execute: async (params: { path: string }) => {
+    execute: async (params: { path: string }, context?: ToolContext) => {
       try {
-        const virtualFiles = JSON.parse(localStorage.getItem('arka-virtual-files') || '{}');
+        const virtualFiles = loadVirtualFiles(context?.sessionId);
 
         if (virtualFiles[params.path]) {
           const file = virtualFiles[params.path];
@@ -249,13 +255,13 @@ export const availableTools: Tool[] = [
   },
   {
     name: 'write_file',
-    description: 'Write content to a file in the virtual workspace. Files are stored in browser memory and can be viewed in the Files tab. Requires user approval before running.',
+    description: 'Write content to a file in the virtual workspace. Files are stored in browser memory (scoped to this chat session) and can be viewed in the Files tab. Requires user approval before running.',
     parameters: {
       path: { type: 'string', description: 'The file path to write (e.g., "index.html" or "src/App.tsx")' },
       content: { type: 'string', description: 'The content to write' },
     },
     sensitive: true,
-    execute: async (params: { path: string; content: string }) => {
+    execute: async (params: { path: string; content: string }, context?: ToolContext) => {
       try {
         if (typeof params.path !== 'string' || !params.path.trim()) {
           return '❌ Path file tidak valid.';
@@ -267,7 +273,7 @@ export const availableTools: Tool[] = [
           return `❌ File terlalu besar (${params.content.length} bytes). Maksimum ${MAX_FILE_BYTES} bytes per file.`;
         }
 
-        const virtualFiles = JSON.parse(localStorage.getItem('arka-virtual-files') || '{}');
+        const virtualFiles = loadVirtualFiles(context?.sessionId);
 
         const currentTotal = Object.values(virtualFiles).reduce(
           (sum: number, f: any) => sum + (f?.size || 0),
@@ -285,8 +291,7 @@ export const availableTools: Tool[] = [
           size: params.content.length,
         };
 
-        localStorage.setItem('arka-virtual-files', JSON.stringify(virtualFiles));
-        window.dispatchEvent(new CustomEvent('virtual-files-updated'));
+        saveVirtualFiles(context?.sessionId, virtualFiles);
 
         return `✅ File "${params.path}" berhasil dibuat di virtual workspace (${params.content.length} bytes). File otomatis muncul di tab "Files".`;
       } catch (error) {
@@ -300,9 +305,9 @@ export const availableTools: Tool[] = [
     parameters: {
       path: { type: 'string', description: 'The directory path to list (use "/" for root)' },
     },
-    execute: async (params: { path: string }) => {
+    execute: async (params: { path: string }, context?: ToolContext) => {
       try {
-        const virtualFiles = JSON.parse(localStorage.getItem('arka-virtual-files') || '{}');
+        const virtualFiles = loadVirtualFiles(context?.sessionId);
         const files = Object.keys(virtualFiles);
 
         if (files.length === 0) {
@@ -334,14 +339,14 @@ export const availableTools: Tool[] = [
       message: { type: 'string', description: 'A short, descriptive commit message summarizing what changed since the last checkpoint' },
     },
     sensitive: true,
-    execute: async (params: { message: string }) => {
+    execute: async (params: { message: string }, context?: ToolContext) => {
       try {
         if (typeof params.message !== 'string' || !params.message.trim()) {
           return '❌ Pesan commit tidak boleh kosong.';
         }
 
-        const virtualFiles = JSON.parse(localStorage.getItem('arka-virtual-files') || '{}');
-        const checkpoint = JSON.parse(localStorage.getItem('arka-patch-checkpoint') || '{}');
+        const virtualFiles = loadVirtualFiles(context?.sessionId);
+        const checkpoint = loadCheckpoint(context?.sessionId);
 
         const files: { path: string; content: string | null }[] = [];
 
@@ -384,7 +389,7 @@ export const availableTools: Tool[] = [
         for (const path of Object.keys(virtualFiles)) {
           newCheckpoint[path] = virtualFiles[path]?.content ?? '';
         }
-        localStorage.setItem('arka-patch-checkpoint', JSON.stringify(newCheckpoint));
+        saveCheckpoint(context?.sessionId, newCheckpoint);
 
         window.dispatchEvent(new CustomEvent('staged-commits-updated'));
 
@@ -462,14 +467,14 @@ export function getToolsList(): string {
   ).join('\n');
 }
 
-export async function executeTool(name: string, params: any): Promise<string> {
+export async function executeTool(name: string, params: any, context?: ToolContext): Promise<string> {
   const tool = getToolByName(name);
   if (!tool) {
     return `Error: Tool "${name}" not found`;
   }
 
   try {
-    const result = await tool.execute(params);
+    const result = await tool.execute(params, context);
     return typeof result === 'string' ? result : JSON.stringify(result, null, 2);
   } catch (error) {
     return `Error executing tool "${name}": ${error instanceof Error ? error.message : 'Unknown error'}`;

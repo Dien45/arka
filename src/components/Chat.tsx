@@ -807,7 +807,7 @@ Keep responses short and actionable.${skillEnhancements}${CHAT_MODE_SYSTEM_PROMP
             if (isPlanModeBlocked) {
               toolResult = `⛔ Tool "${toolCall.name}" is disabled in Plan mode (read-only/discussion only). Do not attempt it again — tell the user to switch to Build or Agent mode if they want this action performed.`;
             } else if (approvedOrNotSensitive) {
-              toolResult = await executeTool(toolCall.name, params);
+              toolResult = await executeTool(toolCall.name, params, { sessionId });
             } else {
               toolResult = `⛔ User denied execution of tool "${toolCall.name}" with these arguments. Do not retry the same action; ask the user what they'd like instead.`;
             }

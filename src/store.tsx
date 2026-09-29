@@ -1,5 +1,6 @@
 import { createContext, useContext, useReducer, ReactNode, Dispatch, useEffect } from 'react';
 import { ProviderConfig, Session, Agent, View, Message, GitHubRepo } from './types';
+import { migrateLegacyVirtualFilesOnce, deleteSessionWorkspace } from './virtualFs';
 import {
   isVaultConfigured,
   setupVault,
@@ -186,6 +187,15 @@ const savePlaintextState = (state: AppState) => {
 
 const initialState: AppState = loadState();
 
+// One-time migration of the old single shared virtual workspace into
+// whichever session was active when this version first loads (skipped
+// entirely if the vault is locked — that case is handled after unlock, in
+// the HYDRATE_FROM_VAULT reducer branch below, once we actually know the
+// session id).
+if (!initialState.locked) {
+  migrateLegacyVirtualFilesOnce(initialState.currentSessionId);
+}
+
 function reducer(state: AppState, action: Action): AppState {
   switch (action.type) {
     case 'SET_VIEW':
@@ -218,6 +228,10 @@ function reducer(state: AppState, action: Action): AppState {
         ),
       };
     case 'DELETE_SESSION':
+      // Each session owns its own virtual workspace (see virtualFs.ts) —
+      // clean that up too, otherwise it lingers in localStorage forever
+      // with no session left to view/manage it from.
+      deleteSessionWorkspace(action.payload);
       return {
         ...state,
         sessions: state.sessions.filter(s => s.id !== action.payload),
@@ -254,6 +268,7 @@ function reducer(state: AppState, action: Action): AppState {
     case 'SET_LOADING':
       return { ...state, isLoading: action.payload };
     case 'HYDRATE_FROM_VAULT':
+      migrateLegacyVirtualFilesOnce(action.payload.currentSessionId ?? null);
       return {
         ...state,
         sessions: action.payload.sessions ?? [],

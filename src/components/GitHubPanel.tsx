@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo } from 'react';
 import { Github, GitBranch, GitCommit, GitPullRequest, Upload, RefreshCw, ExternalLink, Check, AlertCircle, Info, FileCode, FolderGit2, FolderUp, Trash2, X, Bot, Download } from 'lucide-react';
 import { useApp } from '../store';
 import { fetchGitHubRepos, pushToGitHub, getGitHubUser, getExcessiveScopes } from '../githubApi';
+import { loadVirtualFiles as loadSessionVirtualFiles, virtualFilesKey } from '../virtualFs';
 
 // A "patch manifest" is Arka's answer to a raw git bundle: instead of the
 // browser having to parse git's binary pack format (which the browser can't
@@ -22,6 +23,10 @@ interface SyncManifest {
 
 export default function GitHubPanel() {
   const { state, dispatch } = useApp();
+  // Every chat session has its own isolated virtual workspace (see
+  // virtualFs.ts) — this panel pushes whatever the currently active session
+  // has, matching what's shown in the Files tab.
+  const sessionId = state.currentSessionId;
   const [token, setToken] = useState(state.githubToken);
   const [commitMessage, setCommitMessage] = useState('');
   const [branch, setBranch] = useState('main');
@@ -64,12 +69,7 @@ export default function GitHubPanel() {
   }, [uploadedFiles, virtualFiles]);
 
   const loadVirtualFiles = () => {
-    try {
-      const files = JSON.parse(localStorage.getItem('arka-virtual-files') || '{}');
-      setVirtualFiles(files);
-    } catch (error) {
-      console.error('Failed to load virtual files:', error);
-    }
+    setVirtualFiles(loadSessionVirtualFiles(sessionId));
   };
 
   const loadStagedCommits = () => {
@@ -85,20 +85,27 @@ export default function GitHubPanel() {
     loadVirtualFiles();
     loadStagedCommits();
     const handleStorageChange = (e: StorageEvent) => {
-      if (e.key === 'arka-virtual-files') loadVirtualFiles();
+      if (e.key === virtualFilesKey(sessionId)) loadVirtualFiles();
       if (e.key === 'arka-staged-commits') loadStagedCommits();
     };
     window.addEventListener('storage', handleStorageChange);
-    // Dispatched by the AI's write_file tool and by FileExplorer.
-    window.addEventListener('virtual-files-updated', loadVirtualFiles);
+    // Dispatched by the AI's write_file tool and by FileExplorer — ignore
+    // updates meant for a different session than the one shown here.
+    const handleVirtualFilesUpdated = (e: Event) => {
+      const detailSessionId = (e as CustomEvent).detail?.sessionId;
+      if (detailSessionId === undefined || detailSessionId === sessionId) {
+        loadVirtualFiles();
+      }
+    };
+    window.addEventListener('virtual-files-updated', handleVirtualFilesUpdated);
     // Dispatched by the AI's stage_commit tool.
     window.addEventListener('staged-commits-updated', loadStagedCommits);
     return () => {
       window.removeEventListener('storage', handleStorageChange);
-      window.removeEventListener('virtual-files-updated', loadVirtualFiles);
+      window.removeEventListener('virtual-files-updated', handleVirtualFilesUpdated);
       window.removeEventListener('staged-commits-updated', loadStagedCommits);
     };
-  }, []);
+  }, [sessionId]);
 
 
   const handleConnect = async () => {
@@ -586,7 +593,7 @@ export default function GitHubPanel() {
                 )}
               </div>
               <p className="text-[10px] text-[#94a3b8] -mt-2 mb-3">
-                File yang ditulis AI (via write_file) otomatis muncul di sini juga — tidak perlu upload manual.
+                File yang ditulis AI (via write_file) di sesi chat yang lagi aktif otomatis muncul di sini juga — tidak perlu upload manual. Ganti sesi di sidebar untuk push workspace sesi lain.
               </p>
               
               {workspaceFiles.size === 0 ? (

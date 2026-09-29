@@ -4,6 +4,8 @@ import {
   Image, Copy, Check, Plus, Trash2, Edit2, X, Download, 
   FileJson, FileSpreadsheet, Hash, Braces, Type, Folder, Loader2
 } from 'lucide-react';
+import { useApp } from '../store';
+import { loadVirtualFiles, saveVirtualFiles, virtualFilesKey, VirtualFileMap } from '../virtualFs';
 
 interface FileNode {
   id: string;
@@ -173,6 +175,11 @@ function FileTreeItem({
 
 
 export default function FileExplorer() {
+  const { state } = useApp();
+  // Every session gets its own isolated workspace (see virtualFs.ts) —
+  // files written while working on one chat don't leak into another.
+  const sessionId = state.currentSessionId;
+
   const [selectedFile, setSelectedFile] = useState<FileNode | null>(null);
   const [openTabs, setOpenTabs] = useState<FileNode[]>([]);
   const [activeTab, setActiveTab] = useState<FileNode | null>(null);
@@ -182,57 +189,64 @@ export default function FileExplorer() {
   const [showActions, setShowActions] = useState(false);
   const [workspacePath, setWorkspacePath] = useState<string>('Virtual Workspace');
   const [showFolderPicker, setShowFolderPicker] = useState(false);
-  const [virtualFiles, setVirtualFiles] = useState<Record<string, any>>({});
+  const [virtualFiles, setVirtualFiles] = useState<VirtualFileMap>({});
   const [refreshKey, setRefreshKey] = useState(0);
 
-  // Load virtual files from localStorage
-  const loadVirtualFiles = useCallback(() => {
-    try {
-      const files = JSON.parse(localStorage.getItem('arka-virtual-files') || '{}');
-      setVirtualFiles(files);
-    } catch (error) {
-      console.error('Failed to load virtual files:', error);
-    }
-  }, []);
+  // Re-read the active session's files from localStorage into component state.
+  const refreshVirtualFiles = useCallback(() => {
+    setVirtualFiles(loadVirtualFiles(sessionId));
+  }, [sessionId]);
 
   useEffect(() => {
-    loadVirtualFiles();
+    // Closing over the tabs/selection from a *previous* session would let
+    // stale content (or a stale delete) leak across sessions, so clear them
+    // whenever the active session changes.
+    setOpenTabs([]);
+    setActiveTab(null);
+    setSelectedFile(null);
+    refreshVirtualFiles();
 
     // Listen for storage changes from other tabs/windows
     const handleStorageChange = (e: StorageEvent) => {
-      if (e.key === 'arka-virtual-files') {
-        loadVirtualFiles();
+      if (e.key === virtualFilesKey(sessionId)) {
+        refreshVirtualFiles();
       }
     };
     window.addEventListener('storage', handleStorageChange);
     
     // Listen for custom event from tools (same tab)
-    const handleVirtualFilesUpdated = () => {
-      loadVirtualFiles();
+    const handleVirtualFilesUpdated = (e: Event) => {
+      const detailSessionId = (e as CustomEvent).detail?.sessionId;
+      // Ignore updates for a different session so switching tasks in the
+      // background (e.g. Agent mode still running on another session)
+      // never overwrites what's currently shown here.
+      if (detailSessionId === undefined || detailSessionId === sessionId) {
+        refreshVirtualFiles();
+      }
     };
     window.addEventListener('virtual-files-updated', handleVirtualFilesUpdated);
     
     // Check periodically for changes from same tab (tools, etc)
-    const interval = setInterval(loadVirtualFiles, 500);
+    const interval = setInterval(refreshVirtualFiles, 500);
 
     return () => {
       window.removeEventListener('storage', handleStorageChange);
       window.removeEventListener('virtual-files-updated', handleVirtualFilesUpdated);
       clearInterval(interval);
     };
-  }, [loadVirtualFiles]);
+  }, [refreshVirtualFiles, sessionId]);
 
   // Read-modify-write helper for the virtual filesystem, shared by New File / New Folder.
   const writeVirtualFile = (path: string, content: string) => {
     try {
-      const files = JSON.parse(localStorage.getItem('arka-virtual-files') || '{}');
+      const files = loadVirtualFiles(sessionId);
+
       files[path] = {
         content,
         modified: new Date().toISOString(),
         size: content.length,
       };
-      localStorage.setItem('arka-virtual-files', JSON.stringify(files));
-      window.dispatchEvent(new CustomEvent('virtual-files-updated'));
+      saveVirtualFiles(sessionId, files);
       setVirtualFiles(files);
       return true;
     } catch (error) {
@@ -243,6 +257,10 @@ export default function FileExplorer() {
 
   const handleCreateNewFile = () => {
     setShowActions(false);
+    if (!sessionId) {
+      window.alert('Pilih atau mulai sesi chat dulu — setiap sesi punya workspace file-nya sendiri.');
+      return;
+    }
     const name = window.prompt('Nama file baru (contoh: src/utils/helper.ts):', 'file-baru.txt');
     if (!name || !name.trim()) return;
     const path = name.trim().replace(/^\/+/, '');
@@ -250,7 +268,7 @@ export default function FileExplorer() {
       window.alert('Nama file tidak boleh mengandung ".."');
       return;
     }
-    const currentFiles = JSON.parse(localStorage.getItem('arka-virtual-files') || '{}');
+    const currentFiles = loadVirtualFiles(sessionId);
     if (currentFiles[path]) {
       window.alert(`File "${path}" sudah ada.`);
       return;
@@ -278,6 +296,10 @@ export default function FileExplorer() {
 
   const handleCreateNewFolder = () => {
     setShowActions(false);
+    if (!sessionId) {
+      window.alert('Pilih atau mulai sesi chat dulu — setiap sesi punya workspace file-nya sendiri.');
+      return;
+    }
     const name = window.prompt('Nama folder baru (contoh: src/components):', 'folder-baru');
     if (!name || !name.trim()) return;
     const path = name.trim().replace(/^\/+/, '').replace(/\/+$/, '');
@@ -313,10 +335,9 @@ export default function FileExplorer() {
     if (!window.confirm(`Hapus file "${node.name}" dari workspace? Tindakan ini tidak bisa dibatalkan.`)) return;
     try {
       const path = node.id.replace(/^virtual-/, '');
-      const files = JSON.parse(localStorage.getItem('arka-virtual-files') || '{}');
+      const files = loadVirtualFiles(sessionId);
       delete files[path];
-      localStorage.setItem('arka-virtual-files', JSON.stringify(files));
-      window.dispatchEvent(new CustomEvent('virtual-files-updated'));
+      saveVirtualFiles(sessionId, files);
       setVirtualFiles(files);
       forgetTabsForIds(new Set([node.id]));
     } catch (error) {
@@ -329,12 +350,11 @@ export default function FileExplorer() {
     const folderPath = node.id.replace(/^virtual\//, '');
     if (!window.confirm(`Hapus folder "${node.name}" beserta SEMUA isinya dari workspace? Tindakan ini tidak bisa dibatalkan.`)) return;
     try {
-      const files = JSON.parse(localStorage.getItem('arka-virtual-files') || '{}');
+      const files = loadVirtualFiles(sessionId);
       const prefix = `${folderPath}/`;
       const pathsToDelete = Object.keys(files).filter(p => p === folderPath || p.startsWith(prefix));
       pathsToDelete.forEach(p => delete files[p]);
-      localStorage.setItem('arka-virtual-files', JSON.stringify(files));
-      window.dispatchEvent(new CustomEvent('virtual-files-updated'));
+      saveVirtualFiles(sessionId, files);
       setVirtualFiles(files);
       forgetTabsForIds(new Set(pathsToDelete.map(p => `virtual-${p}`)));
     } catch (error) {
@@ -506,7 +526,9 @@ export default function FileExplorer() {
     return [
       {
         id: 'virtual-empty',
-        name: '(kosong - AI akan buat file di sini)',
+        name: sessionId
+          ? '(kosong - AI akan buat file di sini)'
+          : '(pilih atau mulai sesi chat dulu)',
         type: 'file' as const,
         content: '',
         language: 'text',
@@ -514,9 +536,10 @@ export default function FileExplorer() {
         modified: '-',
       },
     ];
-  }, [getVirtualFileNodes]);
+  }, [getVirtualFileNodes, sessionId]);
 
   const mergedWorkspace = getMergedWorkspace();
+  const currentSession = state.sessions.find(s => s.id === sessionId);
 
   return (
     <div className="flex flex-col h-full">
@@ -525,9 +548,15 @@ export default function FileExplorer() {
         <div className="flex items-center gap-3">
           <FolderOpen size={18} className="text-[#7c9cbf] shrink-0" />
           <div className="flex-1 min-w-0">
-            <h2 className="font-semibold text-[#334155] text-sm">Workspace</h2>
+            <h2 className="font-semibold text-[#334155] text-sm truncate">
+              Workspace{currentSession ? ` — ${currentSession.title}` : ''}
+            </h2>
             <p className="text-[10px] text-[#94a3b8] truncate">
-              {activeTab ? `${activeTab.name} • ${activeTab.size} • ${activeTab.modified}` : 'Pilih file untuk melihat'}
+              {activeTab
+                ? `${activeTab.name} • ${activeTab.size} • ${activeTab.modified}`
+                : currentSession
+                ? 'Pilih file untuk melihat'
+                : 'Belum ada sesi aktif — setiap sesi punya workspace sendiri'}
             </p>
           </div>
           <button

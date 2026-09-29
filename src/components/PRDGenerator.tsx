@@ -6,6 +6,7 @@ import {
 } from 'lucide-react';
 import { useApp } from '../store';
 import { callAIProviderFull, ChatMessage } from '../aiService';
+import { loadVirtualFiles, saveVirtualFiles } from '../virtualFs';
 
 const PRD_SYSTEM_PROMPT = `You are a senior product manager. Given a short product idea from the user, write a complete, well-structured Product Requirements Document (PRD) in Markdown.
 
@@ -186,13 +187,19 @@ export default function PRDGenerator() {
   };
 
   const handleSaveToWorkspace = (doc: PRDDoc) => {
+    // Each chat session has its own isolated virtual workspace (see
+    // virtualFs.ts) — save into whichever session is currently active so
+    // the file actually shows up in that session's Files tab.
+    if (!state.currentSessionId) {
+      alert('Pilih atau mulai sesi chat dulu — file akan disimpan ke workspace sesi itu.');
+      return;
+    }
     try {
-      const virtualFiles = JSON.parse(localStorage.getItem('arka-virtual-files') || '{}');
+      const virtualFiles = loadVirtualFiles(state.currentSessionId);
       const path = `docs/prd/${slugify(doc.title)}.md`;
       const content = getLatestContent(doc);
       virtualFiles[path] = { content, modified: new Date().toISOString(), size: content.length };
-      localStorage.setItem('arka-virtual-files', JSON.stringify(virtualFiles));
-      window.dispatchEvent(new CustomEvent('virtual-files-updated'));
+      saveVirtualFiles(state.currentSessionId, virtualFiles);
       flashNotice(doc.id, 'saved');
     } catch {
       alert('Gagal menyimpan ke workspace.');
