@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
-import { Send, Paperclip, Sparkles, User, Bot, Loader2, Code, Terminal, FileCode, Eye, ChevronDown, ChevronRight, Check, AlertCircle, ShieldAlert, ShieldCheck, ListChecks, Hammer, X, File as FileIcon, Search } from 'lucide-react';
+import { Send, Paperclip, Sparkles, User, Bot, Loader2, Code, Terminal, FileCode, Eye, ChevronDown, ChevronRight, Check, AlertCircle, ShieldAlert, ShieldCheck, ListChecks, Hammer, X, File as FileIcon, Search, Square } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import { useApp } from '../store';
 import { Message, ToolCall, Provider } from '../types';
@@ -339,6 +339,21 @@ export default function Chat() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const approvalResolverRef = useRef<((approved: boolean) => void) | null>(null);
+  // Lets the Stop button cancel the in-flight AI call (and short-circuit the
+  // tool-calling loop) instead of having to wait for it to finish on its own.
+  const abortControllerRef = useRef<AbortController | null>(null);
+
+  const handleStopGeneration = () => {
+    abortControllerRef.current?.abort();
+    // If a tool-approval prompt is up when Stop is hit, auto-deny it —
+    // otherwise the run stays stuck waiting on a decision that will never
+    // come instead of actually winding down.
+    if (approvalResolverRef.current) {
+      approvalResolverRef.current(false);
+      approvalResolverRef.current = null;
+      setPendingApproval(null);
+    }
+  };
 
   /** Show the approval card and block until the user clicks Izinkan/Tolak. */
   const requestToolApproval = (name: string, params: Record<string, unknown>): Promise<boolean> => {
@@ -455,6 +470,8 @@ export default function Chat() {
   const getAIResponse = async (userMessage: string, sessionId: string) => {
     setIsTyping(true);
     dispatch({ type: 'SET_LOADING', payload: true });
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
 
     try {
       // Find the provider for the selected model
@@ -809,15 +826,22 @@ Keep responses short and actionable.${skillEnhancements}${CHAT_MODE_SYSTEM_PROMP
       // one back, etc.) look like the AI "stopped in the middle": the
       // follow-up tool request was silently dropped and never executed.
       const MAX_TOOL_ITERATIONS = 25;
-      let aiResponse = applyTextToolCallFallback(await callAIProviderFull(provider, messagesWithSystem, toolDefinitions));
+      let aiResponse = applyTextToolCallFallback(
+        await callAIProviderFull(provider, messagesWithSystem, toolDefinitions, undefined, controller.signal)
+      );
       let responseContent = aiResponse.content;
       let toolRounds = 0;
       let stoppedByCap = false;
+      let stoppedByUser = false;
 
       while (aiResponse.toolCalls && aiResponse.toolCalls.length > 0) {
         toolRounds++;
         if (toolRounds > MAX_TOOL_ITERATIONS) {
           stoppedByCap = true;
+          break;
+        }
+        if (controller.signal.aborted) {
+          stoppedByUser = true;
           break;
         }
 
@@ -841,6 +865,10 @@ Keep responses short and actionable.${skillEnhancements}${CHAT_MODE_SYSTEM_PROMP
         }
 
         for (const toolCall of aiResponse.toolCalls) {
+          if (controller.signal.aborted) {
+            stoppedByUser = true;
+            break;
+          }
           try {
             const params = JSON.parse(toolCall.arguments);
             
@@ -883,7 +911,7 @@ Keep responses short and actionable.${skillEnhancements}${CHAT_MODE_SYSTEM_PROMP
             if (isPlanModeBlocked) {
               toolResult = `⛔ Tool "${toolCall.name}" is disabled in Plan mode (read-only/discussion only). Do not attempt it again — tell the user to switch to Build or Agent mode if they want this action performed.`;
             } else if (approvedOrNotSensitive) {
-              toolResult = await executeTool(toolCall.name, params, { sessionId });
+              toolResult = await executeTool(toolCall.name, params, { sessionId, signal: controller.signal });
             } else {
               toolResult = `⛔ User denied execution of tool "${toolCall.name}" with these arguments. Do not retry the same action; ask the user what they'd like instead.`;
             }
@@ -924,16 +952,25 @@ Keep responses short and actionable.${skillEnhancements}${CHAT_MODE_SYSTEM_PROMP
           }
         }
 
+        if (stoppedByUser || controller.signal.aborted) {
+          stoppedByUser = true;
+          break;
+        }
+
         // Ask the model to continue — it may want to call MORE tools (loop
         // continues) or give its final text answer (loop exits next check).
-        aiResponse = applyTextToolCallFallback(await callAIProviderFull(provider, [
-          messagesWithSystem[0],
-          ...messageHistory,
-        ], toolDefinitions));
+        aiResponse = applyTextToolCallFallback(
+          await callAIProviderFull(provider, [
+            messagesWithSystem[0],
+            ...messageHistory,
+          ], toolDefinitions, undefined, controller.signal)
+        );
         responseContent = aiResponse.content;
       }
 
-      if (stoppedByCap) {
+      if (stoppedByUser) {
+        responseContent = (responseContent ? responseContent + '\n\n' : '') + '⏹️ Dihentikan oleh pengguna.';
+      } else if (stoppedByCap) {
         responseContent = (responseContent ? responseContent + '\n\n' : '') +
           `⚠️ Berhenti otomatis setelah ${MAX_TOOL_ITERATIONS} langkah tool berturut-turut (pengaman anti-loop-tak-terbatas). Minta saya lanjutkan kalau task belum selesai.`;
       }
@@ -948,19 +985,35 @@ Keep responses short and actionable.${skillEnhancements}${CHAT_MODE_SYSTEM_PROMP
 
       dispatch({ type: 'ADD_MESSAGE', payload: { sessionId, message: response } });
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Terjadi kesalahan saat menghubungi AI';
-      
-      const response: Message = {
-        id: Date.now().toString(),
-        role: 'assistant',
-        content: `❌ **Error:** ${errorMessage}\n\nPastikan:\n- API Key sudah benar di Settings\n- Provider sudah diaktifkan\n- Koneksi internet stabil`,
-        timestamp: new Date(),
-      };
+      // The Stop button aborts the in-flight fetch, which rejects with a
+      // DOMException/Error named "AbortError" — that's an intentional user
+      // action, not a real failure, so show a plain notice instead of the
+      // scary red error box.
+      const wasStoppedByUser = controller.signal.aborted ||
+        (error instanceof Error && error.name === 'AbortError') ||
+        (typeof DOMException !== 'undefined' && error instanceof DOMException && error.name === 'AbortError');
+
+      const response: Message = wasStoppedByUser
+        ? {
+            id: Date.now().toString(),
+            role: 'assistant',
+            content: '⏹️ Dihentikan oleh pengguna.',
+            timestamp: new Date(),
+          }
+        : {
+            id: Date.now().toString(),
+            role: 'assistant',
+            content: `❌ **Error:** ${error instanceof Error ? error.message : 'Terjadi kesalahan saat menghubungi AI'}\n\nPastikan:\n- API Key sudah benar di Settings\n- Provider sudah diaktifkan\n- Koneksi internet stabil`,
+            timestamp: new Date(),
+          };
 
       dispatch({ type: 'ADD_MESSAGE', payload: { sessionId, message: response } });
     } finally {
       setIsTyping(false);
       dispatch({ type: 'SET_LOADING', payload: false });
+      if (abortControllerRef.current === controller) {
+        abortControllerRef.current = null;
+      }
     }
   };
 
@@ -1392,13 +1445,23 @@ Keep responses short and actionable.${skillEnhancements}${CHAT_MODE_SYSTEM_PROMP
             className="flex-1 resize-none bg-transparent text-sm text-[#334155] placeholder:text-[#94a3b8] outline-none py-2 max-h-32"
             style={{ minHeight: '36px' }}
           />
-          <button
-            onClick={handleSend}
-            disabled={(!input.trim() && attachments.length === 0) || state.isLoading}
-            className="p-2 rounded-lg bg-[#7c9cbf] text-white hover:bg-[#5a7fa0] disabled:opacity-40 disabled:cursor-not-allowed transition-all shrink-0"
-          >
-            <Send size={18} />
-          </button>
+          {state.isLoading ? (
+            <button
+              onClick={handleStopGeneration}
+              title="Hentikan AI"
+              className="p-2 rounded-lg bg-[#c97878] text-white hover:bg-[#b56464] transition-all shrink-0"
+            >
+              <Square size={18} className="fill-current" />
+            </button>
+          ) : (
+            <button
+              onClick={handleSend}
+              disabled={!input.trim() && attachments.length === 0}
+              className="p-2 rounded-lg bg-[#7c9cbf] text-white hover:bg-[#5a7fa0] disabled:opacity-40 disabled:cursor-not-allowed transition-all shrink-0"
+            >
+              <Send size={18} />
+            </button>
+          )}
         </div>
         <p className="text-[10px] text-[#94a3b8] text-center mt-2">
           Arka bisa membuat kesalahan. Periksa informasi penting.

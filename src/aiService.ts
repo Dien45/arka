@@ -45,7 +45,8 @@ export interface AIResponse {
 export async function callAIProvider(
   provider: ProviderConfig,
   messages: ChatMessage[],
-  tools?: ToolDefinition[]
+  tools?: ToolDefinition[],
+  signal?: AbortSignal
 ): Promise<AIResponse> {
   if (!provider.apiKey) {
     throw new Error('API Key belum di konfigurasi. Buka Settings untuk setup.');
@@ -54,19 +55,19 @@ export async function callAIProvider(
   try {
     switch (provider.id) {
       case 'openai':
-        return await callOpenAI(provider, messages, tools);
+        return await callOpenAI(provider, messages, tools, signal);
       case 'anthropic':
-        return await callAnthropic(provider, messages, tools);
+        return await callAnthropic(provider, messages, tools, signal);
       case 'google':
-        return await callGoogle(provider, messages, tools);
+        return await callGoogle(provider, messages, tools, signal);
       case 'groq':
-        return await callGroq(provider, messages, tools);
+        return await callGroq(provider, messages, tools, signal);
       case 'openrouter':
-        return await callOpenRouter(provider, messages, tools);
+        return await callOpenRouter(provider, messages, tools, signal);
       case 'ollama':
-        return await callOllama(provider, messages, tools);
+        return await callOllama(provider, messages, tools, signal);
       case 'custom':
-        return await callCustom(provider, messages, tools);
+        return await callCustom(provider, messages, tools, signal);
       default:
         throw new Error(`Provider ${provider.id} belum didukung`);
     }
@@ -78,7 +79,7 @@ export async function callAIProvider(
   }
 }
 
-async function callOpenAI(provider: ProviderConfig, messages: ChatMessage[], tools?: ToolDefinition[]): Promise<AIResponse> {
+async function callOpenAI(provider: ProviderConfig, messages: ChatMessage[], tools?: ToolDefinition[], signal?: AbortSignal): Promise<AIResponse> {
   const requestBody: any = {
     model: provider.model,
     messages: messages,
@@ -97,7 +98,9 @@ async function callOpenAI(provider: ProviderConfig, messages: ChatMessage[], too
       'Authorization': `Bearer ${provider.apiKey}`,
     },
     body: JSON.stringify(requestBody),
+    signal,
   });
+
 
   if (!response.ok) {
     const error = await response.json();
@@ -132,7 +135,7 @@ function mapOpenAIFinishReason(reason: string | undefined): AIResponse['finishRe
   }
 }
 
-async function callAnthropic(provider: ProviderConfig, messages: ChatMessage[], tools?: ToolDefinition[]): Promise<AIResponse> {
+async function callAnthropic(provider: ProviderConfig, messages: ChatMessage[], tools?: ToolDefinition[], signal?: AbortSignal): Promise<AIResponse> {
   // Extract system message if exists
   const systemMessage = messages.find(m => m.role === 'system');
 
@@ -196,6 +199,7 @@ async function callAnthropic(provider: ProviderConfig, messages: ChatMessage[], 
       'anthropic-version': '2023-06-01',
     },
     body: JSON.stringify(requestBody),
+    signal,
   });
 
   if (!response.ok) {
@@ -229,7 +233,7 @@ async function callAnthropic(provider: ProviderConfig, messages: ChatMessage[], 
 }
 
 
-async function callGoogle(provider: ProviderConfig, messages: ChatMessage[], tools?: ToolDefinition[]): Promise<AIResponse> {
+async function callGoogle(provider: ProviderConfig, messages: ChatMessage[], tools?: ToolDefinition[], signal?: AbortSignal): Promise<AIResponse> {
   // Gemini has no OpenAI-style `role: 'tool'` / `tool_calls` messages and no
   // 'system' role inside `contents` — it needs a separate `systemInstruction`
   // field, assistant tool calls as `{ functionCall: { name, args } }` parts on
@@ -299,6 +303,7 @@ async function callGoogle(provider: ProviderConfig, messages: ChatMessage[], too
         'Content-Type': 'application/json',
       },
       body: JSON.stringify(requestBody),
+      signal,
     }
   );
 
@@ -333,7 +338,7 @@ async function callGoogle(provider: ProviderConfig, messages: ChatMessage[], too
   return result;
 }
 
-async function callGroq(provider: ProviderConfig, messages: ChatMessage[], tools?: ToolDefinition[]): Promise<AIResponse> {
+async function callGroq(provider: ProviderConfig, messages: ChatMessage[], tools?: ToolDefinition[], signal?: AbortSignal): Promise<AIResponse> {
   const requestBody: any = {
     model: provider.model,
     messages: messages,
@@ -352,6 +357,7 @@ async function callGroq(provider: ProviderConfig, messages: ChatMessage[], tools
       'Authorization': `Bearer ${provider.apiKey}`,
     },
     body: JSON.stringify(requestBody),
+    signal,
   });
 
   if (!response.ok) {
@@ -378,7 +384,7 @@ async function callGroq(provider: ProviderConfig, messages: ChatMessage[], tools
   return result;
 }
 
-async function callOpenRouter(provider: ProviderConfig, messages: ChatMessage[], tools?: ToolDefinition[]): Promise<AIResponse> {
+async function callOpenRouter(provider: ProviderConfig, messages: ChatMessage[], tools?: ToolDefinition[], signal?: AbortSignal): Promise<AIResponse> {
   const requestBody: any = {
     model: provider.model,
     messages: messages,
@@ -398,6 +404,7 @@ async function callOpenRouter(provider: ProviderConfig, messages: ChatMessage[],
       'HTTP-Referer': window.location.origin,
     },
     body: JSON.stringify(requestBody),
+    signal,
   });
 
   if (!response.ok) {
@@ -424,7 +431,7 @@ async function callOpenRouter(provider: ProviderConfig, messages: ChatMessage[],
   return result;
 }
 
-async function callOllama(provider: ProviderConfig, messages: ChatMessage[], tools?: ToolDefinition[]): Promise<AIResponse> {
+async function callOllama(provider: ProviderConfig, messages: ChatMessage[], tools?: ToolDefinition[], signal?: AbortSignal): Promise<AIResponse> {
   const requestBody: any = {
     model: provider.model,
     messages: messages,
@@ -441,6 +448,7 @@ async function callOllama(provider: ProviderConfig, messages: ChatMessage[], too
       'Content-Type': 'application/json',
     },
     body: JSON.stringify(requestBody),
+    signal,
   });
 
   if (!response.ok) {
@@ -464,7 +472,7 @@ async function callOllama(provider: ProviderConfig, messages: ChatMessage[], too
   return result;
 }
 
-async function callCustom(provider: ProviderConfig, messages: ChatMessage[], tools?: ToolDefinition[]): Promise<AIResponse> {
+async function callCustom(provider: ProviderConfig, messages: ChatMessage[], tools?: ToolDefinition[], signal?: AbortSignal): Promise<AIResponse> {
   // Custom provider biasanya OpenAI-compatible
   const requestBody: any = {
     model: provider.model,
@@ -484,6 +492,7 @@ async function callCustom(provider: ProviderConfig, messages: ChatMessage[], too
       'Authorization': `Bearer ${provider.apiKey}`,
     },
     body: JSON.stringify(requestBody),
+    signal,
   });
 
   if (!response.ok) {
@@ -544,10 +553,11 @@ export async function callAIProviderFull(
   provider: ProviderConfig,
   messages: ChatMessage[],
   tools?: ToolDefinition[],
-  maxContinuations = 4
+  maxContinuations = 4,
+  signal?: AbortSignal
 ): Promise<AIResponse> {
   let history = messages;
-  let response = await callAIProvider(provider, history, tools);
+  let response = await callAIProvider(provider, history, tools, signal);
   let combinedContent = response.content;
   let rounds = 0;
 
@@ -565,7 +575,7 @@ export async function callAIProviderFull(
         content: 'Lanjutkan PERSIS dari kata/karakter terakhir di atas — jangan mengulang apa yang sudah ditulis, jangan menambahkan kalimat pembuka seperti "melanjutkan...", langsung sambung teksnya.',
       },
     ];
-    response = await callAIProvider(provider, history, tools);
+    response = await callAIProvider(provider, history, tools, signal);
     combinedContent += response.content;
   }
 

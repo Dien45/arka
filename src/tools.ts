@@ -26,6 +26,8 @@ import { loadVirtualFiles, saveVirtualFiles, loadCheckpoint, saveCheckpoint } fr
 export interface ToolContext {
   /** The chat session the tool call originated from — used to scope the virtual filesystem (see virtualFs.ts) so each session gets its own isolated workspace. */
   sessionId?: string | null;
+  /** Aborted when the user hits Stop while the AI is working — checked/passed into any tool that does real network I/O (currently web_fetch) so it can actually cancel instead of finishing anyway. */
+  signal?: AbortSignal;
 }
 
 export interface Tool {
@@ -100,7 +102,8 @@ export const availableTools: Tool[] = [
       url: { type: 'string', description: 'The URL to fetch' },
     },
     sensitive: true,
-    execute: async (params: { url: string }) => {
+    execute: async (params: { url: string }, context?: ToolContext) => {
+      const signal = context?.signal;
       try {
         const url = assertSafeFetchTarget(params.url).toString();
 
@@ -119,6 +122,7 @@ export const availableTools: Tool[] = [
           try {
             const readmeResponse = await fetch(`https://api.github.com/repos/${repoPath}/readme`, {
               headers: { 'Accept': 'application/vnd.github.v3.raw' },
+              signal,
             });
 
             if (readmeResponse.ok) {
@@ -129,8 +133,8 @@ export const availableTools: Tool[] = [
             // No README (404) or some other API hiccup — try metadata + file
             // listing instead of jumping straight to a proxy.
             const [repoInfoResponse, contentsResponse] = await Promise.all([
-              fetch(`https://api.github.com/repos/${repoPath}`, { headers: ghHeaders }),
-              fetch(`https://api.github.com/repos/${repoPath}/contents/`, { headers: ghHeaders }),
+              fetch(`https://api.github.com/repos/${repoPath}`, { headers: ghHeaders, signal }),
+              fetch(`https://api.github.com/repos/${repoPath}/contents/`, { headers: ghHeaders, signal }),
             ]);
 
             if (repoInfoResponse.ok) {
@@ -178,7 +182,7 @@ export const availableTools: Tool[] = [
         for (const proxy of corsProxies) {
           try {
             const proxyUrl = proxy + encodeURIComponent(url);
-            const response = await fetch(proxyUrl);
+            const response = await fetch(proxyUrl, { signal });
 
             if (response.ok) {
               const text = await response.text();
