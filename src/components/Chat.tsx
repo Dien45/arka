@@ -30,7 +30,8 @@ interface PendingAttachment {
 
 function formatAttachmentSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
-  return `${(bytes / 1024).toFixed(1)} KB`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 function ToolApprovalCard({
@@ -866,7 +867,7 @@ Keep responses short and actionable.${skillEnhancements}${CHAT_MODE_SYSTEM_PROMP
     }
   };
 
-  const MAX_ATTACH_BYTES = 200 * 1024; // 200 KB per file, keeps prompt size sane
+  const MAX_ATTACH_BYTES = 2 * 1024 * 1024; // 2 MB per file, keeps prompt size sane
 
   const handleAttachFile = () => {
     const fileInput = document.createElement('input');
@@ -881,7 +882,7 @@ Keep responses short and actionable.${skillEnhancements}${CHAT_MODE_SYSTEM_PROMP
       const skipped: string[] = [];
       for (const file of files) {
         if (file.size > MAX_ATTACH_BYTES) {
-          skipped.push(`"${file.name}" (${(file.size / 1024).toFixed(0)} KB > batas ${MAX_ATTACH_BYTES / 1024} KB)`);
+          skipped.push(`"${file.name}" (${formatAttachmentSize(file.size)} > batas ${formatAttachmentSize(MAX_ATTACH_BYTES)})`);
           continue;
         }
         try {

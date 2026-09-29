@@ -178,7 +178,7 @@ export default function Sidebar() {
                             e.stopPropagation();
                             startRenaming(session.id, session.title);
                           }}
-                          className="opacity-0 group-hover:opacity-100 p-0.5 rounded hover:bg-[#cbd5e1] transition-opacity"
+                          className="opacity-70 group-hover:opacity-100 md:opacity-0 md:group-hover:opacity-100 p-0.5 rounded hover:bg-[#cbd5e1] transition-opacity"
                           title="Ganti nama sesi"
                         >
                           <Pencil size={12} />
@@ -188,7 +188,7 @@ export default function Sidebar() {
                             e.stopPropagation();
                             dispatch({ type: 'DELETE_SESSION', payload: session.id });
                           }}
-                          className="opacity-0 group-hover:opacity-100 p-0.5 rounded hover:bg-red-100 text-red-400 transition-opacity"
+                          className="opacity-70 group-hover:opacity-100 md:opacity-0 md:group-hover:opacity-100 p-0.5 rounded hover:bg-red-100 text-red-400 transition-opacity"
                           title="Hapus sesi"
                         >
                           <Trash2 size={12} />

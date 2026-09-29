@@ -17,543 +17,10 @@ interface FileNode {
   gitStatus?: 'modified' | 'untracked' | 'deleted' | 'staged';
 }
 
-const mockWorkspace: FileNode[] = [
-  {
-    id: 'root',
-    name: 'arka-project',
-    type: 'folder',
-    children: [
-      {
-        id: 'src',
-        name: 'src',
-        type: 'folder',
-        children: [
-          {
-            id: 'components',
-            name: 'components',
-            type: 'folder',
-            children: [
-              {
-                id: 'App.tsx',
-                name: 'App.tsx',
-                type: 'file',
-                language: 'typescript',
-                size: '2.4 KB',
-                modified: '2 jam lalu',
-                gitStatus: 'modified',
-                content: `import React from 'react';
-import { Header } from './Header';
-import { Sidebar } from './Sidebar';
-import { MainContent } from './MainContent';
 
-interface AppProps {
-  theme?: 'light' | 'dark';
-}
-
-export default function App({ theme = 'light' }: AppProps) {
-  const [sidebarOpen, setSidebarOpen] = React.useState(true);
-
-  return (
-    <div className={\`app \${theme}\`}>
-      <Header onMenuClick={() => setSidebarOpen(!sidebarOpen)} />
-      <div className="flex">
-        <Sidebar isOpen={sidebarOpen} />
-        <MainContent />
-      </div>
-    </div>
-  );
-}`
-              },
-              {
-                id: 'Header.tsx',
-                name: 'Header.tsx',
-                type: 'file',
-                language: 'typescript',
-                size: '1.2 KB',
-                modified: '1 hari lalu',
-                gitStatus: 'staged',
-                content: `import React from 'react';
-import { Menu, Bell, User } from 'lucide-react';
-
-interface HeaderProps {
-  onMenuClick: () => void;
-}
-
-export function Header({ onMenuClick }: HeaderProps) {
-  return (
-    <header className="header">
-      <div className="flex items-center gap-4">
-        <button onClick={onMenuClick}>
-          <Menu size={24} />
-        </button>
-        <h1 className="text-xl font-bold">Arka</h1>
-      </div>
-      <nav className="flex items-center gap-4">
-        <button><Bell size={20} /></button>
-        <button><User size={20} /></button>
-      </nav>
-    </header>
-  );
-}`
-              },
-              {
-                id: 'Sidebar.tsx',
-                name: 'Sidebar.tsx',
-                type: 'file',
-                language: 'typescript',
-                size: '1.8 KB',
-                modified: '3 hari lalu',
-                content: `import React from 'react';
-import { Home, Folder, Settings, HelpCircle } from 'lucide-react';
-
-interface SidebarProps {
-  isOpen: boolean;
-}
-
-export function Sidebar({ isOpen }: SidebarProps) {
-  const menuItems = [
-    { icon: Home, label: 'Dashboard', path: '/' },
-    { icon: Folder, label: 'Projects', path: '/projects' },
-    { icon: Settings, label: 'Settings', path: '/settings' },
-    { icon: HelpCircle, label: 'Help', path: '/help' },
-  ];
-
-  if (!isOpen) return null;
-
-  return (
-    <aside className="sidebar">
-      <nav>
-        {menuItems.map((item, index) => (
-          <a key={index} href={item.path} className="menu-item">
-            <item.icon size={20} />
-            <span>{item.label}</span>
-          </a>
-        ))}
-      </nav>
-    </aside>
-  );
-}`
-              },
-              {
-                id: 'MainContent.tsx',
-                name: 'MainContent.tsx',
-                type: 'file',
-                language: 'typescript',
-                size: '0.9 KB',
-                modified: '5 hari lalu',
-                content: `import React from 'react';
-
-export function MainContent() {
-  return (
-    <main className="main-content">
-      <div className="container">
-        <h2>Welcome to Arka</h2>
-        <p>Your AI-powered coding assistant</p>
-      </div>
-    </main>
-  );
-}`
-              }
-            ]
-          },
-          {
-            id: 'utils',
-            name: 'utils',
-            type: 'folder',
-            children: [
-              {
-                id: 'api.ts',
-                name: 'api.ts',
-                type: 'file',
-                language: 'typescript',
-                size: '1.5 KB',
-                modified: '1 minggu lalu',
-                content: `const API_BASE = 'https://api.example.com';
-
-interface ApiResponse<T> {
-  data: T;
-  error?: string;
-}
-
-export async function fetchData<T>(endpoint: string): Promise<ApiResponse<T>> {
-  try {
-    const res = await fetch(\`\${API_BASE}/\${endpoint}\`);
-    if (!res.ok) throw new Error(\`HTTP \${res.status}\`);
-    const data = await res.json();
-    return { data };
-  } catch (error) {
-    return { data: null as any, error: error.message };
-  }
-}
-
-export async function postData<T>(
-  endpoint: string,
-  body: unknown
-): Promise<ApiResponse<T>> {
-  try {
-    const res = await fetch(\`\${API_BASE}/\${endpoint}\`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    });
-    const data = await res.json();
-    return { data };
-  } catch (error) {
-    return { data: null as any, error: error.message };
-  }
-}`
-              },
-              {
-                id: 'helpers.ts',
-                name: 'helpers.ts',
-                type: 'file',
-                language: 'typescript',
-                size: '0.8 KB',
-                modified: '2 minggu lalu',
-                content: `export function formatDate(date: Date): string {
-  return date.toLocaleDateString('id-ID', {
-    year: 'numeric',
-    month: 'long',
-    day: 'numeric',
-  });
-}
-
-export function debounce<T extends (...args: any[]) => void>(
-  fn: T,
-  ms: number
-) {
-  let timer: ReturnType<typeof setTimeout>;
-  return (...args: Parameters<T>) => {
-    clearTimeout(timer);
-    timer = setTimeout(() => fn(...args), ms);
-  };
-}
-
-export function classNames(...classes: (string | boolean | undefined)[]) {
-  return classes.filter(Boolean).join(' ');
-}`
-              }
-            ]
-          },
-          {
-            id: 'hooks',
-            name: 'hooks',
-            type: 'folder',
-            children: [
-              {
-                id: 'useAuth.ts',
-                name: 'useAuth.ts',
-                type: 'file',
-                language: 'typescript',
-                size: '1.1 KB',
-                modified: '3 hari lalu',
-                gitStatus: 'untracked',
-                content: `import { useState, useEffect } from 'react';
-
-interface User {
-  id: string;
-  name: string;
-  email: string;
-}
-
-export function useAuth() {
-  const [user, setUser] = useState<User | null>(null);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    // Check auth status
-    const checkAuth = async () => {
-      try {
-        const response = await fetch('/api/auth/me');
-        if (response.ok) {
-          const userData = await response.json();
-          setUser(userData);
-        }
-      } catch (error) {
-        console.error('Auth check failed:', error);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    checkAuth();
-  }, []);
-
-  const login = async (email: string, password: string) => {
-    // Login logic
-  };
-
-  const logout = async () => {
-    setUser(null);
-  };
-
-  return { user, loading, login, logout };
-}`
-              }
-            ]
-          },
-          {
-            id: 'main.tsx',
-            name: 'main.tsx',
-            type: 'file',
-            language: 'typescript',
-            size: '0.4 KB',
-            modified: '1 bulan lalu',
-            content: `import React from 'react';
-import ReactDOM from 'react-dom/client';
-import App from './components/App';
-import './index.css';
-
-ReactDOM.createRoot(document.getElementById('root')!).render(
-  <React.StrictMode>
-    <App />
-  </React.StrictMode>
-);`
-          },
-          {
-            id: 'index.css',
-            name: 'index.css',
-            type: 'file',
-            language: 'css',
-            size: '0.6 KB',
-            modified: '1 minggu lalu',
-            content: `@tailwind base;
-@tailwind components;
-@tailwind utilities;
-
-:root {
-  --primary: #7c9cbf;
-  --primary-dark: #5a7fa0;
-  --bg: #f0f4f8;
-  --text: #334155;
-}
-
-* {
-  margin: 0;
-  padding: 0;
-  box-sizing: border-box;
-}
-
-body {
-  font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
-  background-color: var(--bg);
-  color: var(--text);
-}
-
-.app {
-  min-height: 100vh;
-}
-
-.header {
-  @apply bg-white border-b border-gray-200 px-4 py-3;
-}
-
-.sidebar {
-  @apply w-64 bg-white border-r border-gray-200 p-4;
-}
-
-.main-content {
-  @apply flex-1 p-6;
-}`
-          }
-        ]
-      },
-      {
-        id: 'public',
-        name: 'public',
-        type: 'folder',
-        children: [
-          {
-            id: 'favicon.ico',
-            name: 'favicon.ico',
-            type: 'file',
-            language: 'image',
-            size: '4.2 KB',
-            modified: '1 bulan lalu'
-          },
-          {
-            id: 'robots.txt',
-            name: 'robots.txt',
-            type: 'file',
-            language: 'text',
-            size: '0.1 KB',
-            modified: '1 bulan lalu',
-            content: `User-agent: *
-Allow: /
-Sitemap: https://example.com/sitemap.xml`
-          }
-        ]
-      },
-      {
-        id: 'package.json',
-        name: 'package.json',
-        type: 'file',
-        language: 'json',
-        size: '0.8 KB',
-        modified: '1 minggu lalu',
-        content: `{
-  "name": "arka-app",
-  "version": "1.0.0",
-  "description": "AI-powered coding agent",
-  "type": "module",
-  "scripts": {
-    "dev": "vite",
-    "build": "tsc && vite build",
-    "preview": "vite preview",
-    "lint": "eslint . --ext ts,tsx"
-  },
-  "dependencies": {
-    "react": "^18.2.0",
-    "react-dom": "^18.2.0",
-    "lucide-react": "^0.294.0"
-  },
-  "devDependencies": {
-    "@types/react": "^18.2.43",
-    "@types/react-dom": "^18.2.17",
-    "@typescript-eslint/eslint-plugin": "^6.14.0",
-    "@typescript-eslint/parser": "^6.14.0",
-    "@vitejs/plugin-react": "^4.2.1",
-    "autoprefixer": "^10.4.16",
-    "eslint": "^8.55.0",
-    "postcss": "^8.4.32",
-    "tailwindcss": "^3.3.6",
-    "typescript": "^5.2.2",
-    "vite": "^5.0.8"
-  }
-}`
-      },
-      {
-        id: 'tsconfig.json',
-        name: 'tsconfig.json',
-        type: 'file',
-        language: 'json',
-        size: '0.3 KB',
-        modified: '1 bulan lalu',
-        content: `{
-  "compilerOptions": {
-    "target": "ES2020",
-    "useDefineForClassFields": true,
-    "lib": ["ES2020", "DOM", "DOM.Iterable"],
-    "module": "ESNext",
-    "skipLibCheck": true,
-    "moduleResolution": "bundler",
-    "allowImportingTsExtensions": true,
-    "resolveJsonModule": true,
-    "isolatedModules": true,
-    "noEmit": true,
-    "jsx": "react-jsx",
-    "strict": true,
-    "noUnusedLocals": true,
-    "noUnusedParameters": true,
-    "noFallthroughCasesInSwitch": true
-  },
-  "include": ["src"],
-  "references": [{ "path": "./tsconfig.node.json" }]
-}`
-      },
-      {
-        id: 'vite.config.ts',
-        name: 'vite.config.ts',
-        type: 'file',
-        language: 'typescript',
-        size: '0.2 KB',
-        modified: '1 bulan lalu',
-        content: `import { defineConfig } from 'vite';
-import react from '@vitejs/plugin-react';
-
-export default defineConfig({
-  plugins: [react()],
-  server: {
-    port: 3000,
-    open: true
-  }
-});`
-      },
-      {
-        id: 'README.md',
-        name: 'README.md',
-        type: 'file',
-        language: 'markdown',
-        size: '1.2 KB',
-        modified: '2 hari lalu',
-        content: `# Arka - AI Coding Agent
-
-A powerful AI-powered coding assistant built with React and TypeScript.
-
-## Features
-
-- 🤖 Multi-provider AI support (OpenAI, Anthropic, Google, etc.)
-- 📁 File explorer with syntax highlighting
-- 🔧 Agent system for specialized tasks
-- 🐙 GitHub integration
-- 💬 Interactive chat interface
-
-## Getting Started
-
-\`\`\`bash
-# Install dependencies
-npm install
-
-# Start development server
-npm run dev
-
-# Build for production
-npm run build
-\`\`\`
-
-## Tech Stack
-
-- React 18
-- TypeScript
-- Vite
-- Tailwind CSS
-- Lucide Icons
-
-## License
-
-MIT`
-      },
-      {
-        id: '.gitignore',
-        name: '.gitignore',
-        type: 'file',
-        language: 'text',
-        size: '0.2 KB',
-        modified: '1 bulan lalu',
-        content: `# Logs
-logs
-*.log
-npm-debug.log*
-
-# Dependencies
-node_modules
-dist
-dist-ssr
-*.local
-
-# Editor
-.vscode/*
-!.vscode/extensions.json
-.idea
-.DS_Store
-*.suo
-*.ntvs*
-*.njsproj
-*.sln
-*.sw?
-
-# Environment
-.env
-.env.local
-.env.production`
-      }
-    ]
-  }
-];
-
-// Only files/folders that live in the AI's virtual workspace (localStorage)
-// can be deleted from here — the rest of the tree below is static demo data
-// with no backing store to delete from.
+// Every node in the tree now comes from the AI's virtual workspace
+// (localStorage) — there is no more static demo data, so every file/folder
+// shown here is deletable.
 function isVirtualFileNode(node: FileNode): boolean {
   return node.type === 'file' && node.id.startsWith('virtual-') && node.id !== 'virtual-empty';
 }
@@ -628,7 +95,7 @@ function FileTreeItem({
           {canDelete && (
             <button
               onClick={(e) => { e.stopPropagation(); onDeleteFolder(node); }}
-              className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-[#c97878]/10 text-[#c97878] shrink-0 transition-opacity"
+              className="opacity-70 group-hover:opacity-100 md:opacity-0 md:group-hover:opacity-100 p-1 rounded hover:bg-[#c97878]/10 text-[#c97878] shrink-0 transition-opacity"
               title="Hapus folder ini beserta semua isinya"
             >
               <Trash2 size={11} />
@@ -694,7 +161,7 @@ function FileTreeItem({
       {canDeleteFile && (
         <button
           onClick={(e) => { e.stopPropagation(); onDeleteFile(node); }}
-          className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-[#c97878]/10 text-[#c97878] shrink-0 transition-opacity"
+          className="opacity-70 group-hover:opacity-100 md:opacity-0 md:group-hover:opacity-100 p-1 rounded hover:bg-[#c97878]/10 text-[#c97878] shrink-0 transition-opacity"
           title="Hapus file ini dari workspace"
         >
           <Trash2 size={11} />
@@ -710,7 +177,7 @@ export default function FileExplorer() {
   const [openTabs, setOpenTabs] = useState<FileNode[]>([]);
   const [activeTab, setActiveTab] = useState<FileNode | null>(null);
   const [copied, setCopied] = useState(false);
-  const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set(['root', 'src', 'virtual-root']));
+  const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set());
   const [searchQuery, setSearchQuery] = useState('');
   const [showActions, setShowActions] = useState(false);
   const [workspacePath, setWorkspacePath] = useState<string>('Virtual Workspace');
@@ -989,29 +456,25 @@ export default function FileExplorer() {
     return root.children || [];
   }, [virtualFiles]);
 
-  // Merge mock workspace with virtual files
+  // The workspace tree is now just the AI's virtual files directly — no more
+  // wrapping "📦 Virtual Workspace" folder and no more static mock/demo tree
+  // underneath it (that demo data couldn't be deleted, which was confusing).
   const getMergedWorkspace = useCallback((): FileNode[] => {
     const virtualNodes = getVirtualFileNodes();
-    
-    // Always show virtual workspace, even if empty
-    const virtualWorkspace: FileNode = {
-      id: 'virtual-root',
-      name: '📦 Virtual Workspace',
-      type: 'folder',
-      children: virtualNodes.length > 0 ? virtualNodes : [
-        {
-          id: 'virtual-empty',
-          name: '(kosong - AI akan buat file di sini)',
-          type: 'file' as const,
-          content: '',
-          language: 'text',
-          size: '0 KB',
-          modified: '-',
-        }
-      ],
-    };
 
-    return [virtualWorkspace, ...mockWorkspace];
+    if (virtualNodes.length > 0) return virtualNodes;
+
+    return [
+      {
+        id: 'virtual-empty',
+        name: '(kosong - AI akan buat file di sini)',
+        type: 'file' as const,
+        content: '',
+        language: 'text',
+        size: '0 KB',
+        modified: '-',
+      },
+    ];
   }, [getVirtualFileNodes]);
 
   const mergedWorkspace = getMergedWorkspace();
@@ -1128,7 +591,7 @@ export default function FileExplorer() {
                     {isVirtualFileNode(file) && (
                       <button
                         onClick={(e) => { e.stopPropagation(); handleDeleteFile(file); }}
-                        className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-[#c97878]/10 text-[#c97878] shrink-0 transition-opacity"
+                        className="opacity-70 group-hover:opacity-100 md:opacity-0 md:group-hover:opacity-100 p-1 rounded hover:bg-[#c97878]/10 text-[#c97878] shrink-0 transition-opacity"
                         title="Hapus file ini dari workspace"
                       >
                         <Trash2 size={11} />
@@ -1192,7 +655,7 @@ export default function FileExplorer() {
                   <span className="text-xs text-[#334155] truncate flex-1">{tab.name}</span>
                   <button
                     onClick={(e) => handleCloseTab(tab.id, e)}
-                    className="opacity-0 group-hover:opacity-100 p-0.5 rounded hover:bg-[#e8eef4] transition-opacity"
+                    className="opacity-70 group-hover:opacity-100 md:opacity-0 md:group-hover:opacity-100 p-0.5 rounded hover:bg-[#e8eef4] transition-opacity"
                   >
                     <X size={12} className="text-[#64748b]" />
                   </button>
@@ -1201,15 +664,20 @@ export default function FileExplorer() {
             </div>
           )}
 
-          {/* Breadcrumb */}
+          {/* Breadcrumb — derived from the file's real virtual path instead
+              of a hardcoded "arka-project / src" that no longer means anything
+              now that the workspace tree is just the AI's actual files. */}
           {activeTab && (
             <div className="px-4 py-2 border-b border-[#b8c9db] bg-[#f8fafc] flex items-center justify-between">
-              <div className="flex items-center gap-1 text-xs text-[#64748b]">
-                <span>arka-project</span>
-                <ChevronRight size={12} />
-                <span>src</span>
-                <ChevronRight size={12} />
-                <span className="text-[#334155] font-medium">{activeTab.name}</span>
+              <div className="flex items-center gap-1 text-xs text-[#64748b] min-w-0 flex-wrap">
+                {activeTab.id.startsWith('virtual-')
+                  ? activeTab.id.slice('virtual-'.length).split('/').filter(Boolean).map((segment, i, arr) => (
+                      <span key={i} className="flex items-center gap-1">
+                        <span className={i === arr.length - 1 ? 'text-[#334155] font-medium' : ''}>{segment}</span>
+                        {i < arr.length - 1 && <ChevronRight size={12} />}
+                      </span>
+                    ))
+                  : <span className="text-[#334155] font-medium">{activeTab.name}</span>}
               </div>
               <div className="flex items-center gap-2">
                 {activeTab.content && (
