@@ -2,8 +2,10 @@ import { useState, useEffect, useCallback } from 'react';
 import { 
   FolderOpen, File, ChevronRight, ChevronDown, FileCode, FileText, 
   Image, Copy, Check, Plus, Trash2, Edit2, X, Download, 
-  FileJson, FileSpreadsheet, Hash, Braces, Type, Folder, Loader2
+  FileJson, FileSpreadsheet, Hash, Braces, Type, Folder, Loader2,
+  Eye, Code2, ExternalLink
 } from 'lucide-react';
+import ReactMarkdown from 'react-markdown';
 import { useApp } from '../store';
 import { loadVirtualFiles, saveVirtualFiles, virtualFilesKey, VirtualFileMap } from '../virtualFs';
 
@@ -30,6 +32,98 @@ function isVirtualFolderNode(node: FileNode): boolean {
   return node.type === 'folder' && node.id.startsWith('virtual/');
 }
 
+/** Which file types get a rendered "Preview" mode alongside the raw code view. */
+type PreviewKind = 'html' | 'markdown' | 'svg' | 'csv';
+
+function getPreviewKind(name: string): PreviewKind | null {
+  const ext = name.split('.').pop()?.toLowerCase() || '';
+  if (ext === 'html' || ext === 'htm') return 'html';
+  if (ext === 'md' || ext === 'markdown') return 'markdown';
+  if (ext === 'svg') return 'svg';
+  if (ext === 'csv') return 'csv';
+  return null;
+}
+
+/** Minimal CSV parser (comma-separated, no quoted-field escaping) — good
+ *  enough for a quick tabular preview of AI-generated CSV files. */
+function parseCsvPreview(content: string): string[][] {
+  return content
+    .trim()
+    .split(/\r?\n/)
+    .filter(line => line.length > 0)
+    .map(line => line.split(','));
+}
+
+/** Renders a file's content instead of its raw source, for types where a
+ *  "what does this actually look like" view is more useful than code:
+ *  HTML pages, Markdown docs, SVG graphics, and CSV tables. */
+function FilePreviewPane({ kind, content, fileName }: { kind: PreviewKind; content: string; fileName: string }) {
+  if (kind === 'html') {
+    return (
+      <iframe
+        title={fileName}
+        srcDoc={content}
+        sandbox="allow-scripts allow-forms allow-modals allow-popups"
+        className="w-full h-full bg-white border-0"
+      />
+    );
+  }
+
+  if (kind === 'svg') {
+    const dataUrl = `data:image/svg+xml;utf8,${encodeURIComponent(content)}`;
+    return (
+      <div className="w-full h-full flex items-center justify-center bg-[#f8fafc] p-6 overflow-auto">
+        <img src={dataUrl} alt={fileName} className="max-w-full max-h-full" />
+      </div>
+    );
+  }
+
+  if (kind === 'markdown') {
+    return (
+      <div className="markdown-body text-sm p-6 max-w-3xl mx-auto">
+        <ReactMarkdown>{content}</ReactMarkdown>
+      </div>
+    );
+  }
+
+  // csv
+  const rows = parseCsvPreview(content);
+  if (rows.length === 0) {
+    return (
+      <div className="h-full flex items-center justify-center text-[#94a3b8] text-xs">
+        File CSV kosong
+      </div>
+    );
+  }
+  const [header, ...body] = rows;
+  return (
+    <div className="p-4 overflow-auto h-full">
+      <table className="text-xs border-collapse w-full">
+        <thead>
+          <tr>
+            {header.map((cell, i) => (
+              <th key={i} className="border border-[#e2e8f0] bg-[#f1f5f9] px-2 py-1.5 text-left font-semibold text-[#334155] whitespace-nowrap">
+                {cell}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {body.map((row, ri) => (
+            <tr key={ri} className="hover:bg-[#f8fafc]">
+              {row.map((cell, ci) => (
+                <td key={ci} className="border border-[#e2e8f0] px-2 py-1.5 text-[#334155] whitespace-nowrap">
+                  {cell}
+                </td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 function getFileIcon(name: string, language?: string) {
 
   if (language === 'typescript' || name.endsWith('.tsx') || name.endsWith('.ts')) {
@@ -44,8 +138,14 @@ function getFileIcon(name: string, language?: string) {
   if (language === 'markdown' || name.endsWith('.md')) {
     return <FileText size={14} className="text-[#64748b]" />;
   }
-  if (name.endsWith('.ico') || name.endsWith('.png') || name.endsWith('.jpg')) {
+  if (name.endsWith('.ico') || name.endsWith('.png') || name.endsWith('.jpg') || name.endsWith('.svg')) {
     return <Image size={14} className="text-[#10b981]" />;
+  }
+  if (name.endsWith('.csv')) {
+    return <FileSpreadsheet size={14} className="text-[#22c55e]" />;
+  }
+  if (name.endsWith('.html') || name.endsWith('.htm')) {
+    return <FileCode size={14} className="text-[#f97316]" />;
   }
   if (name === '.gitignore') {
     return <Hash size={14} className="text-[#64748b]" />;
@@ -184,6 +284,8 @@ export default function FileExplorer() {
   const [openTabs, setOpenTabs] = useState<FileNode[]>([]);
   const [activeTab, setActiveTab] = useState<FileNode | null>(null);
   const [copied, setCopied] = useState(false);
+  // Code vs rendered-preview toggle for previewable file types (html/md/svg/csv).
+  const [viewMode, setViewMode] = useState<'code' | 'preview'>('code');
   const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set());
   const [searchQuery, setSearchQuery] = useState('');
   const [showActions, setShowActions] = useState(false);
@@ -379,6 +481,24 @@ export default function FileExplorer() {
       setActiveTab(newTabs.length > 0 ? newTabs[newTabs.length - 1] : null);
       setSelectedFile(newTabs.length > 0 ? newTabs[newTabs.length - 1] : null);
     }
+  };
+
+  // Default back to the code view whenever a different file becomes active,
+  // so a "Preview" chosen for one file doesn't stick around confusingly
+  // when switching to another (non-)previewable file.
+  useEffect(() => {
+    setViewMode('code');
+  }, [activeTab?.id]);
+
+  const activePreviewKind = activeTab ? getPreviewKind(activeTab.name) : null;
+
+  const handleOpenPreviewInNewTab = () => {
+    if (!activeTab?.content) return;
+    const blob = new Blob([activeTab.content], { type: 'text/html;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    window.open(url, '_blank');
+    // Give the new tab time to actually load the blob before revoking it.
+    setTimeout(() => URL.revokeObjectURL(url), 60_000);
   };
 
   const handleCopy = () => {
@@ -762,6 +882,39 @@ export default function FileExplorer() {
                   : <span className="text-[#334155] font-medium">{activeTab.name}</span>}
               </div>
               <div className="flex items-center gap-2">
+                {activePreviewKind && (
+                  <div className="flex items-center rounded-lg border border-[#b8c9db] bg-white p-0.5 gap-0.5">
+                    <button
+                      onClick={() => setViewMode('code')}
+                      title="Lihat kode mentah"
+                      className={`flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-medium transition-colors ${
+                        viewMode === 'code' ? 'bg-[#7c9cbf] text-white' : 'text-[#64748b] hover:bg-[#f0f4f8]'
+                      }`}
+                    >
+                      <Code2 size={12} />
+                      Code
+                    </button>
+                    <button
+                      onClick={() => setViewMode('preview')}
+                      title="Lihat hasil render file ini"
+                      className={`flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-medium transition-colors ${
+                        viewMode === 'preview' ? 'bg-[#7c9cbf] text-white' : 'text-[#64748b] hover:bg-[#f0f4f8]'
+                      }`}
+                    >
+                      <Eye size={12} />
+                      Preview
+                    </button>
+                  </div>
+                )}
+                {activePreviewKind === 'html' && (
+                  <button
+                    onClick={handleOpenPreviewInNewTab}
+                    className="p-1 rounded hover:bg-[#e8eef4] text-[#64748b]"
+                    title="Buka preview di tab baru"
+                  >
+                    <ExternalLink size={14} />
+                  </button>
+                )}
                 {activeTab.content && (
                   <button
                     onClick={handleCopy}
@@ -793,7 +946,9 @@ export default function FileExplorer() {
 
           {/* Content */}
           <div className="flex-1 overflow-auto">
-            {activeTab?.content ? (
+            {activeTab?.content && viewMode === 'preview' && activePreviewKind ? (
+              <FilePreviewPane kind={activePreviewKind} content={activeTab.content} fileName={activeTab.name} />
+            ) : activeTab?.content ? (
               <div className="flex h-full">
                 {/* Line Numbers */}
                 <div className="bg-[#f8fafc] border-r border-[#e2e8f0] py-4 px-2 select-none sticky left-0">
