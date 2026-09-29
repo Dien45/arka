@@ -304,6 +304,15 @@ function applyTextToolCallFallback(response: AIResponse): AIResponse {
   return { ...response, toolCalls, content: cleanedContent };
 }
 
+// A single getAIResponse() run caps itself at MAX_TOOL_ITERATIONS tool calls
+// (anti-infinite-loop safety net) and used to just stop there, dumping a
+// warning and waiting for the user to type "lanjutkan" — which defeats the
+// entire point of Agent mode ("do the whole task autonomously"). In Agent
+// mode specifically, auto-resume up to this many additional batches before
+// actually giving up and asking the user, so a long multi-file task doesn't
+// need manual nudging every 25 tool calls.
+const MAX_AUTO_CONTINUES_AGENT_MODE = 3;
+
 const CHAT_MODE_SYSTEM_PROMPTS: Record<ChatMode, string> = {
   plan: `\n\n🗺️ MODE SAAT INI: PLAN\nUser sedang dalam mode perencanaan, BUKAN mode eksekusi. Tugasmu:\n- Diskusikan idenya, ajukan pertanyaan klarifikasi kalau perlu\n- Susun rencana / breakdown langkah kerja yang jelas (mis. daftar bernomor, tahapan)\n- JANGAN memanggil write_file, run_command, memory, atau stage_commit di mode ini — tool-tool itu bahkan tidak tersedia sekarang\n- Kalau user sudah setuju dengan rencananya dan minta mulai dikerjakan, beri tahu mereka untuk pindah ke mode Build atau Agent`,
   build: `\n\n🔨 MODE SAAT INI: BUILD\nKerjakan permintaan user saat ini secara langsung memakai tools yang tersedia. Fokus pada task yang diminta, boleh pakai beberapa tool berurutan kalau memang dibutuhkan, lalu laporkan hasilnya dengan jelas.`,
@@ -467,7 +476,7 @@ export default function Chat() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [currentSession?.messages]);
 
-  const getAIResponse = async (userMessage: string, sessionId: string) => {
+  const getAIResponse = async (userMessage: string, sessionId: string, autoContinueDepth: number = 0) => {
     setIsTyping(true);
     dispatch({ type: 'SET_LOADING', payload: true });
     const controller = new AbortController();
@@ -968,11 +977,22 @@ Keep responses short and actionable.${skillEnhancements}${CHAT_MODE_SYSTEM_PROMP
         responseContent = aiResponse.content;
       }
 
+      // Agent mode promises to work through a whole task on its own — don't
+      // make the user manually type "lanjutkan" every time the anti-loop
+      // cap trips on a long multi-step task. Auto-resume a bounded number
+      // of extra batches instead; only fall back to asking the user once
+      // that bound is also exhausted (a real runaway loop, not just a big task).
+      const willAutoContinue = stoppedByCap && chatMode === 'agent' && autoContinueDepth < MAX_AUTO_CONTINUES_AGENT_MODE;
+
       if (stoppedByUser) {
         responseContent = (responseContent ? responseContent + '\n\n' : '') + '⏹️ Dihentikan oleh pengguna.';
-      } else if (stoppedByCap) {
+      } else if (willAutoContinue) {
         responseContent = (responseContent ? responseContent + '\n\n' : '') +
-          `⚠️ Berhenti otomatis setelah ${MAX_TOOL_ITERATIONS} langkah tool berturut-turut (pengaman anti-loop-tak-terbatas). Minta saya lanjutkan kalau task belum selesai.`;
+          `🔄 Lanjut otomatis (mode Agent, batch ${autoContinueDepth + 2}/${MAX_AUTO_CONTINUES_AGENT_MODE + 1})...`;
+      } else if (stoppedByCap) {
+        const totalToolCallsSoFar = (autoContinueDepth + 1) * MAX_TOOL_ITERATIONS;
+        responseContent = (responseContent ? responseContent + '\n\n' : '') +
+          `⚠️ Berhenti setelah ${totalToolCallsSoFar} langkah tool berturut-turut (pengaman anti-loop-tak-terbatas). Minta saya lanjutkan kalau task belum selesai.`;
       }
 
 
@@ -984,6 +1004,14 @@ Keep responses short and actionable.${skillEnhancements}${CHAT_MODE_SYSTEM_PROMP
       };
 
       dispatch({ type: 'ADD_MESSAGE', payload: { sessionId, message: response } });
+
+      if (willAutoContinue) {
+        await getAIResponse(
+          'Lanjutkan PERSIS dari langkah terakhir di atas — jangan mengulang apa yang sudah dikerjakan, jangan minta konfirmasi untuk hal-hal kecil, langsung lanjutkan sampai task benar-benar selesai.',
+          sessionId,
+          autoContinueDepth + 1
+        );
+      }
     } catch (error) {
       // The Stop button aborts the in-flight fetch, which rejects with a
       // DOMException/Error named "AbortError" — that's an intentional user
