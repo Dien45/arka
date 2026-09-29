@@ -10,6 +10,7 @@ import GitHubPanel from './components/GitHubPanel';
 import Settings from './components/Settings';
 import SkillStore from './components/SkillStore';
 import Unlock from './components/Unlock';
+import PRDGenerator from './components/PRDGenerator';
 
 function MainContent() {
   const { state, dispatch } = useApp();
@@ -40,6 +41,8 @@ function MainContent() {
         return <AgentPanel />;
       case 'files':
         return <FileExplorer />;
+      case 'prd':
+        return <PRDGenerator />;
       case 'skills':
         return <SkillStore />;
       case 'github':
