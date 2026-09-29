@@ -3,9 +3,10 @@ import { Send, Paperclip, Sparkles, User, Bot, Loader2, Code, Terminal, FileCode
 import ReactMarkdown from 'react-markdown';
 import { useApp } from '../store';
 import { Message, ToolCall, Provider } from '../types';
-import { callAIProviderFull, ToolDefinition, ChatMessage } from '../aiService';
+import { callAIProviderFull, ToolDefinition, ChatMessage, AIResponse } from '../aiService';
 import { availableTools, executeTool, getToolsList, isSensitiveTool } from '../tools';
 import { memoryManager } from '../memorySystem';
+import { extractTextToolCalls } from '../textToolCallParser';
 
 /**
  * Pending approval for a "sensitive" tool call (network egress / persistent
@@ -283,6 +284,25 @@ const CHAT_MODES: { id: ChatMode; label: string; icon: typeof ListChecks; descri
 // files, runs commands, or persists anything, so "just planning" can never
 // quietly turn into "already built it".
 const PLAN_MODE_ALLOWED_TOOLS = new Set(['read_file', 'list_files', 'web_fetch', 'web_search']);
+
+// Some providers/models don't reliably return native, structured tool
+// calls (e.g. weaker local/self-hosted models via a Custom/Ollama
+// endpoint). Arka's own system prompt teaches those a textual fallback
+// convention ("[TOOL_CALL:name] {json} [/TOOL_CALL]"), but a model can
+// still follow that instruction loosely — mixing in a
+// "<parameter=key>value</parameter>" style from some other framework it
+// picked up in training, or dropping the closing tag. Previously none of
+// that text was ever parsed back into an actual call, so it just showed up
+// as raw, confusing syntax in the chat and nothing actually ran. This
+// recovers a real tool call from the response text when the native
+// `toolCalls` field came back empty, so the loop below can execute it like
+// any other tool call instead of leaving it as dead text.
+function applyTextToolCallFallback(response: AIResponse): AIResponse {
+  if (response.toolCalls && response.toolCalls.length > 0) return response;
+  const { toolCalls, cleanedContent } = extractTextToolCalls(response.content);
+  if (toolCalls.length === 0) return response;
+  return { ...response, toolCalls, content: cleanedContent };
+}
 
 const CHAT_MODE_SYSTEM_PROMPTS: Record<ChatMode, string> = {
   plan: `\n\n🗺️ MODE SAAT INI: PLAN\nUser sedang dalam mode perencanaan, BUKAN mode eksekusi. Tugasmu:\n- Diskusikan idenya, ajukan pertanyaan klarifikasi kalau perlu\n- Susun rencana / breakdown langkah kerja yang jelas (mis. daftar bernomor, tahapan)\n- JANGAN memanggil write_file, run_command, memory, atau stage_commit di mode ini — tool-tool itu bahkan tidak tersedia sekarang\n- Kalau user sudah setuju dengan rencananya dan minta mulai dikerjakan, beri tahu mereka untuk pindah ke mode Build atau Agent`,
@@ -789,7 +809,7 @@ Keep responses short and actionable.${skillEnhancements}${CHAT_MODE_SYSTEM_PROMP
       // one back, etc.) look like the AI "stopped in the middle": the
       // follow-up tool request was silently dropped and never executed.
       const MAX_TOOL_ITERATIONS = 25;
-      let aiResponse = await callAIProviderFull(provider, messagesWithSystem, toolDefinitions);
+      let aiResponse = applyTextToolCallFallback(await callAIProviderFull(provider, messagesWithSystem, toolDefinitions));
       let responseContent = aiResponse.content;
       let toolRounds = 0;
       let stoppedByCap = false;
@@ -906,10 +926,10 @@ Keep responses short and actionable.${skillEnhancements}${CHAT_MODE_SYSTEM_PROMP
 
         // Ask the model to continue — it may want to call MORE tools (loop
         // continues) or give its final text answer (loop exits next check).
-        aiResponse = await callAIProviderFull(provider, [
+        aiResponse = applyTextToolCallFallback(await callAIProviderFull(provider, [
           messagesWithSystem[0],
           ...messageHistory,
-        ], toolDefinitions);
+        ], toolDefinitions));
         responseContent = aiResponse.content;
       }
 
