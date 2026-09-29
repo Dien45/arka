@@ -1,8 +1,8 @@
 import { useState, useRef, useEffect } from 'react';
-import { Send, Paperclip, Sparkles, User, Bot, Loader2, Code, Terminal, FileCode, Eye, ChevronDown, Check, AlertCircle, ShieldAlert, ShieldCheck, ListChecks, Hammer, X, File as FileIcon, Search } from 'lucide-react';
+import { Send, Paperclip, Sparkles, User, Bot, Loader2, Code, Terminal, FileCode, Eye, ChevronDown, ChevronRight, Check, AlertCircle, ShieldAlert, ShieldCheck, ListChecks, Hammer, X, File as FileIcon, Search } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import { useApp } from '../store';
-import { Message, ToolCall } from '../types';
+import { Message, ToolCall, Provider } from '../types';
 import { callAIProviderFull, ToolDefinition, ChatMessage } from '../aiService';
 import { availableTools, executeTool, getToolsList, isSensitiveTool } from '../tools';
 import { memoryManager } from '../memorySystem';
@@ -298,12 +298,22 @@ export default function Chat() {
   const [selectedModel, setSelectedModel] = useState(() => {
     return localStorage.getItem('arka-selected-model') || 'gpt-4o';
   });
+  // Which provider the selected model belongs to — kept alongside the model
+  // string so a specific detected model (e.g. one of many OpenRouter models)
+  // can be picked directly in Chat without that provider's own "default"
+  // model field having to match it.
+  const [selectedProviderId, setSelectedProviderId] = useState<Provider | null>(() => {
+    const saved = localStorage.getItem('arka-selected-provider') as Provider | null;
+    return saved || null;
+  });
   const [chatMode, setChatMode] = useState<ChatMode>(() => {
     const saved = localStorage.getItem('arka-chat-mode');
     return saved === 'plan' || saved === 'build' || saved === 'agent' ? saved : 'build';
   });
   const [showModelSelector, setShowModelSelector] = useState(false);
   const [modelSearchQuery, setModelSearchQuery] = useState('');
+  // Which provider's cached model list is expanded in the dropdown.
+  const [expandedProviderId, setExpandedProviderId] = useState<Provider | null>(null);
 
   const [pendingApproval, setPendingApproval] = useState<PendingToolApproval | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -329,6 +339,15 @@ export default function Chat() {
     localStorage.setItem('arka-selected-model', selectedModel);
   }, [selectedModel]);
 
+  // Save selected provider to localStorage
+  useEffect(() => {
+    if (selectedProviderId) {
+      localStorage.setItem('arka-selected-provider', selectedProviderId);
+    } else {
+      localStorage.removeItem('arka-selected-provider');
+    }
+  }, [selectedProviderId]);
+
   // Save selected chat mode to localStorage
   useEffect(() => {
     localStorage.setItem('arka-chat-mode', chatMode);
@@ -338,13 +357,16 @@ export default function Chat() {
   
   // Get enabled providers and their models
   const enabledProviders = state.providers.filter(p => p.enabled);
-  const currentProvider = enabledProviders.find(p => p.model === selectedModel) || enabledProviders[0];
-  
+  const currentProvider =
+    (selectedProviderId && enabledProviders.find(p => p.id === selectedProviderId)) ||
+    enabledProviders.find(p => p.model === selectedModel) ||
+    enabledProviders[0];
+
   // Default models if no provider is enabled
-  const defaultModels = [
-    { id: 'gpt-4o', name: 'GPT-4o', provider: 'OpenAI', icon: '🟢' },
-    { id: 'claude-3-5-sonnet', name: 'Claude 3.5 Sonnet', provider: 'Anthropic', icon: '🟠' },
-    { id: 'gemini-pro', name: 'Gemini Pro', provider: 'Google', icon: '🔵' },
+  const defaultModels: { id: string; name: string; provider: string; providerId: Provider; icon: string }[] = [
+    { id: 'gpt-4o', name: 'GPT-4o', provider: 'OpenAI', providerId: 'openai', icon: '🟢' },
+    { id: 'claude-3-5-sonnet', name: 'Claude 3.5 Sonnet', provider: 'Anthropic', providerId: 'anthropic', icon: '🟠' },
+    { id: 'gemini-pro', name: 'Gemini Pro', provider: 'Google', providerId: 'google', icon: '🔵' },
   ];
 
   // Close model selector when clicking outside
@@ -362,9 +384,14 @@ export default function Chat() {
     }
   }, [showModelSelector]);
 
-  // Reset the search box every time the dropdown is (re)opened.
+  // Reset the search box every time the dropdown is (re)opened, and expand
+  // whichever provider is currently active so its models are visible right away.
   useEffect(() => {
-    if (showModelSelector) setModelSearchQuery('');
+    if (showModelSelector) {
+      setModelSearchQuery('');
+      setExpandedProviderId(currentProvider?.id ?? null);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [showModelSelector]);
 
   const modelSearchLower = modelSearchQuery.trim().toLowerCase();
@@ -373,14 +400,33 @@ export default function Chat() {
     model.name.toLowerCase().includes(modelSearchLower) ||
     model.provider.toLowerCase().includes(modelSearchLower)
   );
-  const filteredEnabledProviders = enabledProviders.filter(provider =>
-    !modelSearchLower ||
-    provider.model.toLowerCase().includes(modelSearchLower) ||
-    provider.name.toLowerCase().includes(modelSearchLower)
-  );
+
+  // For each enabled provider, the models it can offer directly in this
+  // dropdown: whatever was cached by "Deteksi Model Otomatis" in Settings
+  // (so switching doesn't require re-scanning), plus its currently
+  // configured default model in case that hasn't been scanned yet.
+  const getProviderModelEntries = (provider: (typeof enabledProviders)[number]) => {
+    const cached = provider.models || [];
+    const hasDefault = cached.some(m => m.id === provider.model);
+    return hasDefault ? cached : [{ id: provider.model, name: provider.model }, ...cached];
+  };
+
+  const filteredEnabledProviders = enabledProviders
+    .map(provider => {
+      const entries = getProviderModelEntries(provider);
+      const providerNameMatches = !modelSearchLower || provider.name.toLowerCase().includes(modelSearchLower);
+      const matchingEntries = !modelSearchLower || providerNameMatches
+        ? entries
+        : entries.filter(m =>
+            m.name.toLowerCase().includes(modelSearchLower) || m.id.toLowerCase().includes(modelSearchLower)
+          );
+      return { provider, entries, matchingEntries };
+    })
+    .filter(({ matchingEntries }) => !modelSearchLower || matchingEntries.length > 0);
+
   const hasNoModelResults = modelSearchLower.length > 0 &&
     filteredDefaultModels.length === 0 &&
-    filteredEnabledProviders.length === 0;
+    filteredEnabledProviders.every(p => p.matchingEntries.length === 0);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -392,11 +438,21 @@ export default function Chat() {
 
     try {
       // Find the provider for the selected model
-      const provider = state.providers.find(p => p.model === selectedModel && p.enabled);
-      
-      if (!provider) {
+      // Resolve the provider by id first (works for any cached/detected
+      // model picked directly in Chat, since that model doesn't need to
+      // match the provider's own "default" model field), falling back to
+      // matching by model string for older saved selections.
+      const baseProvider =
+        (selectedProviderId && state.providers.find(p => p.id === selectedProviderId && p.enabled)) ||
+        state.providers.find(p => p.model === selectedModel && p.enabled);
+
+      if (!baseProvider) {
         throw new Error('Provider tidak ditemukan atau belum diaktifkan. Buka Settings untuk setup.');
       }
+
+      // Use this provider's credentials/baseUrl, but call the specific
+      // model chosen in the Chat model switcher.
+      const provider = { ...baseProvider, model: selectedModel };
 
       // Build message history from current session. For user messages that
       // had file attachments, splice the attachment content back in here —
@@ -1056,6 +1112,7 @@ Keep responses short and actionable.${skillEnhancements}${CHAT_MODE_SYSTEM_PROMP
                         key={model.id}
                         onClick={() => {
                           setSelectedModel(model.id);
+                          setSelectedProviderId(model.providerId);
                           setShowModelSelector(false);
                         }}
                         className={`w-full px-3 py-2.5 text-left hover:bg-[#f0f4f8] transition-colors ${
@@ -1081,40 +1138,87 @@ Keep responses short and actionable.${skillEnhancements}${CHAT_MODE_SYSTEM_PROMP
                   </div>
                   )}
 
-                  {/* Enabled Providers */}
+                  {/* Enabled Providers — each provider's own model list is
+                      cached from "Deteksi Model Otomatis" in Settings, so
+                      switching models here never needs a re-scan. */}
                   {filteredEnabledProviders.length > 0 && (
                     <div>
                       <div className="px-3 py-2 bg-[#f8fafc] flex items-center gap-2">
                         <span className="text-xs font-medium text-[#334155]">Your Providers</span>
                       </div>
-                      {filteredEnabledProviders.map(provider => (
-                        <div key={provider.id} className="border-b border-[#e8eef4] last:border-b-0">
-                          <button
-                            onClick={() => {
-                              setSelectedModel(provider.model);
-                              setShowModelSelector(false);
-                            }}
-                            className={`w-full px-3 py-2.5 text-left hover:bg-[#f0f4f8] transition-colors ${
-                              selectedModel === provider.model ? 'bg-[#7c9cbf]/10' : ''
-                            }`}
-                          >
-                            <div className="flex items-center gap-2">
+                      {filteredEnabledProviders.map(({ provider, matchingEntries }) => {
+                        const isExpanded = !!modelSearchLower || expandedProviderId === provider.id;
+                        const isActiveProvider = currentProvider?.id === provider.id;
+                        return (
+                          <div key={provider.id} className="border-b border-[#e8eef4] last:border-b-0">
+                            <button
+                              onClick={() => setExpandedProviderId(isExpanded ? null : provider.id)}
+                              className={`w-full px-3 py-2.5 text-left hover:bg-[#f0f4f8] transition-colors flex items-center gap-2 ${
+                                isActiveProvider ? 'bg-[#7c9cbf]/5' : ''
+                              }`}
+                            >
                               <span className="text-sm">{provider.icon}</span>
-                              <div className="flex-1">
-                                <p className={`text-xs font-mono ${
-                                  selectedModel === provider.model ? 'text-[#5a7fa0] font-medium' : 'text-[#334155]'
+                              <div className="flex-1 min-w-0">
+                                <p className={`text-xs font-medium truncate ${
+                                  isActiveProvider ? 'text-[#5a7fa0]' : 'text-[#334155]'
                                 }`}>
-                                  {provider.model}
+                                  {provider.name}
                                 </p>
-                                <p className="text-[10px] text-[#94a3b8]">{provider.name}</p>
+                                <p className="text-[10px] text-[#94a3b8]">
+                                  {matchingEntries.length} model tersimpan
+                                </p>
                               </div>
-                              {selectedModel === provider.model && (
-                                <Check size={14} className="text-[#7c9cbf]" />
+                              {isActiveProvider && <Check size={14} className="text-[#7c9cbf] shrink-0" />}
+                              {isExpanded ? (
+                                <ChevronDown size={14} className="text-[#94a3b8] shrink-0" />
+                              ) : (
+                                <ChevronRight size={14} className="text-[#94a3b8] shrink-0" />
                               )}
-                            </div>
-                          </button>
-                        </div>
-                      ))}
+                            </button>
+                            {isExpanded && (
+                              <div className="bg-[#f8fafc]/60 pb-1">
+                                {matchingEntries.length === 0 && (
+                                  <p className="px-4 py-2 text-[10px] text-[#94a3b8]">
+                                    Belum ada model tersimpan — buka Settings untuk deteksi model.
+                                  </p>
+                                )}
+                                {matchingEntries.map(model => {
+                                  const isSelected = selectedProviderId === provider.id
+                                    ? selectedModel === model.id
+                                    : !selectedProviderId && selectedModel === model.id;
+                                  return (
+                                    <button
+                                      key={model.id}
+                                      onClick={() => {
+                                        setSelectedModel(model.id);
+                                        setSelectedProviderId(provider.id);
+                                        setShowModelSelector(false);
+                                      }}
+                                      className={`w-full pl-8 pr-3 py-2 text-left hover:bg-[#f0f4f8] transition-colors ${
+                                        isSelected ? 'bg-[#7c9cbf]/10' : ''
+                                      }`}
+                                    >
+                                      <div className="flex items-center gap-2">
+                                        <div className="flex-1 min-w-0">
+                                          <p className={`text-xs font-mono truncate ${
+                                            isSelected ? 'text-[#5a7fa0] font-medium' : 'text-[#334155]'
+                                          }`}>
+                                            {model.name}
+                                          </p>
+                                          {model.description && (
+                                            <p className="text-[10px] text-[#94a3b8] truncate">{model.description}</p>
+                                          )}
+                                        </div>
+                                        {isSelected && <Check size={13} className="text-[#7c9cbf] shrink-0" />}
+                                      </div>
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
                     </div>
                   )}
 

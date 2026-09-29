@@ -6,6 +6,19 @@ import { fetchModelsFromProvider, ModelInfo } from '../modelFetcher';
 import { useTranslation } from '../LanguageContext';
 import { memoryManager, MemoryEntry } from '../memorySystem';
 
+/** Small "5 menit lalu" style formatter — avoids pulling in a date library
+ *  just for this one label. */
+function formatRelativeTime(timestampMs: number): string {
+  const diffSec = Math.max(0, Math.floor((Date.now() - timestampMs) / 1000));
+  if (diffSec < 60) return 'baru saja';
+  const diffMin = Math.floor(diffSec / 60);
+  if (diffMin < 60) return `${diffMin} menit lalu`;
+  const diffHour = Math.floor(diffMin / 60);
+  if (diffHour < 24) return `${diffHour} jam lalu`;
+  const diffDay = Math.floor(diffHour / 24);
+  return `${diffDay} hari lalu`;
+}
+
 function SecuritySection() {
   const { vaultConfigured, enableEncryption, disableEncryption, changePassphrase, lock } = useVault();
   const [mode, setMode] = useState<'idle' | 'enable' | 'disable' | 'change'>('idle');
@@ -387,9 +400,14 @@ export default function Settings() {
       setEditingProvider(providerId);
       setEditForm({ apiKey: provider.apiKey, baseUrl: provider.baseUrl, model: provider.model });
       setModelMode('auto');
-      setAvailableModels([]);
+      // Reuse the cached model list from the last scan (if any) instead of
+      // forcing a re-scan every time the provider is opened — Detect Models
+      // is still available below to refresh it on demand.
+      const cachedModels = provider.models || [];
+      setAvailableModels(cachedModels);
       setModelError(null);
-      setModelQuery('');
+      const cachedMatch = cachedModels.find(m => m.id === provider.model);
+      setModelQuery(cachedMatch ? cachedMatch.name : cachedModels.length > 0 ? provider.model : '');
       setModelDropdownOpen(false);
     }
   };
@@ -429,6 +447,18 @@ export default function Settings() {
         editForm.baseUrl
       );
       setAvailableModels(models);
+
+      // Persist the scanned list onto the provider itself so it's cached
+      // for next time (Settings won't need to re-scan) and so the Chat
+      // page's model switcher can offer these models directly.
+      const provider = state.providers.find(p => p.id === editingProvider);
+      if (provider) {
+        dispatch({
+          type: 'UPDATE_PROVIDER',
+          payload: { ...provider, models, modelsFetchedAt: Date.now() },
+        });
+      }
+
       if (models.length > 0) {
         setEditForm({ ...editForm, model: models[0].id });
         setModelQuery(models[0].name);
@@ -688,6 +718,11 @@ export default function Settings() {
                           <RefreshCw size={14} className="animate-spin" />
                           Mendeteksi Model...
                         </>
+                      ) : availableModels.length > 0 ? (
+                        <>
+                          <RefreshCw size={14} />
+                          Scan Ulang Model
+                        </>
                       ) : (
                         <>
                           <Sparkles size={14} />
@@ -695,6 +730,16 @@ export default function Settings() {
                         </>
                       )}
                     </button>
+
+                    {(() => {
+                      const provider = state.providers.find(p => p.id === editingProvider);
+                      if (!provider?.modelsFetchedAt || availableModels.length === 0) return null;
+                      return (
+                        <p className="text-[10px] text-[#94a3b8] text-center">
+                          Tersimpan sejak {formatRelativeTime(provider.modelsFetchedAt)} — tidak perlu scan ulang tiap ganti model, langsung pilih di halaman Chat.
+                        </p>
+                      );
+                    })()}
 
                     {modelError && (
                       <div className="flex items-start gap-2 p-2.5 rounded-lg bg-[#c97878]/10 border border-[#c97878]/20">
@@ -706,7 +751,7 @@ export default function Settings() {
                     {availableModels.length > 0 && (
                       <div className="relative" data-model-combobox>
                         <p className="text-[10px] text-[#64748b] mb-1.5">
-                          {availableModels.length} model ditemukan — cari & pilih di bawah
+                          {availableModels.length} model tersimpan — cari & pilih di bawah
                         </p>
                         <div className="relative">
                           <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#94a3b8]" />

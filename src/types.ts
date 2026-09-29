@@ -8,6 +8,14 @@ export interface ProviderConfig {
   model: string;
   enabled: boolean;
   icon: string;
+  /**
+   * Cache of models discovered via "Deteksi Model Otomatis" in Settings, so
+   * the list survives reloads/navigation and doesn't need to be re-scanned
+   * every time — lets the Chat page's model switcher offer them directly.
+   */
+  models?: { id: string; name: string; description?: string }[];
+  /** Timestamp (ms) of the last successful model scan for this provider. */
+  modelsFetchedAt?: number;
 }
 
 export interface Message {
