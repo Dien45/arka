@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
-import { Send, Paperclip, Sparkles, User, Bot, Loader2, Code, Terminal, FileCode, Eye, ChevronDown, Check, AlertCircle, ShieldAlert, ShieldCheck, ListChecks, Hammer, X, File as FileIcon } from 'lucide-react';
+import { Send, Paperclip, Sparkles, User, Bot, Loader2, Code, Terminal, FileCode, Eye, ChevronDown, Check, AlertCircle, ShieldAlert, ShieldCheck, ListChecks, Hammer, X, File as FileIcon, Search } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import { useApp } from '../store';
 import { Message, ToolCall } from '../types';
@@ -303,6 +303,7 @@ export default function Chat() {
     return saved === 'plan' || saved === 'build' || saved === 'agent' ? saved : 'build';
   });
   const [showModelSelector, setShowModelSelector] = useState(false);
+  const [modelSearchQuery, setModelSearchQuery] = useState('');
 
   const [pendingApproval, setPendingApproval] = useState<PendingToolApproval | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -360,6 +361,26 @@ export default function Chat() {
       return () => document.removeEventListener('click', handleClickOutside);
     }
   }, [showModelSelector]);
+
+  // Reset the search box every time the dropdown is (re)opened.
+  useEffect(() => {
+    if (showModelSelector) setModelSearchQuery('');
+  }, [showModelSelector]);
+
+  const modelSearchLower = modelSearchQuery.trim().toLowerCase();
+  const filteredDefaultModels = defaultModels.filter(model =>
+    !modelSearchLower ||
+    model.name.toLowerCase().includes(modelSearchLower) ||
+    model.provider.toLowerCase().includes(modelSearchLower)
+  );
+  const filteredEnabledProviders = enabledProviders.filter(provider =>
+    !modelSearchLower ||
+    provider.model.toLowerCase().includes(modelSearchLower) ||
+    provider.name.toLowerCase().includes(modelSearchLower)
+  );
+  const hasNoModelResults = modelSearchLower.length > 0 &&
+    filteredDefaultModels.length === 0 &&
+    filteredEnabledProviders.length === 0;
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -1002,17 +1023,35 @@ Keep responses short and actionable.${skillEnhancements}${CHAT_MODE_SYSTEM_PROMP
                 />
                 {/* Dropdown */}
                 <div className="absolute right-0 top-full mt-2 w-72 bg-white rounded-xl border border-[#b8c9db] shadow-2xl z-[9999]">
-                  <div className="p-2 border-b border-[#b8c9db] bg-[#f8fafc]">
+                  <div className="p-2 border-b border-[#b8c9db] bg-[#f8fafc] space-y-2">
                     <p className="text-[10px] font-semibold text-[#64748b] uppercase">Pilih Model AI</p>
+                    <div className="relative">
+                      <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-[#94a3b8]" />
+                      <input
+                        type="text"
+                        autoFocus
+                        value={modelSearchQuery}
+                        onChange={e => setModelSearchQuery(e.target.value)}
+                        onClick={e => e.stopPropagation()}
+                        placeholder="Cari model..."
+                        className="w-full pl-7 pr-2 py-1.5 rounded-lg border border-[#b8c9db] bg-white text-xs text-[#334155] placeholder:text-[#94a3b8] outline-none focus:border-[#7c9cbf]"
+                      />
+                    </div>
                   </div>
                   <div className="max-h-96 overflow-y-auto">
+                  {hasNoModelResults && (
+                    <p className="px-3 py-6 text-center text-xs text-[#94a3b8]">
+                      Tidak ada model yang cocok dengan "{modelSearchQuery}"
+                    </p>
+                  )}
                   {/* Default Models */}
+                  {filteredDefaultModels.length > 0 && (
                   <div className="border-b border-[#e8eef4]">
                     <div className="px-3 py-2 bg-[#f8fafc] flex items-center gap-2">
                       <Sparkles size={12} className="text-[#7c9cbf]" />
                       <span className="text-xs font-medium text-[#334155]">Default Models</span>
                     </div>
-                    {defaultModels.map(model => (
+                    {filteredDefaultModels.map(model => (
                       <button
                         key={model.id}
                         onClick={() => {
@@ -1040,14 +1079,15 @@ Keep responses short and actionable.${skillEnhancements}${CHAT_MODE_SYSTEM_PROMP
                       </button>
                     ))}
                   </div>
+                  )}
 
                   {/* Enabled Providers */}
-                  {enabledProviders.length > 0 && (
+                  {filteredEnabledProviders.length > 0 && (
                     <div>
                       <div className="px-3 py-2 bg-[#f8fafc] flex items-center gap-2">
                         <span className="text-xs font-medium text-[#334155]">Your Providers</span>
                       </div>
-                      {enabledProviders.map(provider => (
+                      {filteredEnabledProviders.map(provider => (
                         <div key={provider.id} className="border-b border-[#e8eef4] last:border-b-0">
                           <button
                             onClick={() => {

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Settings as SettingsIcon, Key, Globe, Check, Eye, EyeOff, Save, RefreshCw, Sparkles, AlertCircle, Lock, ShieldCheck, Unlock as UnlockIcon, LockKeyhole, Brain, Trash2, X } from 'lucide-react';
+import { Settings as SettingsIcon, Key, Globe, Check, Eye, EyeOff, Save, RefreshCw, Sparkles, AlertCircle, Lock, ShieldCheck, Unlock as UnlockIcon, LockKeyhole, Brain, Trash2, X, Search } from 'lucide-react';
 import { useApp, useVault } from '../store';
 import { Provider } from '../types';
 import { fetchModelsFromProvider, ModelInfo } from '../modelFetcher';
@@ -378,6 +378,8 @@ export default function Settings() {
   const [availableModels, setAvailableModels] = useState<ModelInfo[]>([]);
   const [isLoadingModels, setIsLoadingModels] = useState(false);
   const [modelError, setModelError] = useState<string | null>(null);
+  const [modelQuery, setModelQuery] = useState('');
+  const [modelDropdownOpen, setModelDropdownOpen] = useState(false);
 
   const handleEdit = (providerId: Provider) => {
     const provider = state.providers.find(p => p.id === providerId);
@@ -387,6 +389,8 @@ export default function Settings() {
       setModelMode('auto');
       setAvailableModels([]);
       setModelError(null);
+      setModelQuery('');
+      setModelDropdownOpen(false);
     }
   };
 
@@ -427,6 +431,7 @@ export default function Settings() {
       setAvailableModels(models);
       if (models.length > 0) {
         setEditForm({ ...editForm, model: models[0].id });
+        setModelQuery(models[0].name);
       } else {
         setModelError('Tidak ada model yang ditemukan');
       }
@@ -699,21 +704,73 @@ export default function Settings() {
                     )}
 
                     {availableModels.length > 0 && (
-                      <div>
+                      <div className="relative" data-model-combobox>
                         <p className="text-[10px] text-[#64748b] mb-1.5">
-                          {availableModels.length} model ditemukan
+                          {availableModels.length} model ditemukan — cari & pilih di bawah
                         </p>
-                        <select
-                          value={editForm.model}
-                          onChange={e => setEditForm({ ...editForm, model: e.target.value })}
-                          className="w-full px-3 py-2.5 rounded-lg border border-[#b8c9db] text-sm focus:border-[#7c9cbf] focus:outline-none"
-                        >
-                          {availableModels.map(model => (
-                            <option key={model.id} value={model.id}>
-                              {model.name}
-                            </option>
-                          ))}
-                        </select>
+                        <div className="relative">
+                          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#94a3b8]" />
+                          <input
+                            type="text"
+                            value={modelQuery}
+                            onFocus={() => setModelDropdownOpen(true)}
+                            onChange={e => {
+                              setModelQuery(e.target.value);
+                              setModelDropdownOpen(true);
+                            }}
+                            placeholder="Cari model..."
+                            className="w-full pl-9 pr-3 py-2.5 rounded-lg border border-[#b8c9db] text-sm focus:border-[#7c9cbf] focus:outline-none"
+                          />
+                        </div>
+                        {modelDropdownOpen && (
+                          <>
+                            <div className="fixed inset-0 z-10" onClick={() => setModelDropdownOpen(false)} />
+                            <div className="absolute left-0 right-0 top-full mt-1 max-h-56 overflow-y-auto bg-white rounded-lg border border-[#b8c9db] shadow-xl z-20">
+                              {availableModels
+                                .filter(model =>
+                                  !modelQuery.trim() ||
+                                  model.name.toLowerCase().includes(modelQuery.trim().toLowerCase()) ||
+                                  model.id.toLowerCase().includes(modelQuery.trim().toLowerCase())
+                                )
+                                .map(model => (
+                                  <button
+                                    key={model.id}
+                                    onClick={() => {
+                                      setEditForm({ ...editForm, model: model.id });
+                                      setModelQuery(model.name);
+                                      setModelDropdownOpen(false);
+                                    }}
+                                    className={`w-full flex items-center gap-2 px-3 py-2 text-left hover:bg-[#f0f4f8] transition-colors ${
+                                      editForm.model === model.id ? 'bg-[#7c9cbf]/10' : ''
+                                    }`}
+                                  >
+                                    <div className="flex-1 min-w-0">
+                                      <p className={`text-xs font-medium truncate ${
+                                        editForm.model === model.id ? 'text-[#5a7fa0]' : 'text-[#334155]'
+                                      }`}>
+                                        {model.name}
+                                      </p>
+                                      {model.description && (
+                                        <p className="text-[10px] text-[#94a3b8] truncate">{model.description}</p>
+                                      )}
+                                    </div>
+                                    {editForm.model === model.id && (
+                                      <Check size={14} className="text-[#7c9cbf] shrink-0" />
+                                    )}
+                                  </button>
+                                ))}
+                              {availableModels.filter(model =>
+                                !modelQuery.trim() ||
+                                model.name.toLowerCase().includes(modelQuery.trim().toLowerCase()) ||
+                                model.id.toLowerCase().includes(modelQuery.trim().toLowerCase())
+                              ).length === 0 && (
+                                <p className="px-3 py-4 text-center text-xs text-[#94a3b8]">
+                                  Tidak ada model yang cocok dengan "{modelQuery}"
+                                </p>
+                              )}
+                            </div>
+                          </>
+                        )}
                       </div>
                     )}
                   </div>
