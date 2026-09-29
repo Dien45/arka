@@ -21,7 +21,7 @@ export default function Unlock() {
   };
 
   return (
-    <div className="h-screen w-screen flex items-center justify-center bg-[#f0f4f8] p-4">
+    <div className="h-dvh w-screen flex items-center justify-center bg-[#f0f4f8] p-4">
       <div className="bg-white rounded-2xl shadow-xl p-6 w-full max-w-sm border border-[#b8c9db]">
         <div className="flex flex-col items-center mb-5 text-center">
           <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-[#7c9cbf] to-[#5a7fa0] flex items-center justify-center mb-3">

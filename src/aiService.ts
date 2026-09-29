@@ -29,7 +29,18 @@ export interface AIResponse {
     name: string;
     arguments: string;
   }>;
+  /**
+   * Why the model stopped generating this turn:
+   *  - 'stop'       -> natural end of the response
+   *  - 'tool_calls' -> stopped because it wants to call a tool
+   *  - 'length'     -> stopped because it HIT the max-token cap (i.e. the
+   *                    response is truncated mid-thought, not actually done)
+   *  - 'other'      -> anything else / unknown
+   * Used by callAIProviderFull() below to auto-continue truncated replies.
+   */
+  finishReason?: 'stop' | 'tool_calls' | 'length' | 'other';
 }
+
 
 export async function callAIProvider(
   provider: ProviderConfig,
@@ -98,6 +109,7 @@ async function callOpenAI(provider: ProviderConfig, messages: ChatMessage[], too
   
   const result: AIResponse = {
     content: message.content || '',
+    finishReason: mapOpenAIFinishReason(data.choices[0].finish_reason),
   };
 
   if (message.tool_calls && message.tool_calls.length > 0) {
@@ -109,6 +121,15 @@ async function callOpenAI(provider: ProviderConfig, messages: ChatMessage[], too
   }
 
   return result;
+}
+
+function mapOpenAIFinishReason(reason: string | undefined): AIResponse['finishReason'] {
+  switch (reason) {
+    case 'stop': return 'stop';
+    case 'tool_calls': return 'tool_calls';
+    case 'length': return 'length';
+    default: return 'other';
+  }
 }
 
 async function callAnthropic(provider: ProviderConfig, messages: ChatMessage[], tools?: ToolDefinition[]): Promise<AIResponse> {
@@ -152,7 +173,9 @@ async function callAnthropic(provider: ProviderConfig, messages: ChatMessage[], 
 
   const requestBody: any = {
     model: provider.model,
-    max_tokens: 4096,
+    // 4096 was cutting off long replies (long code files, PRDs) mid-sentence
+    // — bumped to the safe common output ceiling for current Claude models.
+    max_tokens: 8192,
     system: systemMessage?.content,
     messages: chatMessages,
   };
@@ -185,6 +208,11 @@ async function callAnthropic(provider: ProviderConfig, messages: ChatMessage[], 
   const contentBlocks: any[] = data.content || [];
   const result: AIResponse = {
     content: contentBlocks.filter(b => b.type === 'text').map(b => b.text).join('\n'),
+    finishReason:
+      data.stop_reason === 'max_tokens' ? 'length' :
+      data.stop_reason === 'tool_use' ? 'tool_calls' :
+      data.stop_reason === 'end_turn' || data.stop_reason === 'stop_sequence' ? 'stop' :
+      'other',
   };
 
   // Claude can request multiple tool calls in a single turn — collect all of them.
@@ -243,7 +271,9 @@ async function callGoogle(provider: ProviderConfig, messages: ChatMessage[], too
     contents: contents,
     generationConfig: {
       temperature: 0.7,
-      maxOutputTokens: 4096,
+      // 4096 was cutting off long replies (long code files, PRDs) mid-sentence
+      // — bumped to the safe common output ceiling for current Gemini models.
+      maxOutputTokens: 8192,
     },
   };
 
@@ -279,9 +309,14 @@ async function callGoogle(provider: ProviderConfig, messages: ChatMessage[], too
 
   const data = await response.json();
   const responseParts: any[] = data.candidates?.[0]?.content?.parts || [];
+  const geminiFinishReason: string | undefined = data.candidates?.[0]?.finishReason;
 
   const result: AIResponse = {
     content: responseParts.filter(p => p.text).map(p => p.text).join(''),
+    finishReason:
+      geminiFinishReason === 'MAX_TOKENS' ? 'length' :
+      geminiFinishReason === 'STOP' ? 'stop' :
+      'other',
   };
 
   // Gemini can return multiple function calls in one turn — collect all of them.
@@ -292,6 +327,7 @@ async function callGoogle(provider: ProviderConfig, messages: ChatMessage[], too
       name: p.functionCall.name,
       arguments: JSON.stringify(p.functionCall.args),
     }));
+    result.finishReason = 'tool_calls';
   }
 
   return result;
@@ -328,6 +364,7 @@ async function callGroq(provider: ProviderConfig, messages: ChatMessage[], tools
   
   const result: AIResponse = {
     content: message.content || '',
+    finishReason: mapOpenAIFinishReason(data.choices[0].finish_reason),
   };
 
   if (message.tool_calls && message.tool_calls.length > 0) {
@@ -373,6 +410,7 @@ async function callOpenRouter(provider: ProviderConfig, messages: ChatMessage[],
   
   const result: AIResponse = {
     content: message.content || '',
+    finishReason: mapOpenAIFinishReason(data.choices[0].finish_reason),
   };
 
   if (message.tool_calls && message.tool_calls.length > 0) {
@@ -412,6 +450,7 @@ async function callOllama(provider: ProviderConfig, messages: ChatMessage[], too
   const data = await response.json();
   const result: AIResponse = {
     content: data.message.content || '',
+    finishReason: data.done_reason === 'length' ? 'length' : data.done === false ? 'other' : 'stop',
   };
 
   if (data.message.tool_calls && data.message.tool_calls.length > 0) {
@@ -473,6 +512,7 @@ async function callCustom(provider: ProviderConfig, messages: ChatMessage[], too
   if (data.choices && data.choices[0]) {
     const message = data.choices[0].message;
     result.content = message.content || '';
+    result.finishReason = mapOpenAIFinishReason(data.choices[0].finish_reason);
     
     if (message.tool_calls && message.tool_calls.length > 0) {
       result.toolCalls = message.tool_calls.map((tc: any) => ({
@@ -490,4 +530,44 @@ async function callCustom(provider: ProviderConfig, messages: ChatMessage[], too
   }
   
   return result;
+}
+
+/**
+ * Same as callAIProvider(), but auto-continues the reply when the model
+ * stopped purely because it hit the max-token output cap (finishReason
+ * === 'length') rather than because it was actually done — this was the
+ * main cause of replies (and generated documents like PRDs) getting cut off
+ * mid-sentence. Never continues past a tool-call request; the caller's own
+ * tool-calling loop handles that turn instead.
+ */
+export async function callAIProviderFull(
+  provider: ProviderConfig,
+  messages: ChatMessage[],
+  tools?: ToolDefinition[],
+  maxContinuations = 4
+): Promise<AIResponse> {
+  let history = messages;
+  let response = await callAIProvider(provider, history, tools);
+  let combinedContent = response.content;
+  let rounds = 0;
+
+  while (
+    response.finishReason === 'length' &&
+    (!response.toolCalls || response.toolCalls.length === 0) &&
+    rounds < maxContinuations
+  ) {
+    rounds++;
+    history = [
+      ...history,
+      { role: 'assistant', content: response.content },
+      {
+        role: 'user',
+        content: 'Lanjutkan PERSIS dari kata/karakter terakhir di atas — jangan mengulang apa yang sudah ditulis, jangan menambahkan kalimat pembuka seperti "melanjutkan...", langsung sambung teksnya.',
+      },
+    ];
+    response = await callAIProvider(provider, history, tools);
+    combinedContent += response.content;
+  }
+
+  return { ...response, content: combinedContent };
 }

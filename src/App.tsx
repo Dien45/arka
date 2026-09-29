@@ -4,7 +4,6 @@ import { AppProvider, useApp } from './store';
 import { LanguageProvider } from './LanguageContext';
 import Sidebar from './components/Sidebar';
 import Chat from './components/Chat';
-import AgentPanel from './components/AgentPanel';
 import FileExplorer from './components/FileExplorer';
 import GitHubPanel from './components/GitHubPanel';
 import Settings from './components/Settings';
@@ -37,8 +36,6 @@ function MainContent() {
     switch (state.currentView) {
       case 'chat':
         return <Chat />;
-      case 'agent':
-        return <AgentPanel />;
       case 'files':
         return <FileExplorer />;
       case 'prd':
@@ -55,7 +52,12 @@ function MainContent() {
   };
 
   return (
-    <div className="h-screen w-screen flex overflow-hidden bg-[#f0f4f8]">
+    // h-dvh (dynamic viewport height) instead of h-screen (100vh): on mobile
+    // browsers, 100vh is measured against the viewport WITHOUT the address
+    // bar, which is taller than what's actually visible — that mismatch is
+    // what forced the whole page to scroll just to reach the sidebar menu or
+    // the chat input. dvh tracks the real visible viewport instead.
+    <div className="h-dvh w-screen flex overflow-hidden bg-[#f0f4f8]">
       <Sidebar />
       <main className="flex-1 flex flex-col min-w-0">
         {/* Mobile Header */}

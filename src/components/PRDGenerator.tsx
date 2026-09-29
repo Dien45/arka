@@ -5,7 +5,7 @@ import {
   ChevronDown, ChevronUp, AlertCircle,
 } from 'lucide-react';
 import { useApp } from '../store';
-import { callAIProvider, ChatMessage } from '../aiService';
+import { callAIProviderFull, ChatMessage } from '../aiService';
 
 const PRD_SYSTEM_PROMPT = `You are a senior product manager. Given a short product idea from the user, write a complete, well-structured Product Requirements Document (PRD) in Markdown.
 
@@ -101,7 +101,7 @@ export default function PRDGenerator() {
         { role: 'system', content: PRD_SYSTEM_PROMPT },
         userMsg,
       ];
-      const response = await callAIProvider(activeProvider, messages);
+      const response = await callAIProviderFull(activeProvider, messages);
       const title = customTitle.trim() || deriveTitle(idea);
       const now = new Date().toISOString();
       const doc: PRDDoc = {
@@ -134,7 +134,7 @@ export default function PRDGenerator() {
         ...doc.messages,
         { role: 'user', content: instruction },
       ];
-      const response = await callAIProvider(activeProvider, messages);
+      const response = await callAIProviderFull(activeProvider, messages);
       const updatedMessages = [
         ...doc.messages,
         { role: 'user' as const, content: instruction },

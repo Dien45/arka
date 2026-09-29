@@ -1,9 +1,9 @@
 import { useState, useRef, useEffect } from 'react';
-import { Send, Paperclip, Sparkles, User, Bot, Loader2, Code, Terminal, FileCode, Eye, ChevronDown, Check, AlertCircle, ShieldAlert, ShieldCheck } from 'lucide-react';
+import { Send, Paperclip, Sparkles, User, Bot, Loader2, Code, Terminal, FileCode, Eye, ChevronDown, Check, AlertCircle, ShieldAlert, ShieldCheck, ListChecks, Hammer } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import { useApp } from '../store';
 import { Message, ToolCall } from '../types';
-import { callAIProvider, ToolDefinition, ChatMessage } from '../aiService';
+import { callAIProviderFull, ToolDefinition, ChatMessage } from '../aiService';
 import { availableTools, executeTool, getToolsList, isSensitiveTool } from '../tools';
 import { memoryManager } from '../memorySystem';
 
@@ -238,6 +238,25 @@ const quickPrompts = [
   { icon: '🚀', text: 'Optimasi performa', prompt: 'Analisa performa kode ini dan berikan saran optimasi.' },
 ];
 
+type ChatMode = 'plan' | 'build' | 'agent';
+
+const CHAT_MODES: { id: ChatMode; label: string; icon: typeof ListChecks; description: string }[] = [
+  { id: 'plan', label: 'Plan', icon: ListChecks, description: 'AI hanya diskusi & susun rencana, TIDAK menulis/mengubah file.' },
+  { id: 'build', label: 'Build', icon: Hammer, description: 'AI kerjakan task yang diminta sekarang pakai tools, lalu lapor hasil.' },
+  { id: 'agent', label: 'Agent', icon: Bot, description: 'AI kerjakan task secara otonom sampai selesai lewat banyak langkah tool.' },
+];
+
+// Tools a Plan-mode AI is allowed to touch — read-only, nothing that writes
+// files, runs commands, or persists anything, so "just planning" can never
+// quietly turn into "already built it".
+const PLAN_MODE_ALLOWED_TOOLS = new Set(['read_file', 'list_files', 'web_fetch', 'web_search']);
+
+const CHAT_MODE_SYSTEM_PROMPTS: Record<ChatMode, string> = {
+  plan: `\n\n🗺️ MODE SAAT INI: PLAN\nUser sedang dalam mode perencanaan, BUKAN mode eksekusi. Tugasmu:\n- Diskusikan idenya, ajukan pertanyaan klarifikasi kalau perlu\n- Susun rencana / breakdown langkah kerja yang jelas (mis. daftar bernomor, tahapan)\n- JANGAN memanggil write_file, run_command, memory, atau stage_commit di mode ini — tool-tool itu bahkan tidak tersedia sekarang\n- Kalau user sudah setuju dengan rencananya dan minta mulai dikerjakan, beri tahu mereka untuk pindah ke mode Build atau Agent`,
+  build: `\n\n🔨 MODE SAAT INI: BUILD\nKerjakan permintaan user saat ini secara langsung memakai tools yang tersedia. Fokus pada task yang diminta, boleh pakai beberapa tool berurutan kalau memang dibutuhkan, lalu laporkan hasilnya dengan jelas.`,
+  agent: `\n\n🤖 MODE SAAT INI: AGENT\nKerjakan seluruh task secara OTONOM dari awal sampai selesai — gunakan tool sebanyak dan seberurutan yang dibutuhkan tanpa berhenti di tengah untuk menanyakan hal-hal kecil yang bisa kamu putuskan sendiri. Hanya berhenti untuk bertanya kalau benar-benar butuh keputusan penting dari user yang tidak bisa diasumsikan.`,
+};
+
 export default function Chat() {
   const { state, dispatch } = useApp();
   const [input, setInput] = useState('');
@@ -245,7 +264,12 @@ export default function Chat() {
   const [selectedModel, setSelectedModel] = useState(() => {
     return localStorage.getItem('arka-selected-model') || 'gpt-4o';
   });
+  const [chatMode, setChatMode] = useState<ChatMode>(() => {
+    const saved = localStorage.getItem('arka-chat-mode');
+    return saved === 'plan' || saved === 'build' || saved === 'agent' ? saved : 'build';
+  });
   const [showModelSelector, setShowModelSelector] = useState(false);
+
   const [pendingApproval, setPendingApproval] = useState<PendingToolApproval | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -269,6 +293,11 @@ export default function Chat() {
   useEffect(() => {
     localStorage.setItem('arka-selected-model', selectedModel);
   }, [selectedModel]);
+
+  // Save selected chat mode to localStorage
+  useEffect(() => {
+    localStorage.setItem('arka-chat-mode', chatMode);
+  }, [chatMode]);
 
   const currentSession = state.sessions.find(s => s.id === state.currentSessionId);
   
@@ -597,13 +626,16 @@ IMPORTANT RULES:
 - Use memory tool to remember important information for future sessions
 - When you fetch information (like from web_fetch), remember it using memory tool if it's important
 
-Keep responses short and actionable.${skillEnhancements}`,
+Keep responses short and actionable.${skillEnhancements}${CHAT_MODE_SYSTEM_PROMPTS[chatMode]}`,
         },
         ...messageHistory,
       ];
 
-      // Convert tools to ToolDefinition format
-      const toolDefinitions = availableTools.map((tool): ToolDefinition => ({
+      // Convert tools to ToolDefinition format — Plan mode strips out every
+      // mutating tool so "just planning" can never accidentally write files.
+      const toolDefinitions = availableTools
+        .filter(tool => chatMode !== 'plan' || PLAN_MODE_ALLOWED_TOOLS.has(tool.name))
+        .map((tool): ToolDefinition => ({
         type: 'function' as const,
         function: {
           name: tool.name,
@@ -629,12 +661,47 @@ Keep responses short and actionable.${skillEnhancements}`,
         },
       }));
 
-      // Call the AI provider with tools
-      let aiResponse = await callAIProvider(provider, messagesWithSystem, toolDefinitions);
+      // Call the AI provider with tools. This loop keeps calling the model
+      // and executing whatever tools it asks for until it stops requesting
+      // tools (or we hit a safety cap) — the previous version only ever
+      // processed ONE round of tool calls and then took whatever the model
+      // said next as final, even if that second reply ALSO just wanted to
+      // call another tool (near-empty text + a tool_calls array). That is
+      // exactly what made multi-step tasks (write several files, then read
+      // one back, etc.) look like the AI "stopped in the middle": the
+      // follow-up tool request was silently dropped and never executed.
+      const MAX_TOOL_ITERATIONS = 25;
+      let aiResponse = await callAIProviderFull(provider, messagesWithSystem, toolDefinitions);
       let responseContent = aiResponse.content;
-      
-      // Handle tool calls from API response
-      if (aiResponse.toolCalls && aiResponse.toolCalls.length > 0) {
+      let toolRounds = 0;
+      let stoppedByCap = false;
+
+      while (aiResponse.toolCalls && aiResponse.toolCalls.length > 0) {
+        toolRounds++;
+        if (toolRounds > MAX_TOOL_ITERATIONS) {
+          stoppedByCap = true;
+          break;
+        }
+
+        // Show any narration text the model gave alongside this round's
+        // tool-call request (e.g. "Oke, saya buat file-nya dulu...") instead
+        // of silently discarding it — helps multi-step Agent-mode runs feel
+        // like they're actually progressing instead of stuck.
+        if (aiResponse.content && aiResponse.content.trim()) {
+          dispatch({
+            type: 'ADD_MESSAGE',
+            payload: {
+              sessionId,
+              message: {
+                id: `${Date.now()}_narration_${toolRounds}`,
+                role: 'assistant',
+                content: aiResponse.content,
+                timestamp: new Date(),
+              },
+            },
+          });
+        }
+
         for (const toolCall of aiResponse.toolCalls) {
           try {
             const params = JSON.parse(toolCall.arguments);
@@ -705,14 +772,21 @@ Keep responses short and actionable.${skillEnhancements}`,
             console.error('Error executing tool:', error);
           }
         }
-        
-        // Get final response from AI with tool results
-        aiResponse = await callAIProvider(provider, [
+
+        // Ask the model to continue — it may want to call MORE tools (loop
+        // continues) or give its final text answer (loop exits next check).
+        aiResponse = await callAIProviderFull(provider, [
           messagesWithSystem[0],
           ...messageHistory,
         ], toolDefinitions);
         responseContent = aiResponse.content;
       }
+
+      if (stoppedByCap) {
+        responseContent = (responseContent ? responseContent + '\n\n' : '') +
+          `⚠️ Berhenti otomatis setelah ${MAX_TOOL_ITERATIONS} langkah tool berturut-turut (pengaman anti-loop-tak-terbatas). Minta saya lanjutkan kalau task belum selesai.`;
+      }
+
 
       const response: Message = {
         id: Date.now().toString(),
@@ -814,9 +888,9 @@ Keep responses short and actionable.${skillEnhancements}`,
       {/* Chat Header */}
       <div className="px-4 py-3 border-b border-[#b8c9db] bg-white/50 backdrop-blur-sm overflow-visible relative z-50">
         <div className="flex items-center gap-3">
-          <Sparkles size={18} className="text-[#7c9cbf]" />
-          <div className="flex-1">
-            <h2 className="font-semibold text-[#334155] text-sm">
+          <Sparkles size={18} className="text-[#7c9cbf] shrink-0" />
+          <div className="flex-1 min-w-0">
+            <h2 className="font-semibold text-[#334155] text-sm truncate" title={currentSession ? currentSession.title : 'Chat Baru'}>
               {currentSession ? currentSession.title : 'Chat Baru'}
             </h2>
           </div>
@@ -935,16 +1009,38 @@ Keep responses short and actionable.${skillEnhancements}`,
           </div>
         </div>
         
-        {/* Provider Info */}
-        <div className="mt-2 flex items-center gap-2">
-          {currentProvider && (
-            <>
-              <span className="text-sm">{currentProvider.icon}</span>
-              <span className="text-[10px] text-[#64748b]">
-                {currentProvider.name} • {selectedModel}
-              </span>
-            </>
-          )}
+        {/* Mode Selector + Provider Info */}
+        <div className="mt-2 flex items-center justify-between gap-2 flex-wrap">
+          <div className="inline-flex items-center rounded-lg border border-[#b8c9db] bg-white p-0.5 gap-0.5">
+            {CHAT_MODES.map(mode => {
+              const ModeIcon = mode.icon;
+              const isActive = chatMode === mode.id;
+              return (
+                <button
+                  key={mode.id}
+                  onClick={() => setChatMode(mode.id)}
+                  title={mode.description}
+                  className={`flex items-center gap-1 px-2.5 py-1 rounded-md text-[11px] font-medium transition-colors ${
+                    isActive ? 'bg-[#7c9cbf] text-white' : 'text-[#64748b] hover:bg-[#f0f4f8]'
+                  }`}
+                >
+                  <ModeIcon size={12} />
+                  {mode.label}
+                </button>
+              );
+            })}
+          </div>
+
+          <div className="flex items-center gap-2">
+            {currentProvider && (
+              <>
+                <span className="text-sm">{currentProvider.icon}</span>
+                <span className="text-[10px] text-[#64748b]">
+                  {currentProvider.name} • {selectedModel}
+                </span>
+              </>
+            )}
+          </div>
         </div>
       </div>
 

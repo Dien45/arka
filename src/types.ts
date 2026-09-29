@@ -70,5 +70,6 @@ export interface GitHubCommit {
   branch: string;
 }
 
-export type View = 'chat' | 'agent' | 'files' | 'github' | 'settings' | 'sessions' | 'skills' | 'prd';
+export type View = 'chat' | 'files' | 'github' | 'settings' | 'sessions' | 'skills' | 'prd';
+
 
