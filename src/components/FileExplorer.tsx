@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { 
   FolderOpen, File, ChevronRight, ChevronDown, FileCode, FileText, 
-  Image, Copy, Check, Plus, Trash2, Edit2, X, Download, 
+  Image, Copy, Check, Plus, Trash2, Edit2, X, Download, Upload,
   FileJson, FileSpreadsheet, Hash, Braces, Type, Folder, Loader2,
   Eye, Code2, ExternalLink
 } from 'lucide-react';
@@ -565,6 +565,125 @@ export default function FileExplorer() {
     }
   };
 
+  const [isImportingZip, setIsImportingZip] = useState(false);
+
+  // Paths inside an uploaded project .zip that are never useful to bring into
+  // the virtual workspace — dependency/build/VCS folders bloat the (limited)
+  // localStorage quota with thousands of files the AI will never need to read.
+  const ZIP_IMPORT_IGNORED_PREFIXES = [
+    'node_modules/', '.git/', 'dist/', 'build/', '.next/', '.nuxt/',
+    'out/', 'coverage/', '.venv/', 'venv/', '__pycache__/', '.turbo/',
+    '.cache/', '.idea/', '.vscode/',
+  ];
+  // Common binary/media extensions — reading these as text via JSZip would
+  // just produce corrupted mojibake, so skip them instead of writing garbage.
+  const ZIP_IMPORT_BINARY_EXT = new Set([
+    'png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'ico', 'svg', 'pdf',
+    'woff', 'woff2', 'ttf', 'eot', 'otf', 'zip', 'gz', 'tar', 'rar', '7z',
+    'mp3', 'mp4', 'mov', 'avi', 'webm', 'wav', 'ogg', 'flac',
+    'exe', 'dll', 'so', 'dylib', 'class', 'jar', 'wasm',
+  ]);
+  const ZIP_IMPORT_MAX_FILE_BYTES = 1_000_000; // keep in sync with tools.ts' write_file cap
+  const ZIP_IMPORT_MAX_TOTAL_BYTES = 8_000_000; // keep in sync with tools.ts' virtual workspace quota
+
+  // Lets the user bring in an existing project from outside Arka: pick any
+  // .zip, and every text file inside (skipping node_modules/.git/binaries)
+  // gets written into this session's virtual workspace, exactly as if the
+  // AI had written each file itself — so the AI can then read/edit it.
+  const handleUploadZip = async (file: File) => {
+    if (!sessionId) {
+      alert('Mulai atau pilih sesi chat dulu sebelum upload project — setiap sesi punya workspace sendiri.');
+      return;
+    }
+    if (!file.name.toLowerCase().endsWith('.zip')) {
+      alert('File harus berformat .zip.');
+      return;
+    }
+
+    setIsImportingZip(true);
+    try {
+      const { default: JSZip } = await import('jszip');
+      const zip = await JSZip.loadAsync(file);
+
+      const files = loadVirtualFiles(sessionId);
+      let currentTotal = Object.values(files).reduce((sum: number, f: any) => sum + (f?.size || 0), 0) as number;
+
+      let imported = 0;
+      const skipped: string[] = [];
+
+      const entries = Object.values(zip.files) as Array<{ name: string; dir: boolean; async: (type: 'string') => Promise<string> }>;
+      for (const entry of entries) {
+        if (entry.dir) continue;
+
+        // Zip entries commonly nest everything under one top-level folder
+        // (e.g. "my-project-main/src/App.tsx") — strip that so files land
+        // at sensible paths like "src/App.tsx" in the workspace instead.
+        const parts = entry.name.split('/');
+        const path = parts.length > 1 ? parts.slice(1).join('/') : entry.name;
+        if (!path) continue;
+
+        const lowerPath = path.toLowerCase();
+        const ext = lowerPath.split('.').pop() || '';
+
+        if (ZIP_IMPORT_IGNORED_PREFIXES.some(prefix => (path + '/').startsWith(prefix) || lowerPath.startsWith(prefix))) {
+          continue; // silently skip — these are expected/noisy, not worth reporting
+        }
+        if (ZIP_IMPORT_BINARY_EXT.has(ext)) {
+          skipped.push(`${path} (format binary tidak didukung)`);
+          continue;
+        }
+
+        let content: string;
+        try {
+          content = await entry.async('string');
+        } catch {
+          skipped.push(`${path} (gagal dibaca)`);
+          continue;
+        }
+
+        if (content.length > ZIP_IMPORT_MAX_FILE_BYTES) {
+          skipped.push(`${path} (>1MB, terlalu besar)`);
+          continue;
+        }
+        const previousSize = files[path]?.size || 0;
+        const newTotal = currentTotal - previousSize + content.length;
+        if (newTotal > ZIP_IMPORT_MAX_TOTAL_BYTES) {
+          skipped.push(`${path} (kuota workspace ~8MB penuh)`);
+          continue;
+        }
+
+        files[path] = {
+          content,
+          modified: new Date().toISOString(),
+          size: content.length,
+        };
+        currentTotal = newTotal;
+        imported++;
+      }
+
+      if (imported === 0) {
+        alert('Tidak ada file yang bisa di-import dari ZIP ini (mungkin isinya cuma binary/folder kosong, atau kuota workspace sudah penuh).');
+        return;
+      }
+
+      saveVirtualFiles(sessionId, files);
+      setVirtualFiles(files);
+
+      let message = `✅ Berhasil import ${imported} file dari "${file.name}" ke workspace.`;
+      if (skipped.length > 0) {
+        const shown = skipped.slice(0, 10);
+        message += `\n\n⚠️ ${skipped.length} file dilewati:\n${shown.join('\n')}`;
+        if (skipped.length > shown.length) message += `\n...dan ${skipped.length - shown.length} lainnya.`;
+      }
+      alert(message);
+    } catch (error) {
+      console.error('Gagal import ZIP:', error);
+      alert('Gagal membuka/extract file ZIP. Pastikan file tidak rusak dan benar-benar berformat .zip.');
+    } finally {
+      setIsImportingZip(false);
+    }
+  };
+
   // Convert virtual files (flat path -> content map) into a nested FileNode tree,
   // so files like "src/components/Foo.tsx" render inside proper "src" / "components" folders
   // instead of being dumped flat into the workspace root.
@@ -692,6 +811,28 @@ export default function FileExplorer() {
             )}
             <span className="hidden sm:inline">{isZipping ? 'Membuat ZIP...' : 'Download ZIP'}</span>
           </button>
+          <label
+            title="Upload project (.zip) dari luar Arka ke workspace ini"
+            className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-[#7c9cbf]/10 text-[#5a7fa0] text-xs font-medium hover:bg-[#7c9cbf]/20 transition-colors shrink-0 cursor-pointer ${isImportingZip ? 'opacity-50 pointer-events-none' : ''}`}
+          >
+            {isImportingZip ? (
+              <Loader2 size={12} className="animate-spin" />
+            ) : (
+              <Upload size={12} />
+            )}
+            <span className="hidden sm:inline">{isImportingZip ? 'Meng-import...' : 'Upload ZIP'}</span>
+            <input
+              type="file"
+              accept=".zip,application/zip,application/x-zip-compressed"
+              className="hidden"
+              disabled={isImportingZip}
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (file) handleUploadZip(file);
+                e.target.value = ''; // allow re-selecting the same file later
+              }}
+            />
+          </label>
           <button
             onClick={() => setShowFolderPicker(true)}
             title="Pilih Folder"
