@@ -19,7 +19,7 @@ function MainContent() {
   useEffect(() => {
     const handleThemeChange = (event: CustomEvent) => {
       // Force re-render by triggering a state update
-      dispatch({ type: 'SET_LOADING', payload: false });
+      dispatch({ type: 'FORCE_RERENDER' });
     };
 
     window.addEventListener('theme-changed', handleThemeChange as EventListener);

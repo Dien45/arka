@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
-import { MessageSquare, FolderOpen, Github, Settings, Plus, X, MessageCircle, Trash2, Package, FileText, Pencil, Check } from 'lucide-react';
+import { MessageSquare, FolderOpen, Github, Settings, Plus, X, MessageCircle, Trash2, Package, FileText, Pencil, Check, Loader2 } from 'lucide-react';
 import { useApp } from '../store';
 import { View } from '../types';
 
@@ -162,6 +162,14 @@ export default function Sidebar() {
                       />
                     ) : (
                       <span className="text-sm truncate flex-1">{session.title}</span>
+                    )}
+                    {/* AI is still working on this session in the background
+                        (you switched away from it instead of waiting) — lets
+                        you tell at a glance which session to check back on. */}
+                    {!isRenaming && state.loadingSessionIds.includes(session.id) && (
+                      <span title="AI masih bekerja di sesi ini...">
+                        <Loader2 size={12} className="shrink-0 animate-spin text-[#7c9cbf]" />
+                      </span>
                     )}
                     {isRenaming ? (
                       <button

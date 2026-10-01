@@ -323,7 +323,17 @@ export default function Chat() {
   const { state, dispatch } = useApp();
   const [input, setInput] = useState('');
   const [attachments, setAttachments] = useState<PendingAttachment[]>([]);
-  const [isTyping, setIsTyping] = useState(false);
+  // Scoped per session (not one global flag) — otherwise generating a
+  // response in session A would show the "AI is typing" indicator in
+  // session B too the moment you switched over to it.
+  const [typingSessionIds, setTypingSessionIds] = useState<Set<string>>(new Set());
+  const setSessionTyping = (sessionId: string, typing: boolean) => {
+    setTypingSessionIds(prev => {
+      const next = new Set(prev);
+      if (typing) next.add(sessionId); else next.delete(sessionId);
+      return next;
+    });
+  };
   const [selectedModel, setSelectedModel] = useState(() => {
     return localStorage.getItem('arka-selected-model') || 'gpt-4o';
   });
@@ -344,38 +354,56 @@ export default function Chat() {
   // Which provider's cached model list is expanded in the dropdown.
   const [expandedProviderId, setExpandedProviderId] = useState<Provider | null>(null);
 
-  const [pendingApproval, setPendingApproval] = useState<PendingToolApproval | null>(null);
+  // All three of these are keyed by sessionId (not one shared value) for the
+  // same reason as typingSessionIds above: multiple sessions can have a
+  // response in flight at once (you can switch away from a running session
+  // instead of being stuck waiting), so each needs its own approval prompt,
+  // resolver, and abort handle instead of clobbering each other.
+  const [pendingApprovals, setPendingApprovals] = useState<Record<string, PendingToolApproval>>({});
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
-  const approvalResolverRef = useRef<((approved: boolean) => void) | null>(null);
+  const approvalResolversRef = useRef<Record<string, (approved: boolean) => void>>({});
   // Lets the Stop button cancel the in-flight AI call (and short-circuit the
   // tool-calling loop) instead of having to wait for it to finish on its own.
-  const abortControllerRef = useRef<AbortController | null>(null);
+  const abortControllersRef = useRef<Record<string, AbortController>>({});
 
+  // Stops whichever session is currently being VIEWED — never some other
+  // session's background run, even if that one happens to be the most
+  // recently started.
   const handleStopGeneration = () => {
-    abortControllerRef.current?.abort();
+    const sessionId = state.currentSessionId;
+    if (!sessionId) return;
+    abortControllersRef.current[sessionId]?.abort();
     // If a tool-approval prompt is up when Stop is hit, auto-deny it —
     // otherwise the run stays stuck waiting on a decision that will never
     // come instead of actually winding down.
-    if (approvalResolverRef.current) {
-      approvalResolverRef.current(false);
-      approvalResolverRef.current = null;
-      setPendingApproval(null);
+    if (approvalResolversRef.current[sessionId]) {
+      approvalResolversRef.current[sessionId](false);
+      delete approvalResolversRef.current[sessionId];
+      setPendingApprovals(prev => {
+        const next = { ...prev };
+        delete next[sessionId];
+        return next;
+      });
     }
   };
 
-  /** Show the approval card and block until the user clicks Izinkan/Tolak. */
-  const requestToolApproval = (name: string, params: Record<string, unknown>): Promise<boolean> => {
+  /** Show the approval card (for this specific session) and block until the user clicks Izinkan/Tolak. */
+  const requestToolApproval = (sessionId: string, name: string, params: Record<string, unknown>): Promise<boolean> => {
     return new Promise(resolve => {
-      approvalResolverRef.current = resolve;
-      setPendingApproval({ name, params });
+      approvalResolversRef.current[sessionId] = resolve;
+      setPendingApprovals(prev => ({ ...prev, [sessionId]: { name, params } }));
     });
   };
 
-  const handleApprovalDecision = (approved: boolean) => {
-    setPendingApproval(null);
-    approvalResolverRef.current?.(approved);
-    approvalResolverRef.current = null;
+  const handleApprovalDecision = (sessionId: string, approved: boolean) => {
+    setPendingApprovals(prev => {
+      const next = { ...prev };
+      delete next[sessionId];
+      return next;
+    });
+    approvalResolversRef.current[sessionId]?.(approved);
+    delete approvalResolversRef.current[sessionId];
   };
 
   // Save selected model to localStorage
@@ -398,6 +426,10 @@ export default function Chat() {
   }, [chatMode]);
 
   const currentSession = state.sessions.find(s => s.id === state.currentSessionId);
+  // Only true when the session you're actually LOOKING AT has a response in
+  // flight — a different session generating in the background must never
+  // swap this session's Send button into a Stop button (or block sending).
+  const isCurrentSessionLoading = !!currentSession && state.loadingSessionIds.includes(currentSession.id);
   
   // Get enabled providers and their models
   const enabledProviders = state.providers.filter(p => p.enabled);
@@ -477,10 +509,10 @@ export default function Chat() {
   }, [currentSession?.messages]);
 
   const getAIResponse = async (userMessage: string, sessionId: string, autoContinueDepth: number = 0) => {
-    setIsTyping(true);
-    dispatch({ type: 'SET_LOADING', payload: true });
+    setSessionTyping(sessionId, true);
+    dispatch({ type: 'SET_LOADING', payload: { sessionId, loading: true } });
     const controller = new AbortController();
-    abortControllerRef.current = controller;
+    abortControllersRef.current[sessionId] = controller;
 
     try {
       // Find the provider for the selected model
@@ -914,7 +946,7 @@ Keep responses short and actionable.${skillEnhancements}${CHAT_MODE_SYSTEM_PROMP
             if (isPlanModeBlocked) {
               approvedOrNotSensitive = false;
             } else if (isSensitiveTool(toolCall.name)) {
-              approvedOrNotSensitive = await requestToolApproval(toolCall.name, params);
+              approvedOrNotSensitive = await requestToolApproval(sessionId, toolCall.name, params);
             }
 
             if (isPlanModeBlocked) {
@@ -1037,10 +1069,10 @@ Keep responses short and actionable.${skillEnhancements}${CHAT_MODE_SYSTEM_PROMP
 
       dispatch({ type: 'ADD_MESSAGE', payload: { sessionId, message: response } });
     } finally {
-      setIsTyping(false);
-      dispatch({ type: 'SET_LOADING', payload: false });
-      if (abortControllerRef.current === controller) {
-        abortControllerRef.current = null;
+      setSessionTyping(sessionId, false);
+      dispatch({ type: 'SET_LOADING', payload: { sessionId, loading: false } });
+      if (abortControllersRef.current[sessionId] === controller) {
+        delete abortControllersRef.current[sessionId];
       }
     }
   };
@@ -1409,10 +1441,13 @@ Keep responses short and actionable.${skillEnhancements}${CHAT_MODE_SYSTEM_PROMP
             {currentSession.messages.map(msg => (
               <MessageBubble key={msg.id} message={msg} selectedModel={selectedModel} />
             ))}
-            {pendingApproval && (
-              <ToolApprovalCard approval={pendingApproval} onDecision={handleApprovalDecision} />
+            {pendingApprovals[currentSession.id] && (
+              <ToolApprovalCard
+                approval={pendingApprovals[currentSession.id]}
+                onDecision={(approved) => handleApprovalDecision(currentSession.id, approved)}
+              />
             )}
-            {isTyping && (
+            {typingSessionIds.has(currentSession.id) && (
               <div className="flex gap-3 animate-fade-in">
                 <div className="w-8 h-8 rounded-full bg-[#93b5d3] flex items-center justify-center">
                   <Bot size={16} className="text-white" />
@@ -1473,7 +1508,7 @@ Keep responses short and actionable.${skillEnhancements}${CHAT_MODE_SYSTEM_PROMP
             className="flex-1 resize-none bg-transparent text-sm text-[#334155] placeholder:text-[#94a3b8] outline-none py-2 max-h-32"
             style={{ minHeight: '36px' }}
           />
-          {state.isLoading ? (
+          {isCurrentSessionLoading ? (
             <button
               onClick={handleStopGeneration}
               title="Hentikan AI"

@@ -21,7 +21,13 @@ interface AppState {
   githubRepos: GitHubRepo[];
   githubConnected: boolean;
   sidebarOpen: boolean;
-  isLoading: boolean;
+  /**
+   * Session ids that currently have an AI response in flight. Scoped per
+   * session (instead of one global flag) so starting/continuing a long task
+   * in one session doesn't block sending a message in — or show its Stop
+   * button on — a *different* session you switch to while it's still running.
+   */
+  loadingSessionIds: string[];
   /** Whether the user has opted into encrypting API keys/GitHub token at rest. */
   vaultConfigured: boolean;
   /** True when vaultConfigured but the passphrase hasn't been entered this session. */
@@ -56,7 +62,11 @@ type Action =
   | { type: 'SET_GITHUB_REPOS'; payload: GitHubRepo[] }
   | { type: 'SET_GITHUB_CONNECTED'; payload: boolean }
   | { type: 'TOGGLE_SIDEBAR' }
-  | { type: 'SET_LOADING'; payload: boolean }
+  | { type: 'SET_LOADING'; payload: { sessionId: string; loading: boolean } }
+  // No-op that returns a fresh state object — used purely to force a
+  // re-render of context consumers (e.g. after a theme change) without
+  // actually changing any real state field.
+  | { type: 'FORCE_RERENDER' }
   | { type: 'HYDRATE_FROM_VAULT'; payload: Partial<PersistedState> }
   | { type: 'LOCK_VAULT' }
   | { type: 'SET_VAULT_CONFIGURED'; payload: boolean };
@@ -125,7 +135,7 @@ const loadState = (): AppState => {
       currentView: 'chat',
       ...emptyPersisted,
       sidebarOpen: false,
-      isLoading: false,
+      loadingSessionIds: [],
       vaultConfigured: true,
       locked: true,
     };
@@ -145,7 +155,7 @@ const loadState = (): AppState => {
         githubRepos: parsed.githubRepos || [],
         githubConnected: parsed.githubConnected || false,
         sidebarOpen: false,
-        isLoading: false,
+        loadingSessionIds: [],
         vaultConfigured: false,
         locked: false,
       };
@@ -158,7 +168,7 @@ const loadState = (): AppState => {
     currentView: 'chat',
     ...emptyPersisted,
     sidebarOpen: false,
-    isLoading: false,
+    loadingSessionIds: [],
     vaultConfigured: false,
     locked: false,
   };
@@ -265,8 +275,17 @@ function reducer(state: AppState, action: Action): AppState {
       return { ...state, githubConnected: action.payload };
     case 'TOGGLE_SIDEBAR':
       return { ...state, sidebarOpen: !state.sidebarOpen };
-    case 'SET_LOADING':
-      return { ...state, isLoading: action.payload };
+    case 'FORCE_RERENDER':
+      return { ...state };
+    case 'SET_LOADING': {
+      const { sessionId, loading } = action.payload;
+      return {
+        ...state,
+        loadingSessionIds: loading
+          ? (state.loadingSessionIds.includes(sessionId) ? state.loadingSessionIds : [...state.loadingSessionIds, sessionId])
+          : state.loadingSessionIds.filter(id => id !== sessionId),
+      };
+    }
     case 'HYDRATE_FROM_VAULT':
       migrateLegacyVirtualFilesOnce(action.payload.currentSessionId ?? null);
       return {
