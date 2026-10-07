@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Settings as SettingsIcon, Key, Globe, Check, Eye, EyeOff, Save, RefreshCw, Sparkles, AlertCircle, Lock, ShieldCheck, Unlock as UnlockIcon, LockKeyhole, Brain, Trash2, X, Search } from 'lucide-react';
+import { Settings as SettingsIcon, Key, Globe, Check, Eye, EyeOff, Save, RefreshCw, Sparkles, AlertCircle, Lock, ShieldCheck, Unlock as UnlockIcon, LockKeyhole, Brain, Trash2, X, Search, Terminal } from 'lucide-react';
 import { useApp, useVault } from '../store';
 import { Provider } from '../types';
 import { fetchModelsFromProvider, ModelInfo } from '../modelFetcher';
@@ -330,6 +330,93 @@ function MemorySection() {
   );
 }
 
+// Section untuk mengonfigurasi backend eksekusi command (server.js).
+// run_command tool mengirim POST ke URL ini; default http://localhost:3399/exec
+function ExecServerSection() {
+  const DEFAULT_URL = 'http://localhost:3399/exec';
+  const [url, setUrl] = useState(() => localStorage.getItem('arka-exec-url') || DEFAULT_URL);
+  const [saved, setSaved] = useState(false);
+  const [testing, setTesting] = useState(false);
+  const [testResult, setTestResult] = useState<string | null>(null);
+
+  const handleSave = () => {
+    const clean = url.trim() || DEFAULT_URL;
+    localStorage.setItem('arka-exec-url', clean);
+    (window as any).__ARKA_EXEC_URL__ = clean;
+    setUrl(clean);
+    setSaved(true);
+    setTimeout(() => setSaved(false), 2000);
+  };
+
+  const handleTest = async () => {
+    setTesting(true);
+    setTestResult(null);
+    try {
+      const res = await fetch(url.trim() || DEFAULT_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ command: 'echo ok' }),
+      });
+      const data = await res.json();
+      if (res.ok && String(data.stdout || '').includes('ok')) {
+        setTestResult('Terhubung — backend exec merespons dengan benar.');
+      } else {
+        setTestResult(`Backend merespons tapi tidak seperti yang diharapkan: ${data.error || data.stdout || res.status}`);
+      }
+    } catch {
+      setTestResult('Gagal terhubung. Jalankan "npm run server" di folder arka, lalu coba lagi.');
+    } finally {
+      setTesting(false);
+    }
+  };
+
+  return (
+    <div>
+      <h3 className="text-xs font-semibold text-[#64748b] uppercase tracking-wider mb-3 flex items-center gap-2">
+        <Terminal size={12} />
+        Command Execution (run_command)
+      </h3>
+      <div className="bg-white rounded-xl border border-[#b8c9db] p-4 space-y-3">
+        <p className="text-xs text-[#64748b]">
+          Tool <code className="bg-[#e8eef4] px-1 rounded">run_command</code> mengeksekusi shell command di komputer ini lewat backend lokal
+          (<code className="bg-[#e8eef4] px-1 rounded">server.js</code>). Jalankan <code className="bg-[#e8eef4] px-1 rounded">npm run server</code> di folder arka.
+          Setiap eksekusi tetap meminta persetujuanmu dulu di chat.
+        </p>
+        <div>
+          <label className="text-xs font-medium text-[#64748b] block mb-1">Exec Server URL</label>
+          <input
+            type="text"
+            value={url}
+            onChange={e => setUrl(e.target.value)}
+            placeholder="http://localhost:3399/exec"
+            className="w-full px-3 py-2 rounded-lg border border-[#b8c9db] text-sm font-mono focus:border-[#7c9cbf] focus:outline-none"
+          />
+        </div>
+        <div className="flex gap-2">
+          <button
+            onClick={handleSave}
+            className="px-3 py-2 rounded-lg bg-[#7c9cbf] text-white text-xs font-medium hover:bg-[#5a7fa0] transition-colors flex items-center gap-1.5"
+          >
+            <Save size={12} /> {saved ? 'Tersimpan!' : 'Simpan'}
+          </button>
+          <button
+            onClick={handleTest}
+            disabled={testing}
+            className="px-3 py-2 rounded-lg border border-[#b8c9db] text-[#64748b] text-xs font-medium hover:bg-[#f8fafc] transition-colors flex items-center gap-1.5 disabled:opacity-40"
+          >
+            <RefreshCw size={12} className={testing ? 'animate-spin' : ''} /> {testing ? 'Menguji...' : 'Test Koneksi'}
+          </button>
+        </div>
+        {testResult && <p className="text-xs text-[#334155] bg-[#e8eef4] rounded-lg px-3 py-2">{testResult}</p>}
+        <p className="text-[10px] text-[#94a3b8]">
+          Server hanya listen di 127.0.0.1 (tidak bisa diakses dari luar mesin). Opsional: ARKA_EXEC_TIMEOUT (ms, default 15000),
+          ARKA_EXEC_ALLOW (allowlist prefix command, kosong = semua boleh).
+        </p>
+      </div>
+    </div>
+  );
+}
+
 export default function Settings() {
   const { state, dispatch } = useApp();
   const { language, setLanguage } = useTranslation();
@@ -542,6 +629,9 @@ export default function Settings() {
 
         {/* Security */}
         <SecuritySection />
+
+        {/* Exec backend */}
+        <ExecServerSection />
 
         {/* Memory */}
         <MemorySection />

@@ -407,17 +407,39 @@ export const availableTools: Tool[] = [
   },
   {
     name: 'run_command',
-    description: 'Execute a shell command and return the output. NOTE: currently a mock — no real command is executed. Requires user approval before running.',
+    description: 'Execute shell command on the host via the local Arka exec backend (server.js). Requires user approval before running. Set execServerUrl in Settings.',
     parameters: {
       command: { type: 'string', description: 'The command to execute' },
     },
     sensitive: true,
     execute: async (params: { command: string }) => {
-      // This is intentionally NOT wired to a real shell. If this is ever
-      // implemented for real, it MUST run in a sandboxed/isolated
-      // environment with an allowlist of commands — never a raw shell fed
-      // with model-controlled strings.
-      return `Command executed: ${params.command}\nOutput:\n$ Mock output\n\nNote: This is a mock implementation. In production, integrate with a secure, sandboxed command execution system — never exec model-controlled strings directly in a real shell.`;
+      const cmd = params.command;
+      const serverUrl = (typeof window !== 'undefined' && (window as any).__ARKA_EXEC_URL__) || (typeof localStorage !== 'undefined' && localStorage.getItem('arka-exec-url')) || 'http://localhost:3399/exec';
+      try {
+        const res = await fetch(serverUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ command: cmd })
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          return `\u274c Error executing command: ${data.error || res.statusText}
+
+Note: Make sure the exec backend is running (npm run server) and Settings > Exec URL is correct.`;
+        }
+        let out = '';
+        if (data.stdout) out += data.stdout;
+        if (data.stderr) out += (out ? '\n' : '') + data.stderr;
+        if (data.timedOut) out += '\n\n\u26a0\ufe0f Command timed out (killed).';
+        if (!out) out = '(no output)';
+        return `Command executed: ${cmd}
+Output:
+${out}`;
+      } catch (e) {
+        return `\u274c Error executing command: ${e instanceof Error ? e.message : String(e)}
+
+Note: Make sure the exec backend is running (npm run server) and Settings > Exec URL is correct.`;
+      }
     },
   },
   // Hermes-style Memory Tool
