@@ -37,8 +37,6 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
@@ -96,6 +94,7 @@ fun ChatScreen(
     store: Store,
     controller: ChatController,
     modifier: Modifier = Modifier,
+    onOpenDrawer: () -> Unit = {},
 ) {
     val state by store.state.collectAsState()
     val prefs by store.prefs.collectAsState()
@@ -103,6 +102,7 @@ fun ChatScreen(
 
     var input by rememberSaveable { mutableStateOf("") }
     var showSessions by remember { mutableStateOf(false) }
+    var showModelPicker by remember { mutableStateOf(false) }
 
     val listState = rememberLazyListState()
     val currentSession = state.sessions.find { it.id == state.currentSessionId }
@@ -147,13 +147,10 @@ fun ChatScreen(
                     selectedModel = prefs.selectedModel,
                     isLoading = isLoading,
                     providers = state.providers,
-                    onPickModel = { providerId, modelName ->
-                        store.updatePrefs {
-                            it.copy(selectedProvider = providerId, selectedModel = modelName)
-                        }
-                    },
+                    onOpenModelPicker = { showModelPicker = true },
                     onOpenSessions = { showSessions = true },
                     onOpenSettings = { store.dispatch(Action.SetView(AppView.settings)) },
+                    onOpenDrawer = onOpenDrawer,
                     onStop = { currentSession?.id?.let(controller::stop) },
                 )
                 ModeSwitcher(
@@ -217,6 +214,18 @@ fun ChatScreen(
             onDismiss = { showSessions = false },
         )
     }
+
+    if (showModelPicker) {
+        ModelPickerSheet(
+            store = store,
+            language = prefs.language,
+            onDismiss = { showModelPicker = false },
+            onOpenSettings = {
+                showModelPicker = false
+                store.dispatch(Action.SetView(AppView.settings))
+            },
+        )
+    }
 }
 
 // ------------------------------------------------------------- top bar
@@ -228,49 +237,49 @@ private fun ChatTopBar(
     selectedModel: String,
     isLoading: Boolean,
     providers: List<ProviderConfig>,
-    onPickModel: (providerId: String, modelName: String) -> Unit,
+    onOpenModelPicker: () -> Unit,
     onOpenSessions: () -> Unit,
     onOpenSettings: () -> Unit,
+    onOpenDrawer: () -> Unit = {},
     onStop: () -> Unit,
 ) {
-    var modelMenuOpen by remember { mutableStateOf(false) }
+    // Chip model: menampilkan provider aktif + model, tap untuk membuka picker
+    // yang bisa dicari (semua model hasil scan, bukan cuma beberapa entri).
+    val activeProvider = providers.firstOrNull { it.enabled }
+    val hasAnyModel = providers.any { it.enabled && (it.models.isNotEmpty() || it.effectiveModel.isNotBlank()) }
 
     TopAppBar(
+        navigationIcon = {
+            IconButton(onClick = onOpenDrawer) {
+                Icon(Icons.Default.Menu, contentDescription = "Menu")
+            }
+        },
         title = {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(title, maxLines = 1)
+                Text(title, maxLines = 1, modifier = Modifier.weight(1f, fill = false))
                 Spacer(Modifier.width(8.dp))
-                Box {
-                    TextButton(onClick = { modelMenuOpen = true }) {
-                        Text(selectedModel, maxLines = 1, style = MaterialTheme.typography.labelMedium)
-                    }
-                    DropdownMenu(expanded = modelMenuOpen, onDismissRequest = { modelMenuOpen = false }) {
-                        providers.filter { it.enabled }.forEach { provider ->
-                            DropdownMenuItem(
-                                text = { Text("${provider.icon} ${provider.name}") },
-                                onClick = {
-                                    if (provider.model.isNotEmpty()) {
-                                        onPickModel(provider.id.name, provider.model)
-                                        modelMenuOpen = false
-                                    }
-                                },
-                            )
-                            provider.models.take(20).forEach { m ->
-                                DropdownMenuItem(
-                                    text = { Text(m.name) },
-                                    onClick = {
-                                        onPickModel(provider.id.name, m.id)
-                                        modelMenuOpen = false
-                                    },
-                                )
-                            }
-                        }
-                        if (providers.none { it.enabled }) {
-                            DropdownMenuItem(
-                                text = { Text("Belum ada provider aktif — buka ⚙️") },
-                                onClick = { modelMenuOpen = false },
-                            )
-                        }
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = if (hasAnyModel) {
+                        MaterialTheme.colorScheme.secondaryContainer
+                    } else {
+                        MaterialTheme.colorScheme.errorContainer
+                    },
+                    modifier = Modifier.clickable(onClick = onOpenModelPicker),
+                ) {
+                    Row(
+                        Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            buildString {
+                                activeProvider?.icon?.let { append("$it ") }
+                                append(selectedModel.ifBlank { "Pilih model" })
+                            },
+                            maxLines = 1,
+                            style = MaterialTheme.typography.labelMedium,
+                        )
+                        Text(" ▾", style = MaterialTheme.typography.labelMedium)
                     }
                 }
             }

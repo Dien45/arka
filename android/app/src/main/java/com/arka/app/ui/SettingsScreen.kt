@@ -16,6 +16,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -49,6 +50,7 @@ import com.arka.app.core.MEMORY_CHAR_LIMIT
 import com.arka.app.core.MemoryEntry
 import com.arka.app.core.MemoryManager
 import com.arka.app.core.MemoryTarget
+import com.arka.app.core.SkillsManager
 import com.arka.app.core.Store
 import com.arka.app.core.USER_CHAR_LIMIT
 import com.arka.app.net.SimpleHttp
@@ -65,6 +67,8 @@ fun SettingsScreen(
     store: Store,
     memory: MemoryManager,
     modifier: Modifier = Modifier,
+    skills: SkillsManager? = null,
+    onOpenDrawer: () -> Unit = {},
 ) {
     val prefs by store.prefs.collectAsState()
     val state by store.state.collectAsState()
@@ -93,7 +97,22 @@ fun SettingsScreen(
             .verticalScroll(rememberScrollState())
             .padding(horizontal = 16.dp, vertical = 8.dp),
     ) {
-        Text("Pengaturan", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            IconButton(onClick = onOpenDrawer) {
+                Icon(Icons.Default.Menu, contentDescription = "Menu")
+            }
+            Text("Pengaturan", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+        }
+
+        skills?.let { sm ->
+            val installed = sm.installedIds().size
+            Text(
+                "Skill aktif: $installed · Mode run_command: ${if (prefs.execBackend == "proot") "Alpine (proot)" else "shell Android"}",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(start = 4.dp, bottom = 4.dp),
+            )
+        }
 
         SectionHeader(t(Key.AI_PROVIDERS))
         Card(
@@ -143,9 +162,11 @@ fun SettingsScreen(
         Spacer(Modifier.height(6.dp))
         Text(
             if (prefs.language == ArkaLanguage.ID) {
-                "Di Android, run_command memakai eksekusi native (Runtime.exec). URL ini dipertahankan untuk kompatibilitas."
+                "Di Android, run_command dieksekusi langsung di perangkat (tanpa server). URL ini hanya dipertahankan " +
+                    "untuk kompatibilitas skema config dengan versi web."
             } else {
-                "On Android run_command uses native execution (Runtime.exec). This URL is kept for config compatibility."
+                "On Android run_command executes on-device (no server). This URL only exists for config-schema " +
+                    "compatibility with the web build."
             },
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -184,6 +205,8 @@ fun SettingsScreen(
                 )
             }
         }
+
+        DistroSection(store)
 
         SectionHeader(t(Key.MEMORY_SECTION))
         MemoryUsageBar("🧠 Memory", memChars, MEMORY_CHAR_LIMIT, prefs.language)

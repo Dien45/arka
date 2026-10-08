@@ -60,7 +60,10 @@ class ChatController(
     private val scope: CoroutineScope,
     private val aiClient: AiClient = AiClient(),
 ) {
-    private val toolRegistry = ToolRegistry(context)
+    private val toolRegistry = ToolRegistry(context) { store.prefs.value.toExecSettings() }
+
+    /** Skill yang aktif disuntikkan ke system prompt (paritas blok ACTIVE SKILLS di web). */
+    private val skills = SkillsManager(context)
 
     private val jobs = ConcurrentHashMap<String, Job>()
     private val approvalResolvers = ConcurrentHashMap<String, (Boolean) -> Unit>()
@@ -301,6 +304,7 @@ class ChatController(
         val memoryContent = toolRegistry.formattedMemory()
         val toolsList = toolRegistry.toolsListString()
         val modePrompt = CHAT_MODE_SYSTEM_PROMPTS.getValue(chatMode)
+        val skillsBlock = skills.enhancementBlock()
         return """
 You are Arka, a friendly AI coding assistant with access to various tools.
 $memoryContent
@@ -337,11 +341,13 @@ You have persistent memory that persists across sessions. Use the 'memory' tool 
 Memory has character limits (2,200 chars for agent notes, 1,375 chars for user profile).
 When memory is full, consolidate or remove old entries before adding new ones.
 
-VIRTUAL WORKSPACE:
-You have a virtual file system stored in browser memory. Files you create with write_file will appear in the File Explorer tab automatically.
-- write_file: Create files in virtual workspace (no need to select folder)
-- read_file: Read files from virtual workspace
-- list_files: List all files in virtual workspace
+WORKSPACE (Android):
+Setiap chat session punya folder nyata sendiri di penyimpanan aplikasi yang dipakai bersama oleh tool, File Explorer, dan run_command:
+- write_file: membuat file di workspace sesi (folder induk dibuat otomatis). File langsung muncul di tab "Files".
+- read_file / list_files: membaca & mendaftar file dari workspace yang sama.
+- run_command: dijalankan DENGAN CWD = folder workspace sesi ini, jadi file hasil write_file langsung bisa kamu proses (mis. `apk add nodejs`, `python3 script.py`, `git init`, `ls`, build/test). Bila backend distro (Alpine/proot) aktif, folder ini juga ter-mount di /root/workspace — pakai path relatif (`./file`) supaya berfungsi di kedua backend.
+- stage_commit: checkpoint perubahan untuk di-push user dari panel GitHub (tool ini TIDAK mem-push apa pun sendiri).
+- Batas: 1 MB per file, total 8 MB per sesi — pakai file kecil & potong output panjang.
 
 WEB FETCH:
 - web_fetch: Fetch content from URLs
@@ -363,7 +369,7 @@ IMPORTANT RULES:
 - Use memory tool to remember important information for future sessions
 - When you fetch information (like from web_fetch), remember it using memory tool if it's important
 
-Keep responses short and actionable.$modePrompt
+Keep responses short and actionable.$modePrompt$skillsBlock
 """.trim()
     }
 

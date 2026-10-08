@@ -62,6 +62,43 @@ Aplikasi coding agent dengan dukungan multi-provider AI, mirip dengan opencode t
 - Smooth animations dan transitions
 - Dark mode support (coming soon)
 
+## 📱 Android (native — Kotlin + Jetpack Compose)
+
+Versi native Android ada di folder [`android/`](android/) — **bukan WebView wrapper**.
+PRD lengkap: [`android/PRD.md`](android/PRD.md) · Panduan distro proot: [`android/DISTRO.md`](android/DISTRO.md)
+
+### Fitur Android
+
+- **Chat agent** — tool loop (8 tool), approval untuk 5 tool sensitif, Stop,
+  auto-continue mode Agent, markdown, sesi (buat/ganti/rename/hapus) + workspace per sesi.
+- **Model picker dengan pencarian** — scan model per provider (OpenAI, Anthropic, Google,
+  Groq, OpenRouter, Ollama, Custom), hasil scan tersimpan, pilih dari daftar (tidak perlu
+  ketik manual lagi).
+- **File Explorer** — pohon folder, tab file, editor, preview Markdown/SVG/HTML/CSV,
+  impor ZIP/file, unduh ZIP. Workspace sesi adalah folder **nyata** di perangkat.
+- **GitHub** — hubungkan PAT, daftar repo + pencarian, branch, buat repo, push file
+  terpilih lewat Git Data API, push "Staged AI Commits", ekspor/impor SyncManifest.
+- **Skill Store** — katalog 13 skill + install dari repo GitHub + mode/config; skill aktif
+  disuntik ke system prompt (konten pihak ketiga diperlakukan sebagai data).
+- **PRD Generator** — dokumen 11 bagian, revisi, salin/bagikan, simpan ke workspace.
+- **run_command dua backend** — shell Android (`/system/bin/sh`) atau **distro Alpine asli
+  via proot tanpa root** (`apk`, `git`, `python3`, `node`, …), cwd = folder workspace sesi.
+- **Keamanan** — API key & PAT di EncryptedSharedPreferences, SSRF guard di `web_fetch`,
+  allowlist + timeout + cap output di `run_command`, bukan teks plaintext.
+
+### Build
+
+```bash
+cd android
+./gradlew :app:assembleDebug      # APK debug di app/build/outputs/apk/debug/
+./gradlew :app:assembleDebug -Pproot.skip=true   # tanpa mengunduh binary proot
+```
+
+CI: [`.github/workflows/build-android-apk.yml`](.github/workflows/build-android-apk.yml)
+(APK debug tiap push ke `main`) dan
+[`.github/workflows/android-release.yml`](.github/workflows/android-release.yml)
+(APK release bertanda tangan saat tag `v*`).
+
 ## 🚀 Quick Start
 
 ### Install Dependencies

@@ -1,6 +1,6 @@
 # PRD — Arka Android (Native, Kotlin + Jetpack Compose)
 
-> Status: **Disetujui** (08 Okt 2026)
+> Status: **Disetujui** (08 Okt 2026) · **M0–M9 selesai, M10 (uji perangkat) berjalan**
 > Repo: `Dien45/arka` — folder `android/` (satu repo, web + android berjalan bersama)
 
 ## 1. Ringkasan
@@ -172,3 +172,85 @@ LAN saat pakai Ollama di device), custom (OpenAI-compatible).
 ---
 
 **Disetujui oleh:** Dien
+
+---
+
+## 13. Status Implementasi (update 08 Okt 2026)
+
+### Selesai (M0–M5, sebelumnya)
+
+Scaffold Gradle + tema, Core types/Store/Persistence (DataStore +
+EncryptedSharedPreferences), i18n id/en, 7 adapter provider + model fetch,
+`web_fetch` (SSRF guard) + `web_search`, Chat UI (tool loop, approval, Stop,
+auto-continue, markdown, sesi), Settings UI, `Runtime.exec` lokal, CI APK debug.
+
+### Selesai di iterasi ini (M6–M9)
+
+**M6 — Perbaikan scan/daftar model** (`core/ModelScan.kt`, `ui/ModelPicker.kt`,
+`ui/ProvidersSheet.kt`, `core/Store.kt`)
+
+- Bug ditemukan & diperbaiki: `onPickModel` lama mengirim
+  `models = detectedModels[provider.id]` **setelah** map itu dikosongkan, sehingga
+  memilih model menghapus seluruh hasil scan → user selalu berakhir mengetik model
+  manual. Sekarang semua perubahan provider lewat `Store.updateProvider(id) { … }`
+  yang membaca state terkini.
+- Model picker baru di Chat: pencarian penuh (bukan 20 entri pertama), pengelompokan
+  per provider, daftar bisa di-scan ulang per provider, tombol "Scan ulang semua",
+  dan jalan manual untuk model id baru.
+- Auto-scan saat sheet dibuka / provider di-expand untuk provider yang sudah punya
+  kredensial tapi daftar modelnya kosong/basi (> 12 jam).
+- Hasil scan (termasuk pesan error terakhir, `modelsError`) tersimpan di state →
+  persist ke DataStore, tidak perlu scan ulang tiap buka aplikasi.
+
+**M7 — Workspace nyata di disk + File Explorer** (`core/VirtualFs.kt`,
+`core/Zip.kt`, `ui/FileExplorerScreen.kt`)
+
+- Perubahan arsitektur: workspace sesi bukan lagi satu blob JSON in-memory, tapi folder
+  nyata `<filesDir>/sessions/<sid>/workspace`. Data JSON lama dimigrasi otomatis.
+- Efeknya: `write_file` (AI), File Explorer, `run_command` (cwd), dan bind mount
+  `/root/workspace` di distro **memakai file yang sama** — di web keduanya sempat
+  terpisah (virtual FS vs folder asli).
+- File Explorer native: pohon folder, tab file, editor, preview
+  (Markdown/SVG/HTML via WebView dengan `blockNetworkLoads`, CSV sebagai tabel),
+  buat file/folder, rename, hapus, impor ZIP/file, unduh ZIP.
+
+**M8 — Backend exec + distro Alpine (proot)** (`core/ExecRunner.kt`,
+`core/DistroManager.kt`, `core/ExecSettings.kt`, `ui/DistroSettings.kt`,
+task Gradle `downloadProotBinaries`)
+
+- Bug diperbaiki: shell lama dipanggil sebagai `/bin/sh` yang **tidak ada di Android**
+  (shell-nya `/system/bin/sh`) → `run_command` selalu gagal "Cannot run program".
+  Sekarang shell dideteksi, cwd = folder workspace sesi, env PATH/HOME/TMPDIR diisi.
+- Dua backend: **native** (`/system/bin/sh`, selalu siap) dan **proot/Alpine**
+  (userland Linux lengkap tanpa root: `apk`, `git`, `python3`, `node`).
+- Binary proot dibundel via jniLibs (Android 10+ melarang exec dari folder data
+  aplikasi), diunduh saat build dari paket Termux — repo tetap bebas binary.
+  Rootfs Alpine diunduh sekali dari Settings (atau impor `.tar.gz`), plus tombol
+  "Tes distro" untuk diagnostik. Detail: `android/DISTRO.md`.
+
+**M9 — File Explorer/PRD/Skills/GitHub + navigasi** (`ui/PrdScreen.kt`,
+`core/Prd.kt`, `ui/SkillStoreScreen.kt`, `core/Skills.kt`, `net/GitHubApi.kt`,
+`ui/GitHubScreen.kt`, `ui/ArkaRoot.kt`)
+
+- **Skill Store**: katalog 13 skill, install/buang, pilih mode per skill, dan
+  "Install dari URL" (repo GitHub dengan `skill.json`/`prompt.md`) — konten pihak
+  ketiga diberi pembungkus anti prompt-injection seperti versi web. Skill aktif
+  disuntik ke system prompt (`SkillsManager.enhancementBlock()`).
+- **PRD generator**: prompt 11 bagian yang sama, arsip dokumen, revisi lanjutan,
+  salin, bagikan (Intent), simpan ke workspace (`prd/*.md`) supaya bisa langsung di-push.
+- **GitHub**: hubungkan PAT (tersimpan terenkripsi), daftar repo + pencarian,
+  pilih branch, buat repo baru, push file workspace terpilih lewat Git Data API
+  (blob → tree → commit → ref, sama seperti `githubApi.ts`), push "Staged AI Commits",
+  serta ekspor/impor SyncManifest lewat SAF. Peringatan scope token berlebih ikut diport.
+- **Navigasi**: drawer (Chat, Workspace, PRD, Skills, GitHub, Pengaturan) + bottom bar
+  5 tujuan utama; ChatController hidup di root sehingga pekerjaan AI & approval tidak
+  hilang saat pindah layar.
+
+### Backlog berikutnya
+
+- Vault terenkripsi (PBKDF2/AES-GCM via Keystore) + layar Unlock (sekarang masih
+  EncryptedSharedPreferences).
+- Agent panel native (3 agent default sudah ada di state, belum ada UI-nya).
+- Uji di perangkat nyata untuk proot (diagnostik sudah tersedia di Settings).
+- Rilis bertanda tangan + `action-gh-release` (workflow `android-release.yml` sudah ada,
+  tinggal mengisi secret).
