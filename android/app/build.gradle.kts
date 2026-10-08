@@ -1,3 +1,4 @@
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
@@ -13,8 +14,8 @@ android {
         applicationId = "com.arka.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = 2
+        versionName = "0.2.0"
     }
 
     buildTypes {
@@ -36,6 +37,20 @@ android {
     buildFeatures {
         compose = true
     }
+
+    // Binary proot harus benar-benar diekstrak ke nativeLibraryDir supaya bisa
+    // dieksekusi: sejak Android 10 file di folder data aplikasi tidak boleh
+    // di-exec (SELinux), sedangkan nativeLibraryDir boleh.
+    packaging {
+        jniLibs {
+            useLegacyPackaging = true
+        }
+    }
+
+    // Hasil task downloadProotBinaries (libproot.so, libtalloc.so, ...).
+    sourceSets.getByName("main") {
+        jniLibs.srcDir(layout.buildDirectory.dir("generated/prootJniLibs"))
+    }
 }
 
 dependencies {
@@ -53,5 +68,51 @@ dependencies {
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.androidx.security.crypto)
     implementation(libs.androidx.datastore.preferences)
+    // Ekstraksi tar.gz rootfs Alpine (jalur hot: runtime DistroManager).
+    implementation(libs.commons.compress)
     debugImplementation(libs.compose.ui.tooling)
+}
+
+// ---------------------------------------------------------------------------
+// Proot binaries (M8 — distro Alpine untuk run_command)
+//
+// Android tanpa root tidak boleh mengeksekusi file dari folder data aplikasi,
+// jadi binary proot harus ada di dalam APK sebagai jniLibs. Task di bawah
+// mengunduh paket Termux yang sudah terbukti jalan di Android (proot + talloc +
+// libandroid-shmem), membongkarnya, lalu menaruh hasilnya di
+// build/generated/prootJniLibs/<abi>/ sebagai lib*.so.
+//
+// Kalau unduhan gagal (mis. offline), build TETAP jalan: APK dibuat tanpa
+// dukungan proot dan aplikasi otomatis memakai backend shell Android.
+// Lewati total dengan: ./gradlew assembleDebug -Pproot.skip=true
+// ---------------------------------------------------------------------------
+
+/** Lewati unduhan binary proot: `./gradlew assembleDebug -Pproot.skip=true`. */
+val prootSkip = (project.findProperty("proot.skip") as String?)?.toBoolean() ?: false
+
+val downloadProotBinaries = tasks.register("downloadProotBinaries") {
+    group = "arka"
+    description = "Mengunduh binary proot Android (paket Termux) ke jniLibs agar run_command bisa memakai distro Alpine."
+    val outputDir = layout.buildDirectory.dir("generated/prootJniLibs").get().asFile
+    val cacheDir = layout.buildDirectory.dir("proot-cache").get().asFile
+    outputs.dir(outputDir)
+    inputs.property("prootVersion", arka.ProotBinaries.ABI_TO_ARCH.size)
+
+    onlyIf { !prootSkip }
+
+    doLast {
+        val ready = arka.ProotBinaries.prepare(outputDir, cacheDir) { message -> logger.lifecycle(message) }
+        if (ready == 0) {
+            logger.warn(
+                "[proot] Tidak ada binary proot yang berhasil disiapkan (offline / mirror tidak terjangkau). " +
+                    "APK tetap dibangun; run_command otomatis memakai backend shell Android.",
+            )
+        } else {
+            logger.lifecycle("[proot] Siap untuk $ready ABI di ${outputDir.absolutePath}")
+        }
+    }
+}
+
+tasks.named("preBuild") {
+    dependsOn(downloadProotBinaries)
 }

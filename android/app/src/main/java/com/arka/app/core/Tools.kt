@@ -34,10 +34,15 @@ const val MAX_TOTAL_VIRTUAL_BYTES = 8_000_000
 
 private val SENSITIVE_TOOLS = setOf("web_fetch", "write_file", "stage_commit", "run_command", "memory")
 
-class ToolRegistry(context: Context) {
+class ToolRegistry(
+    private val context: Context,
+    /** Konfigurasi exec dibaca saat tool dipanggil (backend native/proot, allowlist). */
+    private val execSettingsProvider: () -> ExecSettings = { ExecSettings() },
+) {
     private val virtualFs = VirtualFs(context)
     private val memoryManager = MemoryManager(context)
     private val stagedCommits = StagedCommits(context)
+    private val execRunner = ExecRunner(context)
     private val json = Json { ignoreUnknownKeys = true }
 
     fun isSensitive(name: String): Boolean = name in SENSITIVE_TOOLS
@@ -139,7 +144,7 @@ class ToolRegistry(context: Context) {
                 "write_file" -> writeFile(str("path"), str("content"), sessionId)
                 "list_files" -> listFiles(str("path"), sessionId)
                 "stage_commit" -> stageCommit(str("message"), sessionId)
-                "run_command" -> runCommand(str("command"))
+                "run_command" -> runCommand(str("command"), sessionId)
                 "memory" -> memoryTool(args)
                 else -> "Error: Tool \"$name\" not found"
             }
@@ -388,20 +393,30 @@ class ToolRegistry(context: Context) {
         }
     }
 
-    private suspend fun runCommand(command: String): String {
+    private suspend fun runCommand(command: String, sessionId: String?): String {
+        val settings = execSettingsProvider()
         return try {
-            val result = ExecRunner.run(command)
-            if (result.timedOut || result.stdout.isNotEmpty() || result.stderr.isNotEmpty()) {
-                var out = result.stdout
-                if (result.stderr.isNotEmpty()) out += (if (out.isNotEmpty()) "\n" else "") + result.stderr
-                if (result.timedOut) out += "\n\n⚠️ Command timed out (killed)."
-                if (out.isEmpty()) out = "(no output)"
-                "Command executed: $command\nOutput:\n$out"
-            } else {
-                "(no output)"
+            val result = execRunner.run(command, sessionId, settings)
+            val backendLabel = result.backend
+            val sb = StringBuilder()
+            sb.append("Command executed ($backendLabel): ")
+            sb.append(command)
+            sb.append("\nExit code: ").append(result.exitCode).append("\nOutput:\n")
+            val out = buildString {
+                append(result.stdout)
+                if (result.stderr.isNotEmpty()) {
+                    if (isNotEmpty() && !endsWith("\n")) append('\n')
+                    append(result.stderr)
+                }
+                if (result.timedOut) append("\n\n⚠️ Command timed out (killed).")
+            }.ifEmpty { "(no output)" }
+            sb.append(out)
+            if (settings.backend == ExecBackend.PROOT && result.backend.startsWith("native")) {
+                sb.append("\n\n(Info: distro proot belum siap — command ini dijalankan dengan shell Android. Pasang distro dari Settings.)")
             }
+            sb.toString()
         } catch (e: Exception) {
-            "❌ Error executing command: ${e.message ?: "Unknown error"}\n\nNote: run_command di perangkat berjalan secara lokal."
+            "❌ Error executing command: ${e.message ?: "Unknown error"}\n\nNote: run_command berjalan lokal di perangkat."
         }
     }
 
