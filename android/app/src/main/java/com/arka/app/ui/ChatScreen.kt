@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
@@ -25,9 +26,14 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Send
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Stop
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -35,6 +41,7 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -61,8 +68,12 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.arka.app.core.Action
+import com.arka.app.core.AppView
+import com.arka.app.core.ArkaLanguage
 import com.arka.app.core.ChatController
 import com.arka.app.core.ChatMode
+import com.arka.app.core.I18n
+import com.arka.app.core.Key
 import com.arka.app.core.Message
 import com.arka.app.core.MessageRole
 import com.arka.app.core.PendingToolApproval
@@ -74,22 +85,24 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonObject
 
 /**
- * MRK-23 / MRK-24. Chat screen: message list, input bar with Send/Stop,
- * Plan/Build/Agent mode switcher, model picker, and the sensitive-tool
- * approval bottom sheet (per-session).
+ * M3/M4. Chat screen: message list with markdown rendering, input bar with
+ * Send/Stop, Plan/Build/Agent mode switcher, model picker, session list
+ * (switch / rename / delete / new), and the sensitive-tool approval bottom
+ * sheet (per-session).
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ChatScreen(
     store: Store,
     controller: ChatController,
+    modifier: Modifier = Modifier,
 ) {
     val state by store.state.collectAsState()
     val prefs by store.prefs.collectAsState()
     val pending by controller.pendingApprovals.collectAsState()
 
     var input by rememberSaveable { mutableStateOf("") }
-    var showProviders by remember { mutableStateOf(false) }
+    var showSessions by remember { mutableStateOf(false) }
 
     val listState = rememberLazyListState()
     val currentSession = state.sessions.find { it.id == state.currentSessionId }
@@ -126,6 +139,7 @@ fun ChatScreen(
     }
 
     Scaffold(
+        modifier = modifier,
         topBar = {
             Column {
                 ChatTopBar(
@@ -138,7 +152,8 @@ fun ChatScreen(
                             it.copy(selectedProvider = providerId, selectedModel = modelName)
                         }
                     },
-                    onOpenSettings = { showProviders = true },
+                    onOpenSessions = { showSessions = true },
+                    onOpenSettings = { store.dispatch(Action.SetView(AppView.settings)) },
                     onStop = { currentSession?.id?.let(controller::stop) },
                 )
                 ModeSwitcher(
@@ -163,7 +178,7 @@ fun ChatScreen(
                 .padding(padding),
         ) {
             if (messages.isEmpty()) {
-                Greeting(onQuickPrompt = { send(it) })
+                Greeting(prefs.language, onQuickPrompt = { send(it) })
             } else {
                 LazyColumn(
                     state = listState,
@@ -172,10 +187,10 @@ fun ChatScreen(
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     items(messages, key = { it.id }) { message ->
-                        MessageRow(message)
+                        MessageRow(prefs.language, message)
                     }
                     if (isLoading) {
-                        item("typing") { TypingIndicator() }
+                        item("typing") { TypingIndicator(prefs.language) }
                     }
                 }
             }
@@ -186,6 +201,7 @@ fun ChatScreen(
     currentSession?.let { session ->
         pending[session.id]?.let { approval ->
             ApprovalSheet(
+                language = prefs.language,
                 approval = approval,
                 onApprove = { controller.resolveApproval(approval.sessionId, true) },
                 onReject = { controller.resolveApproval(approval.sessionId, false) },
@@ -193,8 +209,13 @@ fun ChatScreen(
         }
     }
 
-    if (showProviders) {
-        ProvidersSheet(store, onDismiss = { showProviders = false })
+    if (showSessions) {
+        SessionsSheet(
+            store = store,
+            language = prefs.language,
+            defaultModel = prefs.selectedModel,
+            onDismiss = { showSessions = false },
+        )
     }
 }
 
@@ -208,6 +229,7 @@ private fun ChatTopBar(
     isLoading: Boolean,
     providers: List<ProviderConfig>,
     onPickModel: (providerId: String, modelName: String) -> Unit,
+    onOpenSessions: () -> Unit,
     onOpenSettings: () -> Unit,
     onStop: () -> Unit,
 ) {
@@ -257,6 +279,7 @@ private fun ChatTopBar(
             if (isLoading) {
                 IconButton(onClick = onStop) { Icon(Icons.Default.Stop, contentDescription = "Stop") }
             }
+            IconButton(onClick = onOpenSessions) { Icon(Icons.Default.Menu, contentDescription = "Sessions") }
             IconButton(onClick = onOpenSettings) { Icon(Icons.Default.Settings, contentDescription = "Settings") }
         },
     )
@@ -294,7 +317,7 @@ private fun ModeSwitcher(
 // ------------------------------------------------------------- messages
 
 @Composable
-private fun MessageRow(message: Message) {
+private fun MessageRow(language: ArkaLanguage, message: Message) {
     when (message.role) {
         MessageRole.user -> UserBubble(message.content)
         MessageRole.assistant -> AssistantBubble(message.content)
@@ -328,12 +351,12 @@ private fun AssistantBubble(content: String) {
         Surface(
             color = MaterialTheme.colorScheme.surfaceVariant,
             shape = RoundedCornerShape(4.dp, 16.dp, 16.dp, 16.dp),
-            modifier = Modifier.widthIn(max = 320.dp),
+            modifier = Modifier.widthIn(max = 340.dp),
         ) {
-            Text(
-                content,
+            MarkdownText(
+                markdown = content,
                 modifier = Modifier.padding(12.dp, 8.dp),
-                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
     }
@@ -391,7 +414,7 @@ private fun ToolResultCard(message: Message) {
 }
 
 @Composable
-private fun TypingIndicator() {
+private fun TypingIndicator(language: ArkaLanguage) {
     Row(
         Modifier
             .fillMaxWidth()
@@ -400,12 +423,16 @@ private fun TypingIndicator() {
     ) {
         CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
         Spacer(Modifier.width(8.dp))
-        Text("Arka sedang mengetik...", style = MaterialTheme.typography.bodySmall)
+        Text(
+            "Arka ${if (language == ArkaLanguage.ID) "sedang mengetik..." else "is typing..."}",
+            style = MaterialTheme.typography.bodySmall,
+        )
     }
 }
 
 @Composable
-private fun Greeting(onQuickPrompt: (String) -> Unit) {
+private fun Greeting(language: ArkaLanguage, onQuickPrompt: (String) -> Unit) {
+    val t = { k: String -> I18n.t(language, k) }
     Column(
         Modifier
             .fillMaxSize()
@@ -415,30 +442,30 @@ private fun Greeting(onQuickPrompt: (String) -> Unit) {
     ) {
         Text("🤖", style = MaterialTheme.typography.displayMedium)
         Spacer(Modifier.height(12.dp))
-        Text("Halo! Saya Arka", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+        Text(t(Key.GREETING), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
         Spacer(Modifier.height(4.dp))
         Text(
-            "Coding agent siap membantu Anda menulis, debug, dan memahami kode.",
+            t(Key.GREETING_DESC),
             style = MaterialTheme.typography.bodyMedium,
             textAlign = TextAlign.Center,
         )
         Spacer(Modifier.height(20.dp))
         listOf(
-            "Buat project React baru",
-            "Debug kode ini",
-            "Jelaskan kode",
-            "Optimasi performa",
-        ).forEach { prompt ->
+            Key.CREATE_REACT_PROJECT,
+            Key.DEBUG_CODE,
+            Key.EXPLAIN_CODE,
+            Key.OPTIMIZE_PERFORMANCE,
+        ).forEach { key ->
             FilterChip(
                 selected = false,
-                onClick = { onQuickPrompt(prompt) },
-                label = { Text(prompt) },
+                onClick = { onQuickPrompt(t(key)) },
+                label = { Text(t(key)) },
                 modifier = Modifier.padding(vertical = 3.dp),
             )
         }
         Spacer(Modifier.height(16.dp))
         Text(
-            "Arka bisa membuat kesalahan. Periksa informasi penting.",
+            t(Key.ARKA_DISCLAIMER),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             textAlign = TextAlign.Center,
@@ -489,15 +516,167 @@ private fun InputBar(
     }
 }
 
+// ------------------------------------------------------------- sessions
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun SessionsSheet(
+    store: Store,
+    language: ArkaLanguage,
+    defaultModel: String,
+    onDismiss: () -> Unit,
+) {
+    val state by store.state.collectAsState()
+    val t = { k: String -> I18n.t(language, k) }
+
+    var renameTarget by remember { mutableStateOf<Session?>(null) }
+    var renameText by remember { mutableStateOf("") }
+    var deleteTarget by remember { mutableStateOf<Session?>(null) }
+
+    fun newSession() {
+        store.dispatch(
+            Action.AddSession(
+                Session(
+                    id = "sess_${System.currentTimeMillis()}",
+                    title = "Sesi Baru",
+                    createdAt = System.currentTimeMillis(),
+                    model = defaultModel,
+                ),
+            ),
+        )
+    }
+
+    ModalBottomSheet(onDismissRequest = onDismiss) {
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp)
+                .padding(bottom = 20.dp),
+        ) {
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(t(Key.SESSIONS), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                TextButton(onClick = { newSession() }) {
+                    Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(4.dp))
+                    Text(t(Key.NEW_SESSION))
+                }
+            }
+            if (state.sessions.isEmpty()) {
+                Text(
+                    t(Key.NO_SESSIONS),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(vertical = 16.dp),
+                )
+            } else {
+                LazyColumn(Modifier.fillMaxWidth().heightIn(max = 440.dp)) {
+                    items(state.sessions, key = { it.id }) { session ->
+                        val isCurrent = session.id == state.currentSessionId
+                        Row(
+                            Modifier
+                                .fillMaxWidth()
+                                .clickable { store.dispatch(Action.SetSession(session.id)) }
+                                .padding(vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(
+                                session.title,
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.Normal,
+                                color = if (isCurrent) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
+                                maxLines = 1,
+                                modifier = Modifier.weight(1f),
+                            )
+                            Spacer(Modifier.width(8.dp))
+                            Text(
+                                "${session.messages.count { it.role != MessageRole.system }} msg",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                            IconButton(onClick = {
+                                renameTarget = session
+                                renameText = session.title
+                            }) {
+                                Icon(Icons.Default.Edit, contentDescription = "Rename")
+                            }
+                            IconButton(onClick = { deleteTarget = session }) {
+                                Icon(
+                                    Icons.Default.Delete,
+                                    contentDescription = "Delete",
+                                    tint = MaterialTheme.colorScheme.error,
+                                )
+                            }
+                        }
+                        HorizontalDivider()
+                    }
+                }
+            }
+        }
+    }
+
+    renameTarget?.let { session ->
+        AlertDialog(
+            onDismissRequest = { renameTarget = null },
+            title = { Text("Rename") },
+            text = {
+                OutlinedTextField(
+                    value = renameText,
+                    onValueChange = { renameText = it },
+                    singleLine = true,
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        val name = renameText.trim()
+                        if (name.isNotEmpty()) {
+                            store.dispatch(Action.RenameSession(session.id, name))
+                        }
+                        renameTarget = null
+                    },
+                ) { Text(t(Key.SAVE)) }
+            },
+            dismissButton = {
+                TextButton(onClick = { renameTarget = null }) { Text(t(Key.CANCEL)) }
+            },
+        )
+    }
+
+    deleteTarget?.let { session ->
+        AlertDialog(
+            onDismissRequest = { deleteTarget = null },
+            title = { Text(t(Key.DELETE)) },
+            text = { Text("Hapus sesi \"${session.title}\"? Workspace-nya ikut terhapus.") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        store.dispatch(Action.DeleteSession(session.id))
+                        deleteTarget = null
+                    },
+                ) { Text(t(Key.DELETE), color = MaterialTheme.colorScheme.error) }
+            },
+            dismissButton = {
+                TextButton(onClick = { deleteTarget = null }) { Text(t(Key.CANCEL)) }
+            },
+        )
+    }
+}
+
 // ------------------------------------------------------------- approval
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun ApprovalSheet(
+    language: ArkaLanguage,
     approval: PendingToolApproval,
     onApprove: () -> Unit,
     onReject: () -> Unit,
 ) {
+    val t = { k: String -> I18n.t(language, k) }
     ModalBottomSheet(onDismissRequest = onReject) {
         Column(
             Modifier
@@ -506,14 +685,9 @@ private fun ApprovalSheet(
                 .padding(bottom = 28.dp),
         ) {
             Text(
-                "🛡️ Persetujuan tool",
+                "🛡️ ${t(Key.TOOL_APPROVAL_TITLE)}",
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold,
-            )
-            Spacer(Modifier.height(4.dp))
-            Text(
-                "Arka meminta izin untuk menjalankan tool berikut:",
-                style = MaterialTheme.typography.bodyMedium,
             )
             Spacer(Modifier.height(12.dp))
             Card(
@@ -534,8 +708,8 @@ private fun ApprovalSheet(
             }
             Spacer(Modifier.height(16.dp))
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                TextButton(onClick = onReject) { Text("Tolak") }
-                TextButton(onClick = onApprove) { Text("Izinkan") }
+                TextButton(onClick = onReject) { Text(t(Key.REJECT)) }
+                TextButton(onClick = onApprove) { Text(t(Key.APPROVE)) }
             }
         }
     }
