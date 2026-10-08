@@ -110,6 +110,14 @@ fun ProvidersSheet(
                                         baseUrls[provider.id] ?: provider.baseUrl,
                                     )
                                     detectedModels = detectedModels + (provider.id to found)
+                                    store.dispatch(
+                                        Action.UpdateProvider(
+                                            provider.copy(
+                                                models = found,
+                                                modelsFetchedAt = System.currentTimeMillis(),
+                                            ),
+                                        ),
+                                    )
                                 } catch (e: Exception) {
                                     detectError = e.message ?: "Gagal mendeteksi model"
                                 } finally {
@@ -120,12 +128,23 @@ fun ProvidersSheet(
                         onPickModel = { m ->
                             modelInputs = modelInputs + (provider.id to m)
                             detectedModels = detectedModels + (provider.id to emptyList())
+                            store.dispatch(
+                                Action.UpdateProvider(
+                                    provider.copy(
+                                        model = m,
+                                        models = (detectedModels[provider.id] ?: emptyList()),
+                                        modelsFetchedAt = System.currentTimeMillis(),
+                                    ),
+                                ),
+                            )
                         },
                         onSave = {
                             val updated = provider.copy(
                                 apiKey = apiKeys[provider.id] ?: "",
                                 baseUrl = baseUrls[provider.id] ?: "",
                                 model = modelInputs[provider.id] ?: provider.model,
+                                models = detectedModels[provider.id] ?: provider.models,
+                                modelsFetchedAt = System.currentTimeMillis(),
                             )
                             store.dispatch(Action.UpdateProvider(updated))
                             store.updatePrefs {
