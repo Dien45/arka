@@ -96,11 +96,14 @@ fun ModelPickerSheet(
         detecting = detecting + provider.id
         scope.launch {
             ModelScanner.scan(provider.id, provider.apiKey, provider.baseUrl)
-                .onSuccess { models ->
-                    store.saveScanResult(provider.id, models)
-                    store.saveScanError(provider.id, null)
-                    if (models.isEmpty()) {
-                        error = "Scan ${provider.name} berhasil tapi tidak ada model yang cocok."
+                .onSuccess { outcome ->
+                    val corrected = outcome.resolvedBaseUrl?.takeIf { it != provider.baseUrl }
+                    store.saveScanResult(provider.id, outcome.models, baseUrl = corrected ?: provider.baseUrl)
+                    when {
+                        outcome.models.isEmpty() ->
+                            error = "Scan ${provider.name} berhasil tapi tidak ada model yang dikenali."
+                        corrected != null ->
+                            error = "${provider.name}: Base URL dikoreksi otomatis ke $corrected"
                     }
                 }
                 .onFailure { e ->

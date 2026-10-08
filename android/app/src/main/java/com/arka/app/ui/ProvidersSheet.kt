@@ -108,13 +108,29 @@ fun ProvidersSheet(
         detectError = null
         scope.launch {
             ModelScanner.scan(provider.id, key, url)
-                .onSuccess { models ->
-                    store.saveScanResult(provider.id, models, apiKey = key, baseUrl = url)
-                    store.saveScanError(provider.id, null)
-                    if (models.isEmpty()) {
-                        detectError = provider.id to "Tidak ada model yang cocok dari endpoint ${provider.name}."
-                    } else if (draft.model.isBlank() && modelInputs[provider.id].isNullOrBlank()) {
-                        modelInputs = modelInputs + (provider.id to models.first().id)
+                .onSuccess { outcome ->
+                    // Kalau endpoint yang berhasil ternyata memakai /v1, simpan Base URL
+                    // yang benar supaya user tidak perlu menebak & chat langsung jalan.
+                    val corrected = outcome.resolvedBaseUrl?.takeIf { it != url }
+                    store.saveScanResult(
+                        provider.id,
+                        outcome.models,
+                        apiKey = key,
+                        baseUrl = corrected ?: url,
+                    )
+                    if (corrected != null) {
+                        baseUrls = baseUrls + (provider.id to corrected)
+                        detectError = null
+                    }
+                    when {
+                        outcome.models.isEmpty() ->
+                            detectError = provider.id to
+                                "Endpoint menjawab, tapi tidak ada model yang dikenali. " +
+                                "Bentuk respons tidak didukung — coba cek Base URL."
+                        corrected != null ->
+                            detectError = provider.id to "Base URL otomatis dikoreksi ke $corrected"
+                        (modelInputs[provider.id] ?: provider.model).isBlank() ->
+                            modelInputs = modelInputs + (provider.id to outcome.models.first().id)
                     }
                 }
                 .onFailure { e ->

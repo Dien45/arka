@@ -1,6 +1,7 @@
 package com.arka.app.core
 
 import com.arka.app.net.ModelFetcher
+import com.arka.app.net.ScanOutcome
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -8,19 +9,18 @@ import kotlinx.coroutines.withContext
  * Satu pintu untuk "scan model" provider, dipakai bersama oleh Settings
  * (ProvidersSheet) dan model picker di Chat.
  *
- * Tujuan perbaikan: hasil scan harus benar-benar tersimpan di state, sehingga
- * user cukup memilih model dari daftar — tidak pernah lagi wajib mengetik
- * model id manual. Kegagalan scan selalu mengembalikan pesan yang bisa
- * ditindaklanjuti (API key salah, Base URL tidak dijangkau, dll).
+ * Hasil scan selalu tersimpan di state, sehingga user cukup memilih model dari
+ * daftar. Kegagalan scan mengembalikan pesan asli dari server (HTTP 401/404/…)
+ * yang bisa ditindaklanjuti — bukan lagi "tidak ada model yang cocok".
  */
 object ModelScanner {
     /** Satu instance OkHttp client dipakai ulang agar tidak bikin koneksi baru terus. */
     private val fetcher: ModelFetcher by lazy { ModelFetcher() }
 
-    suspend fun scan(id: Provider, apiKey: String, baseUrl: String): Result<List<ModelInfo>> =
+    suspend fun scan(id: Provider, apiKey: String, baseUrl: String): Result<ScanOutcome> =
         withContext(Dispatchers.IO) {
-            runCatching { fetcher.fetchModelsFromProvider(id, apiKey, baseUrl) }
-                .mapCatching { models -> models.sortedBy { it.name.lowercase() } }
+            runCatching { fetcher.scan(id, apiKey, baseUrl) }
+                .map { outcome -> outcome.copy(models = outcome.models.sortedBy { it.name.lowercase() }) }
         }
 }
 
@@ -54,6 +54,7 @@ fun Store.saveScanResult(
         model = model?.takeIf { it.isNotBlank() } ?: p.model,
         models = models,
         modelsFetchedAt = System.currentTimeMillis(),
+        modelsError = null,
     )
 }
 
