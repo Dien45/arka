@@ -148,4 +148,27 @@ class Store(
         _prefs.value = next
         scope.launch { persistence.savePrefs(next) }
     }
+
+    /**
+     * Update satu provider berdasarkan state terkini (bukan snapshot lama dari
+     * composable), supaya hasil scan model / edit API key tidak tertimpa oleh
+     * state yang sudah usang — akar bug "model harus diisi manual".
+     */
+    fun updateProvider(id: Provider, transform: (ProviderConfig) -> ProviderConfig) {
+        val current = state.value.providers.find { it.id == id } ?: return
+        dispatch(Action.UpdateProvider(transform(current)))
+    }
+
+    /**
+     * Pilih model untuk chat: simpan ke prefs, dan kalau providernya punya
+     * kredensial tapi masih nonaktif, aktifkan sekalian supaya model langsung
+     * bisa dipakai.
+     */
+    fun selectModel(providerId: Provider, model: String, enableIfReady: Boolean = true) {
+        updatePrefs { it.copy(selectedProvider = providerId.name, selectedModel = model) }
+        if (!enableIfReady) return
+        updateProvider(providerId) { p ->
+            if (p.enabled || !p.canScan()) p else p.copy(enabled = true, model = model.ifBlank { p.model })
+        }
+    }
 }

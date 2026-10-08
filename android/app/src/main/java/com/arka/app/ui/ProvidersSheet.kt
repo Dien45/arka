@@ -1,22 +1,36 @@
 package com.arka.app.ui
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Clear
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
@@ -24,6 +38,7 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -32,21 +47,35 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.arka.app.core.ModelInfo
+import com.arka.app.core.ModelScanner
 import com.arka.app.core.Provider
 import com.arka.app.core.ProviderConfig
 import com.arka.app.core.Store
-import com.arka.app.core.Action
-import com.arka.app.net.ModelFetcher
+import com.arka.app.core.canScan
+import com.arka.app.core.modelsAreStale
+import com.arka.app.core.saveScanError
+import com.arka.app.core.saveScanResult
 import kotlinx.coroutines.launch
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 /**
- * MRK-26. Minimal provider configuration surface (the M3 stand-in for the web
- * Settings modal): toggle a provider on, paste an API key (or Ollama/Custom
- * base URL), auto-detect available models, pick one, save. Selecting a model
- * also selects its provider + model for the Chat header.
+ * Konfigurasi provider AI (M4, diperbaiki): API key, Base URL, auto-detect
+ * model dengan daftar yang bisa dicari, dan pemilihan model yang tersimpan.
+ *
+ * Perbaikan penting vs versi lama:
+ *  - bug lama: memilih model langsung menghapus daftar model hasil scan
+ *    (`models = detectedModels[...]` yang sudah dikosongkan) sehingga deteksi
+ *    terasa tidak berguna dan user terpaksa mengetik model manual. Sekarang
+ *    setiap perubahan ditulis lewat [Store.updateProvider] ke state terkini.
+ *  - hasil scan disimpan ke state + DataStore, jadi tetap ada setelah app
+ *    ditutup (model tidak perlu di-scan ulang tiap kali).
+ *  - daftar model ditampilkan penuh dan bisa dicari.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -55,17 +84,47 @@ fun ProvidersSheet(
     onDismiss: () -> Unit,
 ) {
     val state by store.state.collectAsState()
-    val prefs by store.prefs.collectAsState()
     val scope = rememberCoroutineScope()
-    val modelFetcher = remember { ModelFetcher() }
 
     var expandedProvider by remember { mutableStateOf<Provider?>(null) }
     var apiKeys by remember { mutableStateOf(state.providers.associate { it.id to it.apiKey }) }
     var baseUrls by remember { mutableStateOf(state.providers.associate { it.id to it.baseUrl }) }
     var modelInputs by remember { mutableStateOf(state.providers.associate { it.id to it.model }) }
-    var detectedModels by remember { mutableStateOf<Map<Provider, List<ModelInfo>>>(emptyMap()) }
-    var detectingProvider by remember { mutableStateOf<Provider?>(null) }
-    var detectError by remember { mutableStateOf<String?>(null) }
+    var query by remember { mutableStateOf("") }
+    var detecting by remember { mutableStateOf<Set<Provider>>(emptySet()) }
+    var detectError by remember { mutableStateOf<Pair<Provider, String>?>(null) }
+
+    fun scan(provider: ProviderConfig, force: Boolean = false) {
+        if (provider.id in detecting) return
+        val key = apiKeys[provider.id] ?: provider.apiKey
+        val url = baseUrls[provider.id] ?: provider.baseUrl
+        val draft = provider.copy(apiKey = key, baseUrl = url)
+        if (!draft.canScan()) {
+            detectError = provider.id to "Isi ${if (provider.id == Provider.ollama || provider.id == Provider.custom) "Base URL" else "API Key"} dulu."
+            return
+        }
+        if (!force && !provider.modelsAreStale()) return
+        detecting = detecting + provider.id
+        detectError = null
+        scope.launch {
+            ModelScanner.scan(provider.id, key, url)
+                .onSuccess { models ->
+                    store.saveScanResult(provider.id, models, apiKey = key, baseUrl = url)
+                    store.saveScanError(provider.id, null)
+                    if (models.isEmpty()) {
+                        detectError = provider.id to "Tidak ada model yang cocok dari endpoint ${provider.name}."
+                    } else if (draft.model.isBlank() && modelInputs[provider.id].isNullOrBlank()) {
+                        modelInputs = modelInputs + (provider.id to models.first().id)
+                    }
+                }
+                .onFailure { e ->
+                    val msg = e.message ?: "Gagal mendeteksi model"
+                    store.saveScanError(provider.id, msg)
+                    detectError = provider.id to msg
+                }
+            detecting = detecting - provider.id
+        }
+    }
 
     ModalBottomSheet(onDismissRequest = onDismiss) {
         Column(
@@ -75,98 +134,212 @@ fun ProvidersSheet(
                 .padding(horizontal = 16.dp, vertical = 8.dp),
         ) {
             Text("AI Providers", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+            Text(
+                "Scan model sekali, lalu pilih dari daftar — tidak perlu ketik manual lagi.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Spacer(Modifier.height(4.dp))
+            OutlinedTextField(
+                value = query,
+                onValueChange = { query = it },
+                label = { Text("Cari model (semua provider)") },
+                singleLine = true,
+                leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
+                trailingIcon = {
+                    if (query.isNotEmpty()) {
+                        IconButton(onClick = { query = "" }) { Icon(Icons.Default.Clear, contentDescription = "Bersihkan") }
+                    }
+                },
+                modifier = Modifier.fillMaxWidth(),
+            )
 
             state.providers.forEach { provider ->
                 val expanded = expandedProvider == provider.id
+                val draftKey = apiKeys[provider.id] ?: ""
+                val draftUrl = baseUrls[provider.id] ?: provider.baseUrl
+                val draftModel = modelInputs[provider.id] ?: provider.model
+                val draft = provider.copy(apiKey = draftKey, baseUrl = draftUrl, model = draftModel)
+                val visibleModels = provider.models.filter { m ->
+                    query.isBlank() ||
+                        m.id.contains(query, ignoreCase = true) ||
+                        m.name.contains(query, ignoreCase = true) ||
+                        provider.name.contains(query, ignoreCase = true)
+                }
 
                 ProviderHeader(
                     provider = provider,
                     expanded = expanded,
                     onToggleExpand = { expandedProvider = if (expanded) null else provider.id },
                     onToggleEnabled = {
-                        store.dispatch(Action.UpdateProvider(provider.copy(enabled = !provider.enabled)))
+                        store.updateProvider(provider.id) { it.copy(enabled = !it.enabled) }
                     },
                 )
 
                 if (expanded) {
-                    ProviderEditor(
-                        provider = provider,
-                        apiKey = apiKeys[provider.id] ?: "",
-                        onApiKeyChange = { apiKeys = apiKeys + (provider.id to it) },
-                        baseUrl = baseUrls[provider.id] ?: "",
-                        onBaseUrlChange = { baseUrls = baseUrls + (provider.id to it) },
-                        model = modelInputs[provider.id] ?: "",
-                        onModelChange = { modelInputs = modelInputs + (provider.id to it) },
-                        detected = detectedModels[provider.id] ?: emptyList(),
-                        detecting = detectingProvider == provider.id,
-                        onDetect = {
-                            scope.launch {
-                                detectingProvider = provider.id
-                                detectError = null
-                                try {
-                                    val found = modelFetcher.fetchModelsFromProvider(
-                                        provider.id,
-                                        apiKeys[provider.id] ?: "",
-                                        baseUrls[provider.id] ?: provider.baseUrl,
-                                    )
-                                    detectedModels = detectedModels + (provider.id to found)
-                                    store.dispatch(
-                                        Action.UpdateProvider(
-                                            provider.copy(
-                                                models = found,
-                                                modelsFetchedAt = System.currentTimeMillis(),
-                                            ),
-                                        ),
-                                    )
-                                } catch (e: Exception) {
-                                    detectError = e.message ?: "Gagal mendeteksi model"
-                                } finally {
-                                    detectingProvider = null
+                    // Auto-scan saat dibuka bila kredensial ada tapi model kosong/basi.
+                    LaunchedEffect(provider.id) {
+                        if (draft.canScan() && provider.modelsAreStale()) scan(provider)
+                    }
+
+                    Column(Modifier.padding(start = 8.dp, end = 8.dp, bottom = 12.dp)) {
+                        ApiKeyField(
+                            value = draftKey,
+                            isCustom = provider.id == Provider.custom,
+                            onValueChange = { apiKeys = apiKeys + (provider.id to it) },
+                        )
+                        Spacer(Modifier.height(8.dp))
+                        OutlinedTextField(
+                            value = draftUrl,
+                            onValueChange = { baseUrls = baseUrls + (provider.id to it) },
+                            label = { Text("Base URL") },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                        Spacer(Modifier.height(8.dp))
+                        OutlinedTextField(
+                            value = draftModel,
+                            onValueChange = { modelInputs = modelInputs + (provider.id to it) },
+                            label = { Text("Model aktif") },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+
+                        Spacer(Modifier.height(8.dp))
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Button(
+                                onClick = { scan(provider, force = true) },
+                                enabled = provider.id !in detecting,
+                            ) {
+                                if (provider.id in detecting) {
+                                    CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+                                    Spacer(Modifier.width(8.dp))
+                                    Text("Memindai…")
+                                } else {
+                                    Text(if (provider.models.isEmpty()) "Deteksi & pilih model" else "Scan ulang")
                                 }
                             }
-                        },
-                        onPickModel = { m ->
-                            modelInputs = modelInputs + (provider.id to m)
-                            detectedModels = detectedModels + (provider.id to emptyList())
-                            store.dispatch(
-                                Action.UpdateProvider(
-                                    provider.copy(
-                                        model = m,
-                                        models = (detectedModels[provider.id] ?: emptyList()),
-                                        modelsFetchedAt = System.currentTimeMillis(),
-                                    ),
-                                ),
+                            Spacer(Modifier.width(8.dp))
+                            TextButton(
+                                onClick = {
+                                    // Simpan tanpa menunggu scan (draft ditulis ke state terkini).
+                                    store.updateProvider(provider.id) { p ->
+                                        p.copy(apiKey = draftKey, baseUrl = draftUrl, model = draftModel)
+                                    }
+                                    store.selectModel(provider.id, draftModel, enableIfReady = false)
+                                    detectError = null
+                                },
+                            ) { Text("Simpan") }
+                        }
+
+                        val status = when {
+                            provider.id in detecting -> "Memindai daftar model dari ${provider.name}…"
+                            provider.models.isNotEmpty() -> "${provider.models.size} model tersimpan" +
+                                (provider.modelsFetchedAt?.let { " · " + formatTime(it) } ?: "")
+                            provider.modelsError != null -> "Scan terakhir gagal: ${provider.modelsError}"
+                            else -> "Belum ada model tersimpan untuk provider ini."
+                        }
+                        Text(
+                            status,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = if (provider.modelsError != null && provider.models.isEmpty()) {
+                                MaterialTheme.colorScheme.error
+                            } else {
+                                MaterialTheme.colorScheme.onSurfaceVariant
+                            },
+                        )
+
+                        if (provider.models.isNotEmpty()) {
+                            Spacer(Modifier.height(6.dp))
+                            Text(
+                                "Model terdeteksi — tap untuk memakai",
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.SemiBold,
                             )
-                        },
-                        onSave = {
-                            val updated = provider.copy(
-                                apiKey = apiKeys[provider.id] ?: "",
-                                baseUrl = baseUrls[provider.id] ?: "",
-                                model = modelInputs[provider.id] ?: provider.model,
-                                models = detectedModels[provider.id] ?: provider.models,
-                                modelsFetchedAt = System.currentTimeMillis(),
-                            )
-                            store.dispatch(Action.UpdateProvider(updated))
-                            store.updatePrefs {
-                                it.copy(
-                                    selectedProvider = provider.id.name,
-                                    selectedModel = updated.model,
-                                )
+                            LazyColumn(
+                                Modifier
+                                    .fillMaxWidth()
+                                    .heightIn(max = 240.dp)
+                                    .padding(top = 4.dp),
+                            ) {
+                                if (visibleModels.isEmpty()) {
+                                    item("no_match_${provider.id}") {
+                                        Text(
+                                            "Tidak ada model yang cocok dengan \"$query\".",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        )
+                                    }
+                                }
+                                items(visibleModels, key = { "${provider.id}_${it.id}" }) { model ->
+                                    DetectedModelRow(
+                                        model = model,
+                                        selected = model.id == draftModel,
+                                        onClick = {
+                                            modelInputs = modelInputs + (provider.id to model.id)
+                                            store.updateProvider(provider.id) { p ->
+                                                p.copy(
+                                                    apiKey = draftKey,
+                                                    baseUrl = draftUrl,
+                                                    model = model.id,
+                                                    // Biarkan daftar model apa adanya — inilah
+                                                    // regresi yang dulu menghapus hasil scan.
+                                                    modelsError = null,
+                                                )
+                                            }
+                                            store.selectModel(provider.id, model.id)
+                                        },
+                                    )
+                                }
                             }
-                            detectError = null
-                        },
-                    )
+                        }
+
+                        detectError?.takeIf { it.first == provider.id }?.let { (_, msg) ->
+                            Spacer(Modifier.height(4.dp))
+                            Text(msg, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+                        }
+                    }
                 }
                 HorizontalDivider()
             }
 
-            detectError?.let {
-                Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+            detectError?.let { (_, msg) ->
+                Spacer(Modifier.height(8.dp))
+                Text(msg, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
             }
 
             Spacer(Modifier.height(24.dp))
         }
     }
+}
+
+@Composable
+private fun ApiKeyField(
+    value: String,
+    isCustom: Boolean,
+    onValueChange: (String) -> Unit,
+) {
+    var visible by remember { mutableStateOf(false) }
+    OutlinedTextField(
+        value = value,
+        onValueChange = onValueChange,
+        label = { Text(if (isCustom) "API Key (opsional)" else "API Key") },
+        singleLine = true,
+        visualTransformation = if (visible) {
+            androidx.compose.ui.text.input.VisualTransformation.None
+        } else {
+            androidx.compose.ui.text.input.PasswordVisualTransformation()
+        },
+        trailingIcon = {
+            IconButton(onClick = { visible = !visible }) {
+                Icon(
+                    if (visible) Icons.Default.VisibilityOff else Icons.Default.Visibility,
+                    contentDescription = if (visible) "Sembunyikan" else "Tampilkan",
+                )
+            }
+        },
+        modifier = Modifier.fillMaxWidth(),
+    )
 }
 
 @Composable
@@ -186,7 +359,12 @@ private fun ProviderHeader(
         Column(Modifier.weight(1f)) {
             Text(provider.name, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
             Text(
-                if (provider.enabled) "Aktif" else "Belum dikonfigurasi",
+                buildString {
+                    append(if (provider.enabled) "Aktif" else "Belum dikonfigurasi")
+                    val active = provider.effectiveModel
+                    if (active.isNotBlank()) append(" · $active")
+                    if (provider.models.isNotEmpty()) append(" · ${provider.models.size} model")
+                },
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -197,73 +375,40 @@ private fun ProviderHeader(
 }
 
 @Composable
-private fun ProviderEditor(
-    provider: ProviderConfig,
-    apiKey: String,
-    onApiKeyChange: (String) -> Unit,
-    baseUrl: String,
-    onBaseUrlChange: (String) -> Unit,
-    model: String,
-    onModelChange: (String) -> Unit,
-    detected: List<ModelInfo>,
-    detecting: Boolean,
-    onDetect: () -> Unit,
-    onPickModel: (String) -> Unit,
-    onSave: () -> Unit,
+private fun DetectedModelRow(
+    model: ModelInfo,
+    selected: Boolean,
+    onClick: () -> Unit,
 ) {
-    Column(Modifier.padding(start = 8.dp, end = 8.dp, bottom = 12.dp)) {
-        OutlinedTextField(
-            value = apiKey,
-            onValueChange = onApiKeyChange,
-            label = { Text("API Key") },
-            singleLine = true,
-            modifier = Modifier.fillMaxWidth(),
-        )
-        if (provider.id == Provider.ollama || provider.id == Provider.custom) {
-            Spacer(Modifier.height(8.dp))
-            OutlinedTextField(
-                value = baseUrl,
-                onValueChange = onBaseUrlChange,
-                label = { Text("Base URL") },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth(),
-            )
-        }
-        Spacer(Modifier.height(8.dp))
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            OutlinedTextField(
-                value = model,
-                onValueChange = onModelChange,
-                label = { Text("Model") },
-                singleLine = true,
-                modifier = Modifier.weight(1f),
-            )
-            Spacer(Modifier.width(8.dp))
-            TextButton(onClick = onDetect, enabled = !detecting) {
-                if (detecting) {
-                    CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
-                } else {
-                    Text("Deteksi")
-                }
-            }
-        }
-        if (detected.isNotEmpty()) {
-            Row(
-                Modifier
-                    .fillMaxWidth()
-                    .padding(top = 8.dp),
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-            ) {
-                detected.take(8).forEach { m ->
-                    FilterChip(
-                        selected = m.id == model,
-                        onClick = { onPickModel(m.id) },
-                        label = { Text(m.id) },
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .padding(vertical = 2.dp)
+            .clip(RoundedCornerShape(8.dp))
+            .clickable(onClick = onClick)
+            .background(if (selected) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surface)
+            .padding(horizontal = 8.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(Modifier.weight(1f)) {
+            Column {
+                Text(model.id, style = MaterialTheme.typography.bodyMedium, maxLines = 1)
+                val sub = model.description ?: model.name.takeIf { it != model.id }
+                if (!sub.isNullOrBlank()) {
+                    Text(
+                        sub,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
                     )
                 }
             }
         }
-        Spacer(Modifier.height(12.dp))
-        Button(onClick = onSave, modifier = Modifier.fillMaxWidth()) { Text("Simpan") }
+        if (selected) {
+            Icon(Icons.Default.Check, contentDescription = "Aktif", tint = MaterialTheme.colorScheme.primary)
+        }
     }
 }
+
+private fun formatTime(epochMillis: Long): String =
+    SimpleDateFormat("dd MMM HH:mm", Locale("id", "ID")).format(Date(epochMillis))

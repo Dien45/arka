@@ -17,7 +17,13 @@ data class ProviderConfig(
     val icon: String = "",
     val models: List<ModelInfo> = emptyList(),
     val modelsFetchedAt: Long? = null,
-)
+    /** Pesan error terakhir saat scan model gagal (null = terakhir sukses). */
+    val modelsError: String? = null,
+) {
+    /** Nama model yang benar-benar dipakai untuk request (fallback ke default provider). */
+    val effectiveModel: String
+        get() = model.ifBlank { models.firstOrNull()?.id ?: "" }
+}
 
 @Serializable
 data class ModelInfo(
