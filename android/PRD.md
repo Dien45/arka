@@ -1,6 +1,6 @@
 # PRD — Arka Android (Native, Kotlin + Jetpack Compose)
 
-> Status: **Disetujui** (08 Okt 2026) · **M0–M9 selesai, M10 (uji perangkat) berjalan**
+> Status: **Disetujui** (08 Okt 2026) · **M0–M11 selesai** (uji perangkat & rilis tertunda)
 > Repo: `Dien45/arka` — folder `android/` (satu repo, web + android berjalan bersama)
 
 ## 1. Ringkasan
@@ -254,3 +254,36 @@ task Gradle `downloadProotBinaries`)
 - Uji di perangkat nyata untuk proot (diagnostik sudah tersedia di Settings).
 - Rilis bertanda tangan + `action-gh-release` (workflow `android-release.yml` sudah ada,
   tinggal mengisi secret).
+
+### Selesai (lanjutan) — M10/M11
+
+**M10 — Scan model yang jujur & auto-koreksi endpoint** (`net/ModelFetcher.kt`,
+`core/ModelScan.kt`, `ui/ProvidersSheet.kt`, `ui/ModelPicker.kt`)
+
+- Sebelumnya semua kegagalan provider custom ditelan (`catch { emptyList() }`) dan
+  hanya bentuk `{"data":[{"id":…}]}` yang dikenali → UI selalu bilang "tidak ada
+  model yang cocok" meski penyebabnya 401/404/salah bentuk respons.
+- Sekarang: probe beberapa endpoint (`/models`, `/v1/models`, `/api/tags`),
+  parsing lintas bentuk (`data[]`, `models[]`, array akar; id di
+  `id`/`name`/`model`/`model_name`/`slug`), error HTTP diteruskan apa adanya
+  (`ProviderApiException` → 401/404/429 dengan URL + cuplikan body), dan Base URL
+  yang benar (mis. perlu `/v1`) **dikoreksi otomatis** lalu disimpan.
+- Scan gagal menyimpan `modelsError` per provider sehingga UI bisa menampilkan
+  pesan terakhir yang bisa ditindaklanjuti.
+
+**M11 — Skill benar-benar bisa dipakai** (`net/SkillFetcher.kt`, `core/Skills.kt`,
+`core/Tools.kt`, `ui/SkillStoreScreen.kt`)
+
+- Format yang didukung: **Claude Skills** (`SKILL.md` + frontmatter
+  `name`/`description` + berkas pendukung), serta gaya lama `skill.json`/`prompt.md`.
+- Install = **berkas skill diunduh semua** (teks, batas 200 KB/berkas & 1,5 MB/skill)
+  → disimpan di `filesDir/skills/<id>/` **dan** disalin ke workspace sesi
+  `skills/<id>/` (sinkron otomatis saat chat berjalan, kalau sidik jari berubah).
+- Tool baru **`skill`** (read-only, tanpa approval): `list`, `read`
+  (instruksi `SKILL.md` atau berkas lain), `files`. Model membuka instruksi skill
+  **saat dipakai** — bukan menjejalkan semuanya ke system prompt.
+- Script skill bisa dijalankan lewat `run_command` (dengan approval + allowlist),
+  dan makin berguna saat backend distro Alpine aktif.
+- Skill pihak ketiga tetap diperlakukan sebagai DATA (pembungkus anti
+  prompt-injection di prompt & di output tool).
+

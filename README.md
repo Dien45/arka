@@ -78,8 +78,10 @@ PRD lengkap: [`android/PRD.md`](android/PRD.md) · Panduan distro proot: [`andro
   impor ZIP/file, unduh ZIP. Workspace sesi adalah folder **nyata** di perangkat.
 - **GitHub** — hubungkan PAT, daftar repo + pencarian, branch, buat repo, push file
   terpilih lewat Git Data API, push "Staged AI Commits", ekspor/impor SyncManifest.
-- **Skill Store** — katalog 13 skill + install dari repo GitHub + mode/config; skill aktif
-  disuntik ke system prompt (konten pihak ketiga diperlakukan sebagai data).
+- **Skill Store** — katalog 13 skill + install dari repo GitHub (format Claude Skills:
+  `SKILL.md` + berkas pendukung) + mode/config. Berkas skill disimpan di perangkat dan
+  disalin ke workspace sesi (`skills/<id>/`), lalu dibaca AI lewat tool `skill` dan bisa
+  dijalankan lewat `run_command` — bukan cuma tempelan teks di prompt.
 - **PRD Generator** — dokumen 11 bagian, revisi, salin/bagikan, simpan ke workspace.
 - **run_command dua backend** — shell Android (`/system/bin/sh`) atau **distro Alpine asli
   via proot tanpa root** (`apk`, `git`, `python3`, `node`, …), cwd = folder workspace sesi.

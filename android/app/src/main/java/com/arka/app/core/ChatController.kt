@@ -29,7 +29,7 @@ const val AGENT_AUTO_CONTINUE_PROMPT =
 // Tools a Plan-mode AI is allowed to touch — read-only, nothing that writes
 // files, runs commands, or persists anything, so "just planning" can never
 // quietly turn into "already built it".
-private val PLAN_MODE_ALLOWED_TOOLS = setOf("read_file", "list_files", "web_fetch", "web_search")
+private val PLAN_MODE_ALLOWED_TOOLS = setOf("read_file", "list_files", "skill", "web_fetch", "web_search")
 
 private val CHAT_MODE_SYSTEM_PROMPTS: Map<ChatMode, String> = mapOf(
     ChatMode.plan to "\n\n🗺️ MODE SAAT INI: PLAN\nUser sedang dalam mode perencanaan, BUKAN mode eksekusi. Tugasmu:\n- Diskusikan idenya, ajukan pertanyaan klarifikasi kalau perlu\n- Susun rencana / breakdown langkah kerja yang jelas (mis. daftar bernomor, tahapan)\n- JANGAN memanggil write_file, run_command, memory, atau stage_commit di mode ini — tool-tool itu bahkan tidak tersedia sekarang\n- Kalau user sudah setuju dengan rencananya dan minta mulai dikerjakan, beri tahu mereka untuk pindah ke mode Build atau Agent",
@@ -111,6 +111,10 @@ class ChatController(
 
         var autoContinueDepth = depth
         try {
+            // Skill yang terpasang disalin ke workspace sesi (hanya kalau berubah),
+            // supaya read_file/run_command/File Explorer melihat berkas yang sama.
+            runCatching { skills.syncToWorkspace(sessionId) }
+
             val session = store.state.value.sessions.find { it.id == sessionId }
             var history = session?.messages
                 ?.filter { it.role == MessageRole.user || it.role == MessageRole.assistant }
@@ -304,7 +308,7 @@ class ChatController(
         val memoryContent = toolRegistry.formattedMemory()
         val toolsList = toolRegistry.toolsListString()
         val modePrompt = CHAT_MODE_SYSTEM_PROMPTS.getValue(chatMode)
-        val skillsBlock = skills.enhancementBlock()
+        val skillsBlock = skills.promptBlock()
         return """
 You are Arka, a friendly AI coding assistant with access to various tools.
 $memoryContent
@@ -347,6 +351,7 @@ Setiap chat session punya folder nyata sendiri di penyimpanan aplikasi yang dipa
 - read_file / list_files: membaca & mendaftar file dari workspace yang sama.
 - run_command: dijalankan DENGAN CWD = folder workspace sesi ini, jadi file hasil write_file langsung bisa kamu proses (mis. `apk add nodejs`, `python3 script.py`, `git init`, `ls`, build/test). Bila backend distro (Alpine/proot) aktif, folder ini juga ter-mount di /root/workspace — pakai path relatif (`./file`) supaya berfungsi di kedua backend.
 - stage_commit: checkpoint perubahan untuk di-push user dari panel GitHub (tool ini TIDAK mem-push apa pun sendiri).
+- Skill yang terpasang otomatis tersalin ke folder skills/<id>/ di workspace; buka isinya dengan tool `skill` (action=read) atau read_file, lalu jalankan script bila perlu.
 - Batas: 1 MB per file, total 8 MB per sesi — pakai file kecil & potong output panjang.
 
 WEB FETCH:
