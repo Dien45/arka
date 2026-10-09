@@ -152,7 +152,7 @@ fun ArkaRoot() {
                         Spacer(Modifier.height(8.dp))
                         HorizontalDivider()
                         Text(
-                            "Mode run_command: ${if (prefs.execBackend == "proot") "Alpine (proot)" else "shell Android"}",
+                            "run_command: Alpine (proot)",
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.padding(16.dp),

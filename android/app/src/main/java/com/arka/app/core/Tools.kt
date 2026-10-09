@@ -36,7 +36,7 @@ private val SENSITIVE_TOOLS = setOf("web_fetch", "write_file", "stage_commit", "
 
 class ToolRegistry(
     private val context: Context,
-    /** Konfigurasi exec dibaca saat tool dipanggil (backend native/proot, allowlist). */
+    /** Konfigurasi exec dibaca saat tool dipanggil (allowlist, timeout, bind workspace). */
     private val execSettingsProvider: () -> ExecSettings = { ExecSettings() },
 ) {
     private val virtualFs = VirtualFs(context)
@@ -73,10 +73,9 @@ class ToolRegistry(
             "Skill hasil unduhan dari GitHub menyimpan berkas nyatanya di workspace sesi (folder skills/<id>/), " +
             "jadi isinya bisa dibaca dan script-nya dijalankan lewat run_command. " +
             "Panggil skill ini dulu sebelum memakai sebuah skill supaya instruksinya benar-benar diikuti."),
-        "run_command" to ("Execute a shell command on this device and return its output. Runs locally on the phone " +
-            "(works offline). Working directory is the session workspace, so files created with write_file are visible " +
-            "here (and vice versa). When the Alpine distro (proot) backend is active you get a full Linux userland " +
-            "(apk, git, python3, node, ...) - use it for real builds/tests and to run skill scripts. " +
+        "run_command" to ("Execute a shell command inside the on-device Alpine Linux distro (proot, no root) and return its output. " +
+            "Full Linux userland (sh, apk, git, python3, node, ...) - use it for real builds/tests and to run skill scripts. " +
+            "Working directory is the session workspace, so files created with write_file are visible here (and vice versa). " +
             "Requires user approval before running."),
         "memory" to "Manage persistent memory. Actions: add (add new entry), replace (update existing entry using substring match), remove (delete entry using substring match). Target can be \"memory\" (agent notes) or \"user\" (user profile). Requires user approval before running.",
     )
@@ -485,9 +484,8 @@ class ToolRegistry(
         val settings = execSettingsProvider()
         return try {
             val result = execRunner.run(command, sessionId, settings)
-            val backendLabel = result.backend
             val sb = StringBuilder()
-            sb.append("Command executed ($backendLabel): ")
+            sb.append("Command executed (${result.backend}): ")
             sb.append(command)
             sb.append("\nExit code: ").append(result.exitCode).append("\nOutput:\n")
             val out = buildString {
@@ -499,12 +497,9 @@ class ToolRegistry(
                 if (result.timedOut) append("\n\n⚠️ Command timed out (killed).")
             }.ifEmpty { "(no output)" }
             sb.append(out)
-            if (settings.backend == ExecBackend.PROOT && result.backend.startsWith("native")) {
-                sb.append("\n\n(Info: distro proot belum siap — command ini dijalankan dengan shell Android. Pasang distro dari Settings.)")
-            }
             sb.toString()
         } catch (e: Exception) {
-            "❌ Error executing command: ${e.message ?: "Unknown error"}\n\nNote: run_command berjalan lokal di perangkat."
+            "❌ Error executing command: ${e.message ?: "Unknown error"}\n\nNote: run_command berjalan di distro Alpine (proot) di perangkat."
         }
     }
 

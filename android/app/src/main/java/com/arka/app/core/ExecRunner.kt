@@ -10,28 +10,22 @@ import java.io.InputStreamReader
 import java.util.concurrent.TimeUnit
 
 /**
- * Eksekusi command di perangkat, pengganti backend HTTP `server.js` di web.
+ * Eksekusi command `run_command` di dalam distro Alpine asli via proot (tanpa root).
  *
- * Dua backend:
- *  1. [ExecBackend.NATIVE] — `/system/bin/sh` bawaan Android (toybox).
- *     Selalu tersedia, tanpa setup, tapi fiturnya minim: tidak ada apk/pip,
- *     tidak ada git/node/python (kecuali app lain menyediakannya).
- *  2. [ExecBackend.PROOT] — distro Alpine asli lewat [DistroManager] (proot
- *     tanpa root): `apk add git python3 nodejs ...` benar-benar berfungsi.
+ * Backend shell Android (`/system/bin/sh`, toybox) sudah dihapus: tidak ada
+ * package manager dan tidak cukup untuk pekerjaan coding. Sekarang kalau distro
+ * belum siap, [run] melempar error yang menjelaskan langkah perbaikannya — bukan
+ * diam-diam menjalankan command di shell Android.
  *
- * Catatan fix penting: versi sebelumnya memanggil `/bin/sh`. Di Android tidak
- * ada `/bin`, shell-nya `/system/bin/sh`, sehingga `run_command` gagal dengan
- * "Cannot run program /bin/sh". Sekarang shell dideteksi.
- *
- * Jaminan keamanan tetap sama seperti web: allowlist opsional, timeout,
- * cap output 200 KB, dan approval gate dari UI (5 tool sensitif).
+ * Jaminan keamanan tetap: allowlist opsional, timeout, cap output 200 KB, dan
+ * approval gate dari UI (5 tool sensitif).
  */
 data class ExecResult(
     val stdout: String = "",
     val stderr: String = "",
     val exitCode: Int = 0,
     val timedOut: Boolean = false,
-    val backend: String = "native",
+    val backend: String = "proot/Alpine",
 )
 
 class ExecRunner(
@@ -39,15 +33,9 @@ class ExecRunner(
     private val distro: DistroManager = DistroManager(context),
 ) {
     companion object {
-        const val DEFAULT_TIMEOUT_MS = 15_000L
+        /** Timeout default satu command di distro (apk add bisa lama). */
         const val PROOT_DEFAULT_TIMEOUT_MS = 60_000L
         const val MAX_OUT = 200_000
-
-        /** Shell Android yang benar-benar ada di device ini. */
-        fun shellPath(): String =
-            listOf("/system/bin/sh", "/vendor/bin/sh", "/bin/sh")
-                .firstOrNull { File(it).exists() }
-                ?: "sh"
     }
 
     private var allowlist: List<String> = emptyList()
@@ -61,13 +49,13 @@ class ExecRunner(
         return allowlist.any { command.trim().startsWith(it) }
     }
 
-    fun activeBackend(settings: ExecSettings): ExecBackend = settings.backend
-
-    /** Deskripsi backend untuk pesan tool / UI. */
-    fun describeBackend(settings: ExecSettings): String = when {
-        settings.backend == ExecBackend.PROOT && distro.canRunProot() -> "proot/Alpine"
-        settings.backend == ExecBackend.PROOT -> "native (distro proot belum siap)"
-        else -> "native (Android shell)"
+    /** Alasan distro belum siap (cek ringan, tanpa menghitung ukuran rootfs); null = siap. */
+    fun notReadyReason(): String? = when {
+        distro.prootBinary() == null || distro.loaderBinary() == null ->
+            "binary proot tidak ada di APK ini (build ulang dengan jaringan agar task downloadProotBinaries berhasil)"
+        !distro.isInstalled() ->
+            "distro Alpine belum dipasang (Settings → Command & Distro → Unduh & pasang)"
+        else -> null
     }
 
     suspend fun run(
@@ -78,37 +66,19 @@ class ExecRunner(
         if (command.isBlank()) throw IllegalStateException("command required")
         if (!isAllowed(command)) throw IllegalStateException("command not in allowlist")
 
+        notReadyReason()?.let { reason ->
+            throw IllegalStateException("Distro Alpine belum siap: $reason.")
+        }
+
         val workspace = sessionId?.let { runCatching { VirtualFs(context).workspaceDir(it) }.getOrNull() }
-
-        return if (settings.backend == ExecBackend.PROOT && distro.canRunProot()) {
-            runProot(command, workspace, settings)
-        } else {
-            runNative(command, workspace, settings)
-        }
-    }
-
-    // ------------------------------------------------------------------ native
-
-    private suspend fun runNative(command: String, workspace: File?, settings: ExecSettings): ExecResult {
-        val builder = ProcessBuilder(shellPath(), "-c", command)
-        builder.directory(workspace?.takeIf { it.isDirectory } ?: context.filesDir)
-        builder.environment().apply {
-            this["PATH"] = listOf("/system/bin", "/system/xbin", "/vendor/bin", "/data/local/bin")
-                .joinToString(":")
-            this["HOME"] = context.filesDir.absolutePath
-            this["TMPDIR"] = context.cacheDir.absolutePath
-            this["LANG"] = "C.UTF-8"
-        }
-        return execute(builder, settings.timeoutMs, "native")
+        return runProot(command, workspace, settings)
     }
 
     // ------------------------------------------------------------------- proot
 
     private suspend fun runProot(command: String, workspace: File?, settings: ExecSettings): ExecResult {
         val argv = distro.buildProotCommand(command, workspace, settings)
-            ?: return runNative(command, workspace, settings).copy(
-                stderr = "Distro proot belum siap, command dijalankan di shell Android.\n",
-            )
+            ?: throw IllegalStateException("Distro Alpine belum siap (rootfs atau binary proot tidak lengkap).")
 
         val builder = ProcessBuilder(argv)
         builder.directory(context.filesDir)
@@ -118,13 +88,13 @@ class ExecRunner(
             this["HOME"] = context.filesDir.absolutePath
             this["TMPDIR"] = context.cacheDir.absolutePath
         }
-        val timeout = if (settings.timeoutMs <= DEFAULT_TIMEOUT_MS) PROOT_DEFAULT_TIMEOUT_MS else settings.timeoutMs
-        return execute(builder, timeout, "proot/Alpine")
+        val timeout = settings.timeoutMs.takeIf { it > 0 } ?: PROOT_DEFAULT_TIMEOUT_MS
+        return execute(builder, timeout)
     }
 
     // ------------------------------------------------------------------ shared
 
-    private suspend fun execute(builder: ProcessBuilder, timeoutMs: Long, backend: String): ExecResult {
+    private suspend fun execute(builder: ProcessBuilder, timeoutMs: Long): ExecResult {
         val process = withContext(Dispatchers.IO) {
             try {
                 builder.redirectErrorStream(false).start()
@@ -155,7 +125,7 @@ class ExecRunner(
             stderr = stderr.toString().take(MAX_OUT),
             exitCode = exitCode,
             timedOut = timedOut,
-            backend = backend,
+            backend = "proot/Alpine",
         )
     }
 

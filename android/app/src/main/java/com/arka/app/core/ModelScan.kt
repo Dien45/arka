@@ -24,6 +24,30 @@ object ModelScanner {
         }
 }
 
+/**
+ * Merapikan Base URL yang diketik user, terutama untuk server di Tailscale/LAN:
+ *  - spasi di ujung dibuang,
+ *  - tanpa skema (`100.64.1.2:20128/v1`, `omniroute:20128`) → ditambah `http://`
+ *    (tanpa ini OkHttp melempar "Expected URL scheme" dan user hanya melihat
+ *    error teknis),
+ *  - akhiran endpoint yang ikut ter-copy (`/chat/completions`, `/models`) dibuang,
+ *    karena nanti Arka menambahkannya sendiri,
+ *  - garis miring di belakang dibuang.
+ */
+fun normalizeBaseUrl(raw: String): String {
+    var url = raw.trim()
+    if (url.isEmpty()) return url
+    if (!url.contains("://")) url = "http://$url"
+    url = url.trimEnd('/')
+    for (suffix in listOf("/chat/completions", "/completions", "/models")) {
+        if (url.endsWith(suffix)) {
+            url = url.removeSuffix(suffix).trimEnd('/')
+            break
+        }
+    }
+    return url
+}
+
 /** Apakah provider ini sudah punya bekal untuk di-scan. */
 fun ProviderConfig.canScan(): Boolean = when (id) {
     Provider.ollama, Provider.custom -> baseUrl.isNotBlank()

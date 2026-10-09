@@ -16,7 +16,6 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -40,18 +39,16 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.arka.app.core.DistroManager
-import com.arka.app.core.ExecBackend
 import com.arka.app.core.ExecRunner
 import com.arka.app.core.Store
 import kotlinx.coroutines.launch
 
 /**
- * M8 — Runtime distro untuk `run_command`.
+ * M8 — Runtime distro untuk `run_command` (satu-satunya backend).
  *
- * Android tanpa root hanya memberi toybox. Dengan proot + Alpine minirootfs,
- * AI bisa menjalankan perintah Linux sungguhan (apk, git, python3, node, ...)
- * di dalam sandbox aplikasi. Binary proot dibundel lewat jniLibs (lihat task
- * Gradle downloadProotBinaries); rootfs Alpine diunduh sekali dari sini.
+ * `run_command` berjalan di distro Alpine asli via proot (tanpa root): apk, git,
+ * python3, node, ... Binary proot dibundel lewat jniLibs (lihat task Gradle
+ * downloadProotBinaries); rootfs Alpine diunduh sekali dari sini.
  */
 @Composable
 fun DistroSection(store: Store) {
@@ -93,7 +90,7 @@ fun DistroSection(store: Store) {
         busy = true
         diagnostics = null
         scope.launch {
-            val settings = prefs.toExecSettings().copy(backend = ExecBackend.PROOT)
+            val settings = prefs.toExecSettings()
             diagnostics = try {
                 val result = runner.run(distro.diagnosticCommand(), null, settings)
                 buildString {
@@ -116,27 +113,12 @@ fun DistroSection(store: Store) {
         modifier = Modifier.padding(top = 8.dp, bottom = 4.dp),
     )
     Text(
-        "Pilih backend untuk tool run_command. Shell Android selalu tersedia; Alpine (proot) memberi userland Linux " +
-            "lengkap tanpa root.",
+        "run_command berjalan di distro Alpine (proot, tanpa root). Pasang rootfs di bawah ini dulu " +
+            "sebelum AI bisa menjalankan perintah.",
         style = MaterialTheme.typography.bodySmall,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.padding(top = 8.dp),
     )
-
-    Row(
-        Modifier.padding(top = 8.dp),
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
-    ) {
-        FilterChip(
-            selected = prefs.execBackend != "proot",
-            onClick = { store.updatePrefs { it.copy(execBackend = "native") } },
-            label = { Text("Native (Android)") },
-        )
-        FilterChip(
-            selected = prefs.execBackend == "proot",
-            onClick = { store.updatePrefs { it.copy(execBackend = "proot") } },
-            label = { Text("Alpine (proot)") },
-        )
-    }
 
     Card(
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh),
@@ -152,7 +134,7 @@ fun DistroSection(store: Store) {
             Text(status.message, style = MaterialTheme.typography.bodySmall)
             if (!status.prootAvailable || !status.loaderAvailable) {
                 Text(
-                    "Binary proot tidak ada di APK ini. Build ulang (task Gradle downloadProotBinaries) atau pakai backend native.",
+                    "Binary proot tidak ada di APK ini. Build ulang dengan jaringan (task Gradle downloadProotBinaries).",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.error,
                 )

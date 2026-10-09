@@ -2,6 +2,7 @@ package com.arka.app.net
 
 import com.arka.app.core.Provider
 import com.arka.app.core.ModelInfo
+import com.arka.app.core.normalizeBaseUrl
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
@@ -81,7 +82,7 @@ class ModelFetcher(
         apiKey: String,
         baseUrl: String,
     ): ScanOutcome {
-        val base = baseUrl.trim().trimEnd('/')
+        val base = normalizeBaseUrl(baseUrl)
         return when (providerId) {
             Provider.openai -> ScanOutcome(fetchOpenAIModels(apiKey, base.ifBlank { "https://api.openai.com/v1" }))
             Provider.anthropic -> ScanOutcome(fetchAnthropicModels(apiKey, base.ifBlank { "https://api.anthropic.com" }))

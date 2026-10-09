@@ -282,10 +282,17 @@ class ChatController(
         val state = store.state.value
         val prefs = store.prefs.value
         val selectedModel = prefs.selectedModel
+        // Provider yang DIPILIH user lewat model picker dipakai apa adanya, meski
+        // flag enabled-nya belum sempat tersinkron. Fallback lama hanya mencocokkan
+        // enabled + nama model, sehingga pilihan model custom/Omniroute bisa
+        // berakhir "Provider tidak ditemukan".
         val base = prefs.selectedProvider?.let { id ->
-            state.providers.find { it.id.name == id && it.enabled }
+            state.providers.find { it.id.name == id }
         } ?: state.providers.find { it.model == selectedModel && it.enabled }
-        return base?.copy(model = selectedModel)
+        return base?.copy(
+            model = selectedModel.ifBlank { base.model },
+            baseUrl = normalizeBaseUrl(base.baseUrl),
+        )
     }
 
     private fun buildToolDefinitions(chatMode: ChatMode): List<ToolDefinition> {
@@ -349,7 +356,7 @@ WORKSPACE (Android):
 Setiap chat session punya folder nyata sendiri di penyimpanan aplikasi yang dipakai bersama oleh tool, File Explorer, dan run_command:
 - write_file: membuat file di workspace sesi (folder induk dibuat otomatis). File langsung muncul di tab "Files".
 - read_file / list_files: membaca & mendaftar file dari workspace yang sama.
-- run_command: dijalankan DENGAN CWD = folder workspace sesi ini, jadi file hasil write_file langsung bisa kamu proses (mis. `apk add nodejs`, `python3 script.py`, `git init`, `ls`, build/test). Bila backend distro (Alpine/proot) aktif, folder ini juga ter-mount di /root/workspace — pakai path relatif (`./file`) supaya berfungsi di kedua backend.
+- run_command: dijalankan DENGAN CWD = folder workspace sesi ini, jadi file hasil write_file langsung bisa kamu proses (mis. `apk add nodejs`, `python3 script.py`, `git init`, `ls`, build/test). Folder ini juga ter-mount di /root/workspace di dalam distro Alpine — pakai path relatif (`./file`) supaya aman.
 - stage_commit: checkpoint perubahan untuk di-push user dari panel GitHub (tool ini TIDAK mem-push apa pun sendiri).
 - Skill yang terpasang otomatis tersalin ke folder skills/<id>/ di workspace; buka isinya dengan tool `skill` (action=read) atau read_file, lalu jalankan script bila perlu.
 - Batas: 1 MB per file, total 8 MB per sesi — pakai file kecil & potong output panjang.

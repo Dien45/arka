@@ -52,6 +52,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.arka.app.core.ModelInfo
 import com.arka.app.core.ModelScanner
+import com.arka.app.core.normalizeBaseUrl
 import com.arka.app.core.Provider
 import com.arka.app.core.ProviderConfig
 import com.arka.app.core.Store
@@ -97,7 +98,7 @@ fun ProvidersSheet(
     fun scan(provider: ProviderConfig, force: Boolean = false) {
         if (provider.id in detecting) return
         val key = apiKeys[provider.id] ?: provider.apiKey
-        val url = baseUrls[provider.id] ?: provider.baseUrl
+        val url = normalizeBaseUrl(baseUrls[provider.id] ?: provider.baseUrl)
         val draft = provider.copy(apiKey = key, baseUrl = url)
         if (!draft.canScan()) {
             detectError = provider.id to "Isi ${if (provider.id == Provider.ollama || provider.id == Provider.custom) "Base URL" else "API Key"} dulu."
@@ -239,8 +240,10 @@ fun ProvidersSheet(
                             TextButton(
                                 onClick = {
                                     // Simpan tanpa menunggu scan (draft ditulis ke state terkini).
+                                    val cleanUrl = normalizeBaseUrl(draftUrl)
+                                    baseUrls = baseUrls + (provider.id to cleanUrl)
                                     store.updateProvider(provider.id) { p ->
-                                        p.copy(apiKey = draftKey, baseUrl = draftUrl, model = draftModel)
+                                        p.copy(apiKey = draftKey, baseUrl = cleanUrl, model = draftModel)
                                     }
                                     store.selectModel(provider.id, draftModel, enableIfReady = false)
                                     detectError = null

@@ -1,12 +1,14 @@
 # Runtime Distro (proot + Alpine) — Panduan Android
 
-> Status: **implementasi selesai, menunggu uji di perangkat nyata**
+> Status: **satu-satunya backend `run_command`** (shell Android sudah dihapus).
+> Bug "rootfs sudah terpasang tapi tidak terbaca" sudah diperbaiki (lihat §8).
 > Kode: `app/src/main/java/com/arka/app/core/DistroManager.kt`, `ExecRunner.kt`,
 > `ui/DistroSettings.kt`, task Gradle `downloadProotBinaries`.
 
 ## 1. Masalahnya
 
 `run_command` di Android tanpa root hanya mendapat shell `toybox` (`/system/bin/sh`).
+Karena itu backend native sudah dihapus: semua `run_command` berjalan di distro Alpine via proot.
 Itu cukup untuk `ls`, `cat`, `grep`, tapi **tidak** untuk pekerjaan coding nyata:
 tidak ada `apk`, `npm`, `pip`, `git`, `python3`, atau compiler.
 
@@ -48,14 +50,14 @@ Konsekuensi yang disengaja:
 
 - **Repo tetap bersih** — tidak ada binary pihak ketiga yang di-commit.
 - **Build tetap jalan saat offline**: kalau unduhan gagal, build sukses tanpa dukungan
-  proot dan aplikasi otomatis memakai shell Android (`-Pproot.skip=true` untuk melewati
+  proot, `run_command` tidak akan berjalan sampai binary-nya ada (`-Pproot.skip=true` untuk melewati
   sepenuhnya).
 - Versi proot dipin di `buildSrc/src/main/kotlin/arka/ProotBinaries.kt`, jadi hasilnya
   reproducible.
 
 ## 4. Memasang distro di aplikasi
 
-1. Settings → **Command & Distro** → backend **Alpine (proot)**.
+1. Settings → **Command & Distro**.
 2. Tap **Unduh & pasang (±3,6 MB)** — rootfs Alpine v3.20 diunduh dari
    `dl-cdn.alpinelinux.org` (ada daftar mirror cadangan otomatis) lalu diekstrak ke
    `filesDir/distro/alpine` (aman: entri dengan path traversal ditolak).
@@ -70,7 +72,7 @@ Konsekuensi yang disengaja:
 - **Approval gate** untuk `run_command` tidak berubah: 5 tool sensitif tetap butuh
   tap Izinkan/Tolak (lihat `Actions.kt`/`ChatController`).
 - **Allowlist** opsional (`Settings → Allowlist command`) membatasi prefix perintah.
-- **Timeout** 15s (native) / 60s (proot), **output cap** 200 KB, proses dibunuh saat timeout.
+- **Timeout** 60s default, **output cap** 200 KB, proses dibunuh saat timeout.
 - Distro berjalan di dalam sandbox UID aplikasi — tanpa root, tanpa akses ke data app lain.
 - Rootfs hanya berisi apa yang kamu install sendiri; `/root/workspace` adalah bind ke folder
   workspace sesi, jadi file AI dan file shell memang satu tempat.
@@ -92,8 +94,18 @@ Konsekuensi yang disengaja:
 
 | Gejala | Kemungkinan penyebab | Tindakan |
 |---|---|---|
-| "Binary proot belum ada di APK ini" | Task `downloadProotBinaries` gagal saat build (offline) | Build ulang dengan jaringan; cek log `[proot]`; atau tetap pakai backend native |
-| "Distro proot belum siap" padahal rootfs terpasang | `libproot.so` / loader tidak ada di APK | Cek `ls android/app/build/generated/prootJniLibs/<abi>/` setelah build |
+| "Binary proot belum ada di APK ini" | Task `downloadProotBinaries` gagal saat build (offline) | Build ulang dengan jaringan; cek log `[proot]` |
+| "Distro Alpine belum siap" padahal rootfs terpasang | `libproot.so` / loader tidak ada di APK | Cek `ls android/app/build/generated/prootJniLibs/<abi>/` setelah build |
 | `proot: Cannot open loader` / crash seketika | loader tidak bisa di-exec atau symlink libtalloc gagal | Buat ulang lewat tombol Tes distro, aktifkan `PROOT_NO_SECCOMP`, pastikan `extractNativeLibs="true"` |
 | Perintah Alpine bilang `not found` | paket belum di-install di distro | Minta AI: `apk add --no-cache <paket>` |
 | File AI tidak terlihat di distro | `bindWorkspace` dimatikan | Aktifkan "Bind folder sesi ke /root/workspace" |
+
+## 8. Riwayat perbaikan
+
+- **Rootfs terpasang tapi tidak terbaca** (sebelumnya): `isInstalled()` mengecek `bin/sh`.
+  Di Alpine itu symlink absolut `/bin/sh -> /bin/busybox`; `File.exists()` mengikutinya ke
+  path host Android yang tidak ada, sehingga hasilnya selalu "belum terpasang". Sekarang
+  penandanya `etc/alpine-release` (atau `bin/busybox`) sebagai file biasa, dan pemasangan
+  gagal dengan pesan jelas kalau arsip ternyata bukan rootfs Alpine.
+- **Backend native dihapus**: `run_command` tidak lagi diam-diam jatuh ke shell Android.
+  Kalau distro belum siap, command langsung gagal dengan pesan langkah perbaikan.
