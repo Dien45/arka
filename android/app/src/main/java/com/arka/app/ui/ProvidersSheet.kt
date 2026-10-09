@@ -94,6 +94,8 @@ fun ProvidersSheet(
     var query by remember { mutableStateOf("") }
     var detecting by remember { mutableStateOf<Set<Provider>>(emptySet()) }
     var detectError by remember { mutableStateOf<Pair<Provider, String>?>(null) }
+    /** Provider yang sedang memakai kotak ketik manual (bukan daftar hasil scan). */
+    var manualEntry by remember { mutableStateOf<Set<Provider>>(emptySet()) }
 
     fun scan(provider: ProviderConfig, force: Boolean = false) {
         if (provider.id in detecting) return
@@ -214,13 +216,31 @@ fun ProvidersSheet(
                             modifier = Modifier.fillMaxWidth(),
                         )
                         Spacer(Modifier.height(8.dp))
-                        OutlinedTextField(
-                            value = draftModel,
-                            onValueChange = { modelInputs = modelInputs + (provider.id to it) },
-                            label = { Text("Model aktif") },
-                            singleLine = true,
-                            modifier = Modifier.fillMaxWidth(),
-                        )
+                        val useTypedInput = provider.models.isEmpty() || provider.id in manualEntry
+                        if (useTypedInput) {
+                            OutlinedTextField(
+                                value = draftModel,
+                                onValueChange = { modelInputs = modelInputs + (provider.id to it) },
+                                label = { Text("Model aktif (ketik manual)") },
+                                singleLine = true,
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                            if (provider.models.isNotEmpty()) {
+                                TextButton(onClick = { manualEntry = manualEntry - provider.id }) {
+                                    Text("Pilih dari daftar")
+                                }
+                            }
+                        } else {
+                            // Model dipilih dari daftar hasil scan — tidak perlu mengetik nama model.
+                            Text(
+                                "Model aktif: ${draftModel.ifBlank { "belum dipilih" }}",
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.SemiBold,
+                            )
+                            TextButton(onClick = { manualEntry = manualEntry + provider.id }) {
+                                Text("Ketik manual")
+                            }
+                        }
 
                         Spacer(Modifier.height(8.dp))
                         Row(verticalAlignment = Alignment.CenterVertically) {
