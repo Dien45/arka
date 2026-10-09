@@ -38,8 +38,6 @@ data class Prefs(
     val selectedModel: String = "gpt-4o",
     val selectedProvider: String? = null,
     val chatMode: ChatMode = ChatMode.build,
-    /** "native" (shell Android) atau "proot" (distro Alpine). */
-    val execBackend: String = "native",
     /** Allowlist command dipisah koma; kosong = semua diizinkan (tetap lewat approval). */
     val execAllowlist: String = "",
     val distroRootfsUrl: String = DistroManager.DEFAULT_ROOTFS_URL,
@@ -47,9 +45,8 @@ data class Prefs(
     val bindWorkspace: Boolean = true,
 ) {
     fun toExecSettings(): ExecSettings = ExecSettings(
-        backend = ExecBackend.from(execBackend),
         allowlist = execAllowlist.split(',').map { it.trim() }.filter { it.isNotEmpty() },
-        timeoutMs = ExecRunner.DEFAULT_TIMEOUT_MS,
+        timeoutMs = ExecRunner.PROOT_DEFAULT_TIMEOUT_MS,
         distroRootfsUrl = distroRootfsUrl.ifBlank { DistroManager.DEFAULT_ROOTFS_URL },
         prootNoSeccomp = prootNoSeccomp,
         bindWorkspace = bindWorkspace,
@@ -118,7 +115,6 @@ class Persistence(private val context: Context) {
         selectedModel = runBlockingGet("selected_model") ?: "gpt-4o",
         selectedProvider = runBlockingGet("selected_provider"),
         chatMode = runCatching { ChatMode.valueOf(runBlockingGet("chat_mode") ?: "build") }.getOrDefault(ChatMode.build),
-        execBackend = runBlockingGet("exec_backend") ?: "native",
         execAllowlist = runBlockingGet("exec_allowlist") ?: "",
         distroRootfsUrl = runBlockingGet("distro_rootfs_url") ?: DistroManager.DEFAULT_ROOTFS_URL,
         prootNoSeccomp = (runBlockingGet("proot_no_seccomp") ?: "true").toBoolean(),
@@ -137,7 +133,6 @@ class Persistence(private val context: Context) {
             it[stringPreferencesKey("selected_model")] = prefs.selectedModel
             prefs.selectedProvider?.let { p -> it[stringPreferencesKey("selected_provider")] = p }
             it[stringPreferencesKey("chat_mode")] = prefs.chatMode.name
-            it[stringPreferencesKey("exec_backend")] = prefs.execBackend
             it[stringPreferencesKey("exec_allowlist")] = prefs.execAllowlist
             it[stringPreferencesKey("distro_rootfs_url")] = prefs.distroRootfsUrl
             it[stringPreferencesKey("proot_no_seccomp")] = prefs.prootNoSeccomp.toString()

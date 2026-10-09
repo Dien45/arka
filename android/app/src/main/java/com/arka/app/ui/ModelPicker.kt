@@ -12,8 +12,10 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
@@ -49,6 +51,7 @@ import com.arka.app.core.I18n
 import com.arka.app.core.Key
 import com.arka.app.core.ModelInfo
 import com.arka.app.core.ModelScanner
+import com.arka.app.core.normalizeBaseUrl
 import com.arka.app.core.Provider
 import com.arka.app.core.ProviderConfig
 import com.arka.app.core.canScan
@@ -84,7 +87,9 @@ fun ModelPickerSheet(
     var query by remember { mutableStateOf("") }
     var detecting by remember { mutableStateOf<Set<Provider>>(emptySet()) }
     var error by remember { mutableStateOf<String?>(null) }
-    var manualProvider by remember { mutableStateOf<Provider?>(prefs.selectedProvider?.let { runCatching { Provider.valueOf(it) }.getOrNull() }) }
+    var manualProvider by remember {
+        mutableStateOf<Provider?>(prefs.selectedProvider?.let { runCatching { Provider.valueOf(it) }.getOrNull() })
+    }
     var manualModel by remember { mutableStateOf("") }
 
     val relevant = state.providers.filter { it.enabled || it.canScan() || it.models.isNotEmpty() }
@@ -95,10 +100,11 @@ fun ModelPickerSheet(
         if (!force && !provider.modelsAreStale()) return
         detecting = detecting + provider.id
         scope.launch {
-            ModelScanner.scan(provider.id, provider.apiKey, provider.baseUrl)
+            val url = normalizeBaseUrl(provider.baseUrl)
+            ModelScanner.scan(provider.id, provider.apiKey, url)
                 .onSuccess { outcome ->
-                    val corrected = outcome.resolvedBaseUrl?.takeIf { it != provider.baseUrl }
-                    store.saveScanResult(provider.id, outcome.models, baseUrl = corrected ?: provider.baseUrl)
+                    val corrected = outcome.resolvedBaseUrl?.takeIf { it != url }
+                    store.saveScanResult(provider.id, outcome.models, baseUrl = corrected ?: url)
                     when {
                         outcome.models.isEmpty() ->
                             error = "Scan ${provider.name} berhasil tapi tidak ada model yang dikenali."
@@ -234,13 +240,16 @@ fun ModelPickerSheet(
             // Jalan manual (mis. model baru yang belum muncul di endpoint /models).
             Text("Pakai model manual", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
             if (relevant.isNotEmpty()) {
+                // Semua provider yang relevan (sebelumnya hanya 3 pertama — provider
+                // custom/Omniroute sering ada di urutan ke-4+ dan tidak bisa dipilih).
                 Row(
                     Modifier
                         .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState())
                         .padding(top = 4.dp),
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
-                    relevant.take(3).forEach { p ->
+                    relevant.forEach { p ->
                         FilterChip(
                             selected = (manualProvider ?: relevant.first().id) == p.id,
                             onClick = { manualProvider = p.id },
@@ -260,7 +269,10 @@ fun ModelPickerSheet(
                 Spacer(Modifier.width(8.dp))
                 Button(
                     onClick = {
-                        val id = manualProvider ?: relevant.firstOrNull()?.id ?: prefs.selectedProvider?.let { runCatching { Provider.valueOf(it) }.getOrNull() }
+                        // Provider yang tampak terpilih di chip = yang dipakai (bukan tebakan).
+                        val id = manualProvider
+                            ?: relevant.firstOrNull()?.id
+                            ?: prefs.selectedProvider?.let { runCatching { Provider.valueOf(it) }.getOrNull() }
                         if (id != null && manualModel.isNotBlank()) {
                             store.selectModel(id, manualModel.trim())
                             onDismiss()

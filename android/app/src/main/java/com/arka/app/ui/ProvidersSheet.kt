@@ -52,6 +52,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.arka.app.core.ModelInfo
 import com.arka.app.core.ModelScanner
+import com.arka.app.core.normalizeBaseUrl
 import com.arka.app.core.Provider
 import com.arka.app.core.ProviderConfig
 import com.arka.app.core.Store
@@ -93,11 +94,13 @@ fun ProvidersSheet(
     var query by remember { mutableStateOf("") }
     var detecting by remember { mutableStateOf<Set<Provider>>(emptySet()) }
     var detectError by remember { mutableStateOf<Pair<Provider, String>?>(null) }
+    /** Provider yang sedang memakai kotak ketik manual (bukan daftar hasil scan). */
+    var manualEntry by remember { mutableStateOf<Set<Provider>>(emptySet()) }
 
     fun scan(provider: ProviderConfig, force: Boolean = false) {
         if (provider.id in detecting) return
         val key = apiKeys[provider.id] ?: provider.apiKey
-        val url = baseUrls[provider.id] ?: provider.baseUrl
+        val url = normalizeBaseUrl(baseUrls[provider.id] ?: provider.baseUrl)
         val draft = provider.copy(apiKey = key, baseUrl = url)
         if (!draft.canScan()) {
             detectError = provider.id to "Isi ${if (provider.id == Provider.ollama || provider.id == Provider.custom) "Base URL" else "API Key"} dulu."
@@ -213,13 +216,31 @@ fun ProvidersSheet(
                             modifier = Modifier.fillMaxWidth(),
                         )
                         Spacer(Modifier.height(8.dp))
-                        OutlinedTextField(
-                            value = draftModel,
-                            onValueChange = { modelInputs = modelInputs + (provider.id to it) },
-                            label = { Text("Model aktif") },
-                            singleLine = true,
-                            modifier = Modifier.fillMaxWidth(),
-                        )
+                        val useTypedInput = provider.models.isEmpty() || provider.id in manualEntry
+                        if (useTypedInput) {
+                            OutlinedTextField(
+                                value = draftModel,
+                                onValueChange = { modelInputs = modelInputs + (provider.id to it) },
+                                label = { Text("Model aktif (ketik manual)") },
+                                singleLine = true,
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                            if (provider.models.isNotEmpty()) {
+                                TextButton(onClick = { manualEntry = manualEntry - provider.id }) {
+                                    Text("Pilih dari daftar")
+                                }
+                            }
+                        } else {
+                            // Model dipilih dari daftar hasil scan — tidak perlu mengetik nama model.
+                            Text(
+                                "Model aktif: ${draftModel.ifBlank { "belum dipilih" }}",
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.SemiBold,
+                            )
+                            TextButton(onClick = { manualEntry = manualEntry + provider.id }) {
+                                Text("Ketik manual")
+                            }
+                        }
 
                         Spacer(Modifier.height(8.dp))
                         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -239,8 +260,10 @@ fun ProvidersSheet(
                             TextButton(
                                 onClick = {
                                     // Simpan tanpa menunggu scan (draft ditulis ke state terkini).
+                                    val cleanUrl = normalizeBaseUrl(draftUrl)
+                                    baseUrls = baseUrls + (provider.id to cleanUrl)
                                     store.updateProvider(provider.id) { p ->
-                                        p.copy(apiKey = draftKey, baseUrl = draftUrl, model = draftModel)
+                                        p.copy(apiKey = draftKey, baseUrl = cleanUrl, model = draftModel)
                                     }
                                     store.selectModel(provider.id, draftModel, enableIfReady = false)
                                     detectError = null

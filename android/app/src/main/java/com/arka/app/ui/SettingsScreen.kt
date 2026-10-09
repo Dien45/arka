@@ -107,7 +107,7 @@ fun SettingsScreen(
         skills?.let { sm ->
             val installed = sm.installedIds().size
             Text(
-                "Skill aktif: $installed · Mode run_command: ${if (prefs.execBackend == "proot") "Alpine (proot)" else "shell Android"}",
+                "Skill aktif: $installed · run_command: Alpine (proot)",
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(start = 4.dp, bottom = 4.dp),

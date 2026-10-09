@@ -71,7 +71,7 @@ PRD lengkap: [`android/PRD.md`](android/PRD.md) · Panduan distro proot: [`andro
 
 - **Chat agent** — tool loop (8 tool), approval untuk 5 tool sensitif, Stop,
   auto-continue mode Agent, markdown, sesi (buat/ganti/rename/hapus) + workspace per sesi.
-- **Model picker dengan pencarian** — scan model per provider (OpenAI, Anthropic, Google,
+- **Model picker dengan pencarian** (Base URL dirapikan otomatis: `100.x.y.z:20128` → `http://…`) — scan model per provider (OpenAI, Anthropic, Google,
   Groq, OpenRouter, Ollama, Custom), hasil scan tersimpan, pilih dari daftar (tidak perlu
   ketik manual lagi).
 - **File Explorer** — pohon folder, tab file, editor, preview Markdown/SVG/HTML/CSV,
@@ -83,8 +83,9 @@ PRD lengkap: [`android/PRD.md`](android/PRD.md) · Panduan distro proot: [`andro
   disalin ke workspace sesi (`skills/<id>/`), lalu dibaca AI lewat tool `skill` dan bisa
   dijalankan lewat `run_command` — bukan cuma tempelan teks di prompt.
 - **PRD Generator** — dokumen 11 bagian, revisi, salin/bagikan, simpan ke workspace.
-- **run_command dua backend** — shell Android (`/system/bin/sh`) atau **distro Alpine asli
-  via proot tanpa root** (`apk`, `git`, `python3`, `node`, …), cwd = folder workspace sesi.
+- **run_command di distro Alpine (proot, tanpa root)** — satu-satunya backend: `apk`, `git`,
+  `python3`, `node`, … berjalan di distro Alpine asli, cwd = folder workspace sesi
+  (ter-mount di `/root/workspace`). Backend shell Android sudah dihapus.
 - **Keamanan** — API key & PAT di EncryptedSharedPreferences, SSRF guard di `web_fetch`,
   allowlist + timeout + cap output di `run_command`, bukan teks plaintext.
 

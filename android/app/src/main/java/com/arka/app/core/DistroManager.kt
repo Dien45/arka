@@ -107,7 +107,16 @@ class DistroManager(private val context: Context) {
     fun shmemBinary(): File? = libDir.listFiles()
         ?.firstOrNull { it.name == "libandroid-shmem.so" }
 
-    fun isInstalled(): Boolean = File(rootfsDir, "bin/sh").exists()
+    /**
+     * Rootfs dianggap terpasang kalau berkas penanda Alpine ada sebagai FILE biasa.
+     *
+     * Jangan pakai `bin/sh`: di Alpine itu symlink absolut `/bin/sh -> /bin/busybox`.
+     * `File.exists()` mengikuti symlink ke path HOST Android (`/bin/busybox` tidak
+     * ada di perangkat), sehingga rootfs yang sudah terpasang dianggap belum ada.
+     * Ini penyebab bug "sudah di-install tapi tidak terbaca".
+     */
+    fun isInstalled(): Boolean =
+        File(rootfsDir, "etc/alpine-release").isFile || File(rootfsDir, "bin/busybox").isFile
 
     fun status(): DistroStatus {
         val proot = prootBinary()
@@ -117,7 +126,7 @@ class DistroManager(private val context: Context) {
         val message = when {
             proot == null || loader == null ->
                 "Binary proot belum ada di APK ini (task Gradle downloadProotBinaries gagal/di-skip). " +
-                    "Backend native tetap bisa dipakai."
+                    "Build ulang dengan jaringan agar run_command bisa jalan."
             !installed -> "Rootfs Alpine belum dipasang. Unduh ±3,6 MB untuk mengaktifkan distro."
             else -> "Alpine siap (${size / (1024 * 1024)} MB) di ${rootfsDir.absolutePath}"
         }
@@ -168,6 +177,7 @@ class DistroManager(private val context: Context) {
                     rootfsDir.mkdirs()
                     extractTarGz(tmpArchive) { percent -> onProgress(52 + percent / 2, "Mengekstrak rootfs… $percent%") }
                     tmpArchive.delete()
+                    check(isInstalled()) { "Ekstraksi selesai tapi etc/alpine-release tidak ada — arsip bukan rootfs Alpine." }
                     onProgress(97, "Menyiapkan /root/workspace & resolv.conf…")
                     postInstall()
                     onProgress(100, "Alpine terpasang.")
@@ -194,6 +204,7 @@ class DistroManager(private val context: Context) {
                 rootfsDir.deleteRecursively()
                 rootfsDir.mkdirs()
                 extractTarGz(input) { percent -> onProgress(5 + percent * 9 / 10, "Mengekstrak rootfs… $percent%") }
+                check(isInstalled()) { "Arsip bukan rootfs Alpine (etc/alpine-release tidak ditemukan)." }
                 postInstall()
                 onProgress(100, "Alpine terpasang dari file lokal.")
             }

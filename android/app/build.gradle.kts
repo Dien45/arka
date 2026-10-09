@@ -83,7 +83,7 @@ dependencies {
 // build/generated/prootJniLibs/<abi>/ sebagai lib*.so.
 //
 // Kalau unduhan gagal (mis. offline), build TETAP jalan: APK dibuat tanpa
-// dukungan proot dan aplikasi otomatis memakai backend shell Android.
+// dukungan proot, dan run_command tidak akan berjalan sampai binary proot tersedia.
 // Lewati total dengan: ./gradlew assembleDebug -Pproot.skip=true
 // ---------------------------------------------------------------------------
 
@@ -105,7 +105,7 @@ val downloadProotBinaries = tasks.register("downloadProotBinaries") {
         if (ready == 0) {
             logger.warn(
                 "[proot] Tidak ada binary proot yang berhasil disiapkan (offline / mirror tidak terjangkau). " +
-                    "APK tetap dibangun; run_command otomatis memakai backend shell Android.",
+                    "APK tetap dibangun, tapi run_command butuh binary proot (build ulang dengan jaringan).",
             )
         } else {
             logger.lifecycle("[proot] Siap untuk $ready ABI di ${outputDir.absolutePath}")

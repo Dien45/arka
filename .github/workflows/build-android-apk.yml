@@ -34,7 +34,7 @@ jobs:
 
       # Task downloadProotBinaries mengambil binary proot dari paket Termux ke
       # jniLibs. Kalau mirror tidak terjangkau, build tetap sukses tanpa dukungan
-      # distro (aplikasi jatuh ke shell Android) — detailnya ada di log.
+      # distro (run_command tidak akan jalan) — detailnya ada di log.
       - name: Ringkas isi jniLibs (proot)
         if: always()
         run: ls -la android/app/build/generated/prootJniLibs/*/ 2>/dev/null || echo "jniLibs proot kosong (di-skip/offline)"

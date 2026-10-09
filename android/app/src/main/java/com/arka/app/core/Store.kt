@@ -167,8 +167,12 @@ class Store(
     fun selectModel(providerId: Provider, model: String, enableIfReady: Boolean = true) {
         updatePrefs { it.copy(selectedProvider = providerId.name, selectedModel = model) }
         if (!enableIfReady) return
+        // Model yang dipilih user SELALU ikut tersimpan di provider-nya (sebelumnya
+        // hanya saat provider masih nonaktif, sehingga provider yang sudah aktif
+        // bisa menyimpan model lama), dan provider ikut diaktifkan.
         updateProvider(providerId) { p ->
-            if (p.enabled || !p.canScan()) p else p.copy(enabled = true, model = model.ifBlank { p.model })
+            if (!p.canScan()) p.copy(model = model.ifBlank { p.model })
+            else p.copy(enabled = true, model = model.ifBlank { p.model })
         }
     }
 }
