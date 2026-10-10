@@ -12,7 +12,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Chat
-import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Extension
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Menu
@@ -26,7 +25,6 @@ import androidx.compose.material3.ModalDrawerSheet
 import androidx.compose.material3.ModalNavigationDrawer
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
-import androidx.compose.material3.NavigationDrawerItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberDrawerState
@@ -59,9 +57,9 @@ import kotlinx.coroutines.launch
 /**
  * Composition root (M10).
  *
- * Navigasi: drawer (semua tujuan, termasuk PRD) + bottom bar untuk 5 tujuan
- * utama. ChatController & Store dibuat di sini supaya pekerjaan AI yang sedang
- * berjalan tidak terbuang saat pindah layar.
+ * Navigasi: drawer = menu sesi (pindah / rename / hapus / baru) + bottom bar
+ * untuk 5 tujuan utama. ChatController & Store dibuat di sini supaya pekerjaan
+ * AI yang sedang berjalan tidak terbuang saat pindah layar.
  */
 @Composable
 fun ArkaRoot() {
@@ -106,15 +104,6 @@ fun ArkaRoot() {
         Triple(AppView.skills, "Skills", Icons.Default.Extension),
         Triple(AppView.settings, "Setelan", Icons.Default.Settings),
     )
-    val drawerViews = listOf(
-        Triple(AppView.chat, "Chat", Icons.AutoMirrored.Filled.Chat),
-        Triple(AppView.files, "Workspace / Files", Icons.Default.Folder),
-        Triple(AppView.prd, "PRD Generator", Icons.Default.Description),
-        Triple(AppView.skills, "Skill Store", Icons.Default.Extension),
-        Triple(AppView.github, "GitHub", Icons.Default.Terminal),
-        Triple(AppView.settings, "Pengaturan", Icons.Default.Settings),
-    )
-
     CompositionLocalProvider(LocalDensity provides scaledDensity) {
         ArkaTheme(darkTheme = darkTheme) {
             ModalNavigationDrawer(
@@ -137,18 +126,15 @@ fun ArkaRoot() {
                         }
                         HorizontalDivider()
                         Spacer(Modifier.height(8.dp))
-                        drawerViews.forEach { (view, label, icon) ->
-                            NavigationDrawerItem(
-                                label = { Text(label) },
-                                icon = { Icon(icon, contentDescription = null) },
-                                selected = state.currentView == view,
-                                onClick = {
-                                    store.dispatch(Action.SetView(view))
-                                    uiScope.launch { drawerState.close() }
-                                },
-                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 2.dp),
-                            )
-                        }
+                        SessionMenu(
+                            store = store,
+                            language = prefs.language,
+                            defaultModel = prefs.selectedModel,
+                            onSessionSelected = {
+                                store.dispatch(Action.SetView(AppView.chat))
+                                uiScope.launch { drawerState.close() }
+                            },
+                        )
                         Spacer(Modifier.height(8.dp))
                         HorizontalDivider()
                         Text(

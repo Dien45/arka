@@ -74,9 +74,14 @@ class ChatController(
     fun isRunning(sessionId: String): Boolean = jobs.containsKey(sessionId)
 
     /** Kick off an assistant turn for [sessionId]; no-ops if that session is already running. */
-    fun sendMessage(text: String, sessionId: String) {
+    fun sendMessage(
+        text: String,
+        sessionId: String,
+        attachments: List<Attachment> = emptyList(),
+        attachmentContent: String? = null,
+    ) {
         if (jobs.containsKey(sessionId)) return
-        val job = scope.launch { run(text, sessionId, 0) }
+        val job = scope.launch { run(text, sessionId, 0, attachments, attachmentContent) }
         jobs[sessionId] = job
     }
 
@@ -95,7 +100,13 @@ class ChatController(
 
     // ------------------------------------------------------------------ run
 
-    private suspend fun run(text: String, sessionId: String, depth: Int) {
+    private suspend fun run(
+        text: String,
+        sessionId: String,
+        depth: Int,
+        attachments: List<Attachment> = emptyList(),
+        attachmentContent: String? = null,
+    ) {
         store.dispatch(
             Action.AddMessage(
                 sessionId,
@@ -104,6 +115,8 @@ class ChatController(
                     role = MessageRole.user,
                     content = text,
                     timestamp = System.currentTimeMillis(),
+                    attachments = attachments.takeIf { it.isNotEmpty() },
+                    attachmentContent = attachmentContent,
                 ),
             ),
         )
@@ -118,7 +131,15 @@ class ChatController(
             val session = store.state.value.sessions.find { it.id == sessionId }
             var history = session?.messages
                 ?.filter { it.role == MessageRole.user || it.role == MessageRole.assistant }
-                ?.map { ChatMessage(role = it.role.name, content = it.content) }
+                ?.map { m ->
+                    val filePart = m.attachmentContent
+                    val content = if (filePart.isNullOrBlank()) {
+                        m.content
+                    } else {
+                        m.content + "\n\n[Lampiran file]\n" + filePart
+                    }
+                    ChatMessage(role = m.role.name, content = content)
+                }
                 ?: emptyList()
 
             var responseContent = ""
