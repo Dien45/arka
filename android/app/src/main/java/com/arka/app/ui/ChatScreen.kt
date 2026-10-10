@@ -1,10 +1,17 @@
 package com.arka.app.ui
 
+import android.content.Context
+import android.net.Uri
+import android.provider.OpenableColumns
+import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -14,7 +21,6 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
@@ -24,26 +30,27 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.ArrowDropDown
+import androidx.compose.material.icons.filled.AttachFile
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Send
-import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Stop
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
@@ -56,18 +63,22 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.arka.app.core.Action
 import com.arka.app.core.AppView
 import com.arka.app.core.ArkaLanguage
+import com.arka.app.core.Attachment
 import com.arka.app.core.ChatController
 import com.arka.app.core.ChatMode
 import com.arka.app.core.I18n
@@ -79,14 +90,20 @@ import com.arka.app.core.ProviderConfig
 import com.arka.app.core.Session
 import com.arka.app.core.Store
 import com.arka.app.core.ToolCallStatus
+import java.io.ByteArrayOutputStream
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonObject
 
 /**
  * M3/M4. Chat screen: message list with markdown rendering, input bar with
- * Send/Stop, Plan/Build/Agent mode switcher, model picker, session list
- * (switch / rename / delete / new), and the sensitive-tool approval bottom
- * sheet (per-session).
+ * file attachment picker (max 15 MB), Plan/Build/Agent mode dropdown,
+ * Send/Stop, model picker, and the sensitive-tool approval bottom sheet
+ * (per-session). Session list (switch / rename / delete / new) lives in the
+ * sidebar drawer.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -101,8 +118,33 @@ fun ChatScreen(
     val pending by controller.pendingApprovals.collectAsState()
 
     var input by rememberSaveable { mutableStateOf("") }
-    var showSessions by remember { mutableStateOf(false) }
     var showModelPicker by remember { mutableStateOf(false) }
+    var attachments by remember { mutableStateOf(listOf<Attachment>()) }
+    var attachmentText by remember { mutableStateOf("") }
+
+    val context = LocalContext.current
+    val pickerScope = rememberCoroutineScope()
+    val pickLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) {
+            pickerScope.launch {
+                val loaded = try {
+                    withContext(Dispatchers.IO) { loadAttachment(context, uri) }
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    Toast.makeText(context, e.message ?: "Gagal membaca file", Toast.LENGTH_SHORT).show()
+                    null
+                }
+                if (loaded != null) {
+                    attachments = attachments + loaded.first
+                    loaded.second?.let { part ->
+                        val entry = "[FILE: ${loaded.first.name}]\n$part"
+                        attachmentText = if (attachmentText.isEmpty()) entry else attachmentText + "\n\n" + entry
+                    }
+                }
+            }
+        }
+    }
 
     val listState = rememberLazyListState()
     val currentSession = state.sessions.find { it.id == state.currentSessionId }
@@ -116,24 +158,31 @@ fun ChatScreen(
 
     val send: (String) -> Unit = { text ->
         val trimmed = text.trim()
-        if (trimmed.isNotEmpty() && !isLoading) {
+        val atts = attachments
+        val attText = attachmentText.ifBlank { null }
+        if ((trimmed.isNotEmpty() || atts.isNotEmpty()) && !isLoading) {
             input = ""
+            attachments = emptyList()
+            attachmentText = ""
             val sid = currentSession?.id
             if (sid != null) {
-                controller.sendMessage(trimmed, sid)
+                controller.sendMessage(trimmed, sid, atts, attText)
             } else {
                 val newId = "sess_${System.currentTimeMillis()}"
                 store.dispatch(
                     Action.AddSession(
                         Session(
                             id = newId,
-                            title = trimmed.replace('\n', ' ').take(28),
+                            title = trimmed
+                                .ifBlank { atts.firstOrNull()?.name ?: "Sesi Baru" }
+                                .replace('\n', ' ')
+                                .take(28),
                             createdAt = System.currentTimeMillis(),
                             model = prefs.selectedModel,
                         ),
                     ),
                 )
-                controller.sendMessage(trimmed, newId)
+                controller.sendMessage(trimmed, newId, atts, attText)
             }
         }
     }
@@ -141,23 +190,15 @@ fun ChatScreen(
     Scaffold(
         modifier = modifier,
         topBar = {
-            Column {
-                ChatTopBar(
-                    title = currentSession?.title ?: "Arka",
-                    selectedModel = prefs.selectedModel,
-                    isLoading = isLoading,
-                    providers = state.providers,
-                    onOpenModelPicker = { showModelPicker = true },
-                    onOpenSessions = { showSessions = true },
-                    onOpenSettings = { store.dispatch(Action.SetView(AppView.settings)) },
-                    onOpenDrawer = onOpenDrawer,
-                    onStop = { currentSession?.id?.let(controller::stop) },
-                )
-                ModeSwitcher(
-                    selected = prefs.chatMode,
-                    onSelect = { mode -> store.updatePrefs { it.copy(chatMode = mode) } },
-                )
-            }
+            ChatTopBar(
+                title = currentSession?.title ?: "Arka",
+                selectedModel = prefs.selectedModel,
+                isLoading = isLoading,
+                providers = state.providers,
+                onOpenModelPicker = { showModelPicker = true },
+                onOpenDrawer = onOpenDrawer,
+                onStop = { currentSession?.id?.let(controller::stop) },
+            )
         },
         bottomBar = {
             InputBar(
@@ -166,6 +207,11 @@ fun ChatScreen(
                 isLoading = isLoading,
                 onSend = { send(it) },
                 onStop = { currentSession?.id?.let(controller::stop) },
+                mode = prefs.chatMode,
+                onModeChange = { mode -> store.updatePrefs { it.copy(chatMode = mode) } },
+                attachments = attachments,
+                onAttachClick = { pickLauncher.launch(arrayOf("*/*")) },
+                onRemoveAttachment = { att -> attachments = attachments - att },
             )
         },
     ) { padding ->
@@ -206,15 +252,6 @@ fun ChatScreen(
         }
     }
 
-    if (showSessions) {
-        SessionsSheet(
-            store = store,
-            language = prefs.language,
-            defaultModel = prefs.selectedModel,
-            onDismiss = { showSessions = false },
-        )
-    }
-
     if (showModelPicker) {
         ModelPickerSheet(
             store = store,
@@ -238,8 +275,6 @@ private fun ChatTopBar(
     isLoading: Boolean,
     providers: List<ProviderConfig>,
     onOpenModelPicker: () -> Unit,
-    onOpenSessions: () -> Unit,
-    onOpenSettings: () -> Unit,
     onOpenDrawer: () -> Unit = {},
     onStop: () -> Unit,
 ) {
@@ -288,39 +323,8 @@ private fun ChatTopBar(
             if (isLoading) {
                 IconButton(onClick = onStop) { Icon(Icons.Default.Stop, contentDescription = "Stop") }
             }
-            IconButton(onClick = onOpenSessions) { Icon(Icons.Default.Menu, contentDescription = "Sessions") }
-            IconButton(onClick = onOpenSettings) { Icon(Icons.Default.Settings, contentDescription = "Settings") }
         },
     )
-}
-
-@Composable
-private fun ModeSwitcher(
-    selected: ChatMode,
-    onSelect: (ChatMode) -> Unit,
-) {
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 12.dp, vertical = 4.dp),
-        horizontalArrangement = Arrangement.SpaceBetween,
-    ) {
-        ChatMode.entries.forEach { mode ->
-            FilterChip(
-                selected = selected == mode,
-                onClick = { onSelect(mode) },
-                label = {
-                    Text(
-                        when (mode) {
-                            ChatMode.plan -> "Plan 🗺️"
-                            ChatMode.build -> "Build 🔨"
-                            ChatMode.agent -> "Agent 🤖"
-                        },
-                    )
-                },
-            )
-        }
-    }
 }
 
 // ------------------------------------------------------------- messages
@@ -328,7 +332,7 @@ private fun ModeSwitcher(
 @Composable
 private fun MessageRow(language: ArkaLanguage, message: Message) {
     when (message.role) {
-        MessageRole.user -> UserBubble(message.content)
+        MessageRole.user -> UserBubble(message.content, message.attachments)
         MessageRole.assistant -> AssistantBubble(message.content)
         MessageRole.tool -> ToolResultCard(message)
         MessageRole.system -> Unit
@@ -336,7 +340,7 @@ private fun MessageRow(language: ArkaLanguage, message: Message) {
 }
 
 @Composable
-private fun UserBubble(content: String) {
+private fun UserBubble(content: String, attachments: List<Attachment>? = null) {
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
         Surface(
             color = MaterialTheme.colorScheme.primaryContainer,
@@ -345,11 +349,21 @@ private fun UserBubble(content: String) {
                 .widthIn(max = 300.dp)
                 .clip(RoundedCornerShape(16.dp, 16.dp, 4.dp, 16.dp)),
         ) {
-            Text(
-                content,
-                modifier = Modifier.padding(12.dp, 8.dp),
-                style = MaterialTheme.typography.bodyMedium,
-            )
+            Column(Modifier.padding(12.dp, 8.dp)) {
+                attachments?.forEach { att ->
+                    Text(
+                        "📎 ${att.name} (${formatBytes(att.size)})",
+                        style = MaterialTheme.typography.labelSmall,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+                if (!attachments.isNullOrEmpty()) Spacer(Modifier.height(4.dp))
+                Text(
+                    content,
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+            }
         }
     }
 }
@@ -484,6 +498,12 @@ private fun Greeting(language: ArkaLanguage, onQuickPrompt: (String) -> Unit) {
 
 // ------------------------------------------------------------- input bar
 
+private fun modeLabel(mode: ChatMode): String = when (mode) {
+    ChatMode.plan -> "Plan 🗺️"
+    ChatMode.build -> "Build 🔨"
+    ChatMode.agent -> "Agent 🤖"
+}
+
 @Composable
 private fun InputBar(
     input: String,
@@ -491,187 +511,116 @@ private fun InputBar(
     isLoading: Boolean,
     onSend: (String) -> Unit,
     onStop: () -> Unit,
+    mode: ChatMode,
+    onModeChange: (ChatMode) -> Unit,
+    attachments: List<Attachment>,
+    onAttachClick: () -> Unit,
+    onRemoveAttachment: (Attachment) -> Unit,
 ) {
-    Row(
+    var modeMenuExpanded by remember { mutableStateOf(false) }
+
+    Column(
         Modifier
             .fillMaxWidth()
             .background(MaterialTheme.colorScheme.surface)
             .padding(horizontal = 12.dp, vertical = 8.dp)
             .imePadding()
             .navigationBarsPadding(),
-        verticalAlignment = Alignment.CenterVertically,
     ) {
-        OutlinedTextField(
-            value = input,
-            onValueChange = onInputChange,
-            placeholder = { Text("Tanyakan sesuatu tentang kode...") },
-            shape = RoundedCornerShape(24.dp),
-            maxLines = 4,
-            modifier = Modifier.weight(1f),
-        )
-        Spacer(Modifier.width(8.dp))
-        if (isLoading) {
-            IconButton(onClick = onStop) {
-                Icon(Icons.Default.Stop, contentDescription = "Stop", tint = MaterialTheme.colorScheme.error)
-            }
-        } else {
-            IconButton(
-                onClick = { onSend(input) },
-                enabled = input.isNotBlank(),
-            ) {
-                Icon(Icons.Default.Send, contentDescription = "Send", tint = MaterialTheme.colorScheme.primary)
-            }
-        }
-    }
-}
-
-// ------------------------------------------------------------- sessions
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun SessionsSheet(
-    store: Store,
-    language: ArkaLanguage,
-    defaultModel: String,
-    onDismiss: () -> Unit,
-) {
-    val state by store.state.collectAsState()
-    val t = { k: String -> I18n.t(language, k) }
-
-    var renameTarget by remember { mutableStateOf<Session?>(null) }
-    var renameText by remember { mutableStateOf("") }
-    var deleteTarget by remember { mutableStateOf<Session?>(null) }
-
-    fun newSession() {
-        store.dispatch(
-            Action.AddSession(
-                Session(
-                    id = "sess_${System.currentTimeMillis()}",
-                    title = "Sesi Baru",
-                    createdAt = System.currentTimeMillis(),
-                    model = defaultModel,
-                ),
-            ),
-        )
-    }
-
-    ModalBottomSheet(onDismissRequest = onDismiss) {
-        Column(
-            Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 20.dp)
-                .padding(bottom = 20.dp),
-        ) {
+        if (attachments.isNotEmpty()) {
             Row(
-                Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
+                Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState())
+                    .padding(bottom = 6.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Text(t(Key.SESSIONS), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                TextButton(onClick = { newSession() }) {
-                    Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
-                    Spacer(Modifier.width(4.dp))
-                    Text(t(Key.NEW_SESSION))
-                }
-            }
-            if (state.sessions.isEmpty()) {
-                Text(
-                    t(Key.NO_SESSIONS),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(vertical = 16.dp),
-                )
-            } else {
-                LazyColumn(Modifier.fillMaxWidth().heightIn(max = 440.dp)) {
-                    items(state.sessions, key = { it.id }) { session ->
-                        val isCurrent = session.id == state.currentSessionId
+                attachments.forEach { att ->
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = MaterialTheme.colorScheme.secondaryContainer,
+                    ) {
                         Row(
-                            Modifier
-                                .fillMaxWidth()
-                                .clickable { store.dispatch(Action.SetSession(session.id)) }
-                                .padding(vertical = 10.dp),
+                            Modifier.padding(start = 10.dp, end = 2.dp, top = 2.dp, bottom = 2.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
                             Text(
-                                session.title,
-                                style = MaterialTheme.typography.bodyMedium,
-                                fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.Normal,
-                                color = if (isCurrent) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
-                                maxLines = 1,
-                                modifier = Modifier.weight(1f),
-                            )
-                            Spacer(Modifier.width(8.dp))
-                            Text(
-                                "${session.messages.count { it.role != MessageRole.system }} msg",
+                                "📎 ${att.name}",
                                 style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.widthIn(max = 160.dp),
                             )
-                            IconButton(onClick = {
-                                renameTarget = session
-                                renameText = session.title
-                            }) {
-                                Icon(Icons.Default.Edit, contentDescription = "Rename")
-                            }
-                            IconButton(onClick = { deleteTarget = session }) {
+                            IconButton(
+                                onClick = { onRemoveAttachment(att) },
+                                modifier = Modifier.size(24.dp),
+                            ) {
                                 Icon(
-                                    Icons.Default.Delete,
-                                    contentDescription = "Delete",
-                                    tint = MaterialTheme.colorScheme.error,
+                                    Icons.Default.Close,
+                                    contentDescription = "Hapus lampiran",
+                                    modifier = Modifier.size(14.dp),
                                 )
                             }
                         }
-                        HorizontalDivider()
                     }
+                    Spacer(Modifier.width(6.dp))
                 }
             }
         }
-    }
-
-    renameTarget?.let { session ->
-        AlertDialog(
-            onDismissRequest = { renameTarget = null },
-            title = { Text("Rename") },
-            text = {
-                OutlinedTextField(
-                    value = renameText,
-                    onValueChange = { renameText = it },
-                    singleLine = true,
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            IconButton(onClick = onAttachClick, enabled = !isLoading) {
+                Icon(
+                    Icons.Default.AttachFile,
+                    contentDescription = "Lampirkan file",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-            },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        val name = renameText.trim()
-                        if (name.isNotEmpty()) {
-                            store.dispatch(Action.RenameSession(session.id, name))
-                        }
-                        renameTarget = null
-                    },
-                ) { Text(t(Key.SAVE)) }
-            },
-            dismissButton = {
-                TextButton(onClick = { renameTarget = null }) { Text(t(Key.CANCEL)) }
-            },
-        )
-    }
-
-    deleteTarget?.let { session ->
-        AlertDialog(
-            onDismissRequest = { deleteTarget = null },
-            title = { Text(t(Key.DELETE)) },
-            text = { Text("Hapus sesi \"${session.title}\"? Workspace-nya ikut terhapus.") },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        store.dispatch(Action.DeleteSession(session.id))
-                        deleteTarget = null
-                    },
-                ) { Text(t(Key.DELETE), color = MaterialTheme.colorScheme.error) }
-            },
-            dismissButton = {
-                TextButton(onClick = { deleteTarget = null }) { Text(t(Key.CANCEL)) }
-            },
-        )
+            }
+            Box {
+                OutlinedButton(
+                    onClick = { modeMenuExpanded = true },
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
+                ) {
+                    Text(modeLabel(mode), style = MaterialTheme.typography.labelMedium)
+                    Icon(Icons.Default.ArrowDropDown, contentDescription = null)
+                }
+                DropdownMenu(
+                    expanded = modeMenuExpanded,
+                    onDismissRequest = { modeMenuExpanded = false },
+                ) {
+                    ChatMode.entries.forEach { m ->
+                        DropdownMenuItem(
+                            text = { Text(modeLabel(m)) },
+                            onClick = {
+                                modeMenuExpanded = false
+                                onModeChange(m)
+                            },
+                        )
+                    }
+                }
+            }
+            Spacer(Modifier.width(6.dp))
+            OutlinedTextField(
+                value = input,
+                onValueChange = onInputChange,
+                placeholder = { Text("Tanyakan sesuatu tentang kode...") },
+                shape = RoundedCornerShape(24.dp),
+                maxLines = 4,
+                modifier = Modifier.weight(1f),
+            )
+            Spacer(Modifier.width(8.dp))
+            if (isLoading) {
+                IconButton(onClick = onStop) {
+                    Icon(Icons.Default.Stop, contentDescription = "Stop", tint = MaterialTheme.colorScheme.error)
+                }
+            } else {
+                IconButton(
+                    onClick = { onSend(input) },
+                    enabled = input.isNotBlank() || attachments.isNotEmpty(),
+                ) {
+                    Icon(Icons.Default.Send, contentDescription = "Send", tint = MaterialTheme.colorScheme.primary)
+                }
+            }
+        }
     }
 }
 
@@ -722,4 +671,87 @@ private fun ApprovalSheet(
             }
         }
     }
+}
+
+// ------------------------------------------------------------- attachments
+
+private const val MAX_ATTACHMENT_BYTES = 15L * 1024 * 1024
+private const val MAX_ATTACHMENT_TEXT_CHARS = 100_000
+
+private class AttachmentTooLargeException : Exception("File terlalu besar (maksimal 15 MB)")
+
+private val TEXT_MIME_TYPES = setOf(
+    "application/json",
+    "application/xml",
+    "application/javascript",
+    "application/x-yaml",
+    "application/yaml",
+    "application/toml",
+    "application/x-sh",
+    "application/sql",
+    "application/csv",
+)
+
+private val TEXT_EXTENSIONS = setOf(
+    "txt", "md", "json", "xml", "csv", "tsv", "yml", "yaml", "toml", "ini", "cfg",
+    "conf", "log", "kt", "kts", "java", "py", "js", "ts", "tsx", "jsx", "html",
+    "css", "scss", "sh", "bash", "gradle", "properties", "sql", "pro", "gitignore",
+)
+
+private fun isTextFile(mime: String?, name: String): Boolean {
+    val ext = name.substringAfterLast('.', "").lowercase()
+    if (ext in TEXT_EXTENSIONS) return true
+    if (mime != null && mime.startsWith("text/")) return true
+    return mime != null && mime in TEXT_MIME_TYPES
+}
+
+/**
+ * Baca file dari [uri] dengan batas [MAX_ATTACHMENT_BYTES]. Melempar
+ * [AttachmentTooLargeException] kalau file lebih dari 15 MB. Konten teks
+ * (max [MAX_ATTACHMENT_TEXT_CHARS] karakter) ikut dikembalikan supaya bisa
+ * disuntikkan ke konteks model; file binari hanya metadata-nya saja.
+ */
+private fun loadAttachment(context: Context, uri: Uri): Pair<Attachment, String?> {
+    val resolver = context.contentResolver
+    var name = "file"
+    var size = -1L
+    resolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME, OpenableColumns.SIZE), null, null, null)
+        ?.use { cursor ->
+            if (cursor.moveToFirst()) {
+                val nameIdx = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                if (nameIdx >= 0) name = cursor.getString(nameIdx) ?: name
+                val sizeIdx = cursor.getColumnIndex(OpenableColumns.SIZE)
+                if (sizeIdx >= 0 && !cursor.isNull(sizeIdx)) size = cursor.getLong(sizeIdx)
+            }
+        }
+    if (size > MAX_ATTACHMENT_BYTES) throw AttachmentTooLargeException()
+
+    val mime = resolver.getType(uri)
+    val bytes = resolver.openInputStream(uri)?.use { input ->
+        val buffer = ByteArray(64 * 1024)
+        val out = ByteArrayOutputStream()
+        var total = 0L
+        while (true) {
+            val n = input.read(buffer)
+            if (n < 0) break
+            total += n
+            if (total > MAX_ATTACHMENT_BYTES) throw AttachmentTooLargeException()
+            out.write(buffer, 0, n)
+        }
+        out.toByteArray()
+    } ?: throw IllegalStateException("Tidak bisa membaca file")
+
+    if (size < 0) size = bytes.size.toLong()
+    val content = if (isTextFile(mime, name)) {
+        String(bytes, Charsets.UTF_8).take(MAX_ATTACHMENT_TEXT_CHARS)
+    } else {
+        null
+    }
+    return Attachment(name = name, size = size) to content
+}
+
+private fun formatBytes(bytes: Long): String = when {
+    bytes >= 1024L * 1024L -> String.format("%.1f MB", bytes / (1024.0 * 1024.0))
+    bytes >= 1024L -> String.format("%.1f KB", bytes / 1024.0)
+    else -> "$bytes B"
 }
