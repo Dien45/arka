@@ -153,7 +153,9 @@ class Store(
             }
             else -> Unit
         }
-        scope.launch { persistence.saveState(toPersisted(next)) }
+        // Navigasi/tab saja tidak mengubah data persist — skip encode+save raksasa biar pindah halaman enteng.
+        val persistRelevant = action !is Action.SetView && action !is Action.ToggleSidebar
+        if (persistRelevant) scope.launch { persistence.saveState(toPersisted(next)) }
     }
 
     fun updatePrefs(transform: (Prefs) -> Prefs) {

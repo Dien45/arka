@@ -39,7 +39,7 @@ class ToolRegistry(
     /** Konfigurasi exec dibaca saat tool dipanggil (allowlist, timeout, bind workspace). */
     private val execSettingsProvider: () -> ExecSettings = { ExecSettings() },
 ) {
-    private val virtualFs = VirtualFs(context)
+    private val workspaceFs = VirtualFs(context)
     private val skills = SkillsManager(context)
     private val memoryManager = MemoryManager.getInstance(context)
     private val stagedCommits = StagedCommits(context)
@@ -64,10 +64,10 @@ class ToolRegistry(
     private fun availableToolDescriptors(): List<Pair<String, String>> = listOf(
         "web_fetch" to "Fetch content from a URL. Returns the text content of the webpage. Automatically handles GitHub repositories and uses CORS proxy for external sites. Requires user approval before running.",
         "web_search" to "Search GitHub repositories and the web. Returns relevant results with descriptions.",
-        "read_file" to "Read the content of a file from the virtual workspace.",
-        "write_file" to "Write content to a file in the virtual workspace. Files are stored in app storage (scoped to this chat session) and can be viewed in the Files tab. Requires user approval before running.",
-        "list_files" to "List files in the virtual workspace.",
-        "stage_commit" to "Snapshot the changes made to the virtual workspace since the last checkpoint (files added, edited, or deleted via write_file) into a named git-style commit, staged locally for the user to review and push to GitHub from the GitHub panel (\"Staged AI Commits\"). Call this after finishing a meaningful, self-contained chunk of work (e.g. \"added login form\", \"fixed the bug in cart total\"), or whenever the user asks to save/checkpoint/push progress. Does NOT push anything by itself — the user still has to click a button in the GitHub panel to actually push. Requires user approval before running.",
+        "read_file" to "Read the content of a file from the proot workspace (/root/workspace/sessions/<session-id>/).",
+        "write_file" to "Write content to a file in the proot workspace (/root/workspace/sessions/<session-id>/). Files are scoped to this chat session and can be viewed in the Workspace tab. Requires user approval before running.",
+        "list_files" to "List files in the proot workspace (/root/workspace/sessions/<session-id>/).",
+        "stage_commit" to "Snapshot the changes made to the proot workspace since the last checkpoint (files added, edited, or deleted via write_file) into a named git-style commit, staged locally for the user to review and push to GitHub from the GitHub panel (\"Staged AI Commits\"). Call this after finishing a meaningful, self-contained chunk of work (e.g. \"added login form\", \"fixed the bug in cart total\"), or whenever the user asks to save/checkpoint/push progress. Does NOT push anything by itself — the user still has to click a button in the GitHub panel to actually push. Requires user approval before running.",
         "skill" to ("Buka skill yang terpasang (read-only). Actions: list (daftar skill terpasang), " +
             "read (buka instruksi lengkap SKILL.md atau berkas lain di dalam skill), files (daftar berkas skill). " +
             "Skill hasil unduhan dari GitHub menyimpan berkas nyatanya di proot workspace global (folder /root/workspace/skills/<id>/), " +
@@ -333,11 +333,11 @@ class ToolRegistry(
 
     private fun readFile(path: String, sessionId: String?): String {
         return try {
-            val content = virtualFs.read(sessionId ?: "", path)
+            val content = workspaceFs.read(sessionId ?: "", path)
             if (content != null) "# File: $path\n\n$content"
             else {
-                val keys = virtualFs.getAllKeys(sessionId ?: "")
-                "❌ File \"$path\" tidak ditemukan di virtual workspace. File yang tersedia: ${keys.joinToString(", ").ifEmpty { "(kosong)" }}"
+                val keys = workspaceFs.getAllKeys(sessionId ?: "")
+                "❌ File \"$path\" tidak ditemukan di workspace. File yang tersedia: ${keys.joinToString(", ").ifEmpty { "(kosong)" }}"
             }
         } catch (e: Exception) {
             "❌ Error membaca file: ${e.message ?: "Unknown error"}"
@@ -353,15 +353,16 @@ class ToolRegistry(
             }
 
             val sid = sessionId ?: ""
-            val currentTotal = virtualFs.list(sid).sumOf { it.second }
-            val previousSize = virtualFs.list(sid).firstOrNull { it.first == path }?.second ?: 0
+            val entries = workspaceFs.listEntries(sid).filterNot { it.isDir }
+            val currentTotal = entries.sumOf { it.size }
+            val previousSize = entries.firstOrNull { it.path == path }?.size ?: 0L
             val newTotal = currentTotal - previousSize + content.length
             if (newTotal > MAX_TOTAL_VIRTUAL_BYTES) {
-                return "❌ Kuota virtual workspace penuh ($newTotal/$MAX_TOTAL_VIRTUAL_BYTES bytes). Hapus file lama dulu."
+                return "❌ Kuota workspace penuh ($newTotal/$MAX_TOTAL_VIRTUAL_BYTES bytes). Hapus file lama dulu."
             }
 
-            virtualFs.write(sid, path, content)
-            return "✅ File \"$path\" berhasil dibuat di virtual workspace (${content.length} bytes). File otomatis muncul di tab \"Files\"."
+            workspaceFs.write(sid, path, content)
+            return "✅ File \"$path\" berhasil dibuat di workspace (/root/workspace, ${content.length} bytes). File otomatis muncul di tab \"Workspace\"."
         } catch (e: Exception) {
             return "❌ Error menulis file: ${e.message ?: "Unknown error"}"
         }
@@ -370,25 +371,22 @@ class ToolRegistry(
     private fun listFiles(path: String, sessionId: String?): String {
         return try {
             val sid = sessionId ?: ""
-            val files = virtualFs.list(sid)
-            if (files.isEmpty()) return "📁 Virtual workspace kosong. Belum ada file yang dibuat."
+            val entries = workspaceFs.listEntries(sid).filterNot { it.isDir }
+            if (entries.isEmpty()) return "📁 Workspace kosong. Belum ada file yang dibuat."
 
-            var filtered = files
+            var filtered = entries
             if (path.isNotEmpty() && path != "/") {
                 val normalized = path.trimEnd('/')
-                filtered = files.filter { it.first.startsWith("$normalized/") || it.first == normalized }
+                filtered = entries.filter { it.path.startsWith("$normalized/") || it.path == normalized }
             }
 
+            val shown = filtered.take(200)
             val fmt = SimpleDateFormat("dd/MM/yyyy, HH.mm", Locale("id", "ID"))
-            val fileList = filtered.joinToString("\n") { (f, size) ->
-                val modified = runCatching {
-                    val raw = virtualFs.read(sid, f)
-                    // mtime not tracked separately; fall back to now
-                    fmt.format(Date())
-                }.getOrDefault(fmt.format(Date()))
-                "- $f ($size bytes, modified: $modified)"
+            val fileList = shown.joinToString("\n") { e ->
+                "- ${e.path} (${e.size} bytes, modified: ${fmt.format(Date(e.modified))})"
             }
-            "📁 Files in virtual workspace (${filtered.size} files):\n\n$fileList"
+            val more = if (filtered.size > shown.size) "\n...dan ${filtered.size - shown.size} file lain (ditampilkan 200 pertama)." else ""
+            "📁 Files in workspace (/root/workspace/sessions/$sid, ${filtered.size} files):\n\n$fileList$more"
         } catch (e: Exception) {
             "❌ Error listing files: ${e.message ?: "Unknown error"}"
         }
@@ -467,10 +465,10 @@ class ToolRegistry(
             if (message.isBlank()) return "❌ Pesan commit tidak boleh kosong."
             val sid = sessionId ?: ""
 
-            val filesNow = virtualFs.getAllKeys(sid)
+            val filesNow = workspaceFs.getAllKeys(sid)
             val files = mutableListOf<StagedCommitFile>()
             for (path in filesNow) {
-                val content = virtualFs.read(sid, path) ?: ""
+                val content = workspaceFs.read(sid, path) ?: ""
                 files.add(StagedCommitFile(path, content))
             }
             if (files.isEmpty()) return "ℹ️ Tidak ada perubahan file sejak checkpoint terakhir — tidak ada yang di-stage."
