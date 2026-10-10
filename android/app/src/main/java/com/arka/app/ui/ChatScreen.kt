@@ -294,14 +294,20 @@ private fun ChatTopBar(
     val hasAnyModel = providers.any { it.enabled && (it.models.isNotEmpty() || it.effectiveModel.isNotBlank()) }
 
     TopAppBar(
+        modifier = Modifier.height(52.dp),
         navigationIcon = {
-            IconButton(onClick = onOpenDrawer) {
+            IconButton(onClick = onOpenDrawer, modifier = Modifier.size(40.dp)) {
                 Icon(Icons.Default.Menu, contentDescription = "Menu")
             }
         },
         title = {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(title, maxLines = 1, modifier = Modifier.weight(1f, fill = false))
+                Text(
+                    title,
+                    maxLines = 1,
+                    style = MaterialTheme.typography.titleSmall,
+                    modifier = Modifier.weight(1f, fill = false),
+                )
                 Spacer(Modifier.width(8.dp))
                 Surface(
                     shape = RoundedCornerShape(12.dp),
@@ -313,7 +319,7 @@ private fun ChatTopBar(
                     modifier = Modifier.clickable(onClick = onOpenModelPicker),
                 ) {
                     Row(
-                        Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                        Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Text(
@@ -322,9 +328,9 @@ private fun ChatTopBar(
                                 append(selectedModel.ifBlank { "Pilih model" })
                             },
                             maxLines = 1,
-                            style = MaterialTheme.typography.labelMedium,
+                            style = MaterialTheme.typography.labelSmall,
                         )
-                        Text(" ▾", style = MaterialTheme.typography.labelMedium)
+                        Text(" ▾", style = MaterialTheme.typography.labelSmall)
                     }
                 }
             }

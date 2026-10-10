@@ -48,6 +48,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -115,15 +116,28 @@ fun FileExplorerScreen(
     var showNewFile by remember { mutableStateOf(false) }
     var showNewFolder by remember { mutableStateOf(false) }
 
-    val entries = remember(refreshKey) { fs.treeProot() }
+    var entries by remember { mutableStateOf<List<FsEntry>>(emptyList()) }
+    var treeLoading by remember { mutableStateOf(true) }
+    LaunchedEffect(refreshKey) {
+        treeLoading = true
+        entries = withContext(Dispatchers.IO) { fs.treeProot() }
+        treeLoading = false
+    }
     val files = entries.filterNot { it.isDir }
 
     fun openFile(path: String) {
         if (path !in openTabs) openTabs = openTabs + path
         activeTab = path
-        draft = fs.readProot(path) ?: ""
         dirty = false
         showTree = false
+        scope.launch {
+            val text = withContext(Dispatchers.IO) { fs.readProot(path) } ?: ""
+            draft = if (text.length > 500_000) {
+                text.take(500_000) + "\n\n...(dipotong, file terlalu besar untuk editor)"
+            } else {
+                text
+            }
+        }
     }
 
     fun refresh(message: String? = null) {

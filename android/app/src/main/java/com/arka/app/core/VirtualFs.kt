@@ -168,13 +168,20 @@ class VirtualFs(private val context: Context) {
     fun treeProot(): List<FsEntry> =
         listEntriesUnder(prootWorkspaceDir()).sortedWith(compareByDescending<FsEntry> { it.isDir }.thenBy { it.path.lowercase() })
 
+    private val skipDirNames = setOf(
+        ".git", "node_modules", "build", ".gradle", "dist", ".next",
+        "target", "vendor", "__pycache__", ".cache", "rootfs", "distro",
+    )
+    private const val MAX_TREE_ENTRIES = 3000
+
     private fun listEntriesUnder(root: File): List<FsEntry> {
         if (!root.exists()) return emptyList()
         val out = mutableListOf<FsEntry>()
         root.walkTopDown()
-            .onEnter { it.name != ".git" }
+            .onEnter { it.name !in skipDirNames }
             .forEach { f ->
                 if (f == root) return@forEach
+                if (out.size >= MAX_TREE_ENTRIES) return out.sortedBy { it.path.lowercase() }
                 val rel = f.relativeTo(root).path.replace(File.separatorChar, '/')
                 out.add(FsEntry(path = rel, size = if (f.isFile) f.length() else 0L, modified = f.lastModified(), isDir = f.isDirectory))
             }

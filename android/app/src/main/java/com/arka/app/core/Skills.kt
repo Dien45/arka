@@ -223,14 +223,14 @@ class SkillsManager(private val context: Context) {
      * kalau sidik jari berubah. Salinan per-sesi versi lama dibersihkan.
      */
     fun syncSkills(): Int {
-        val virtualFs = VirtualFs(context)
-        val skillsRoot = File(virtualFs.prootWorkspaceDir(), "skills").apply { mkdirs() }
+        val workspaceFs = VirtualFs(context)
+        val skillsRoot = File(workspaceFs.prootWorkspaceDir(), "skills").apply { mkdirs() }
 
         // Bersihkan salinan per-sesi versi lama (sekali saja).
         val cleanupMarker = File(skillsRoot, ".arka-v2")
         if (!cleanupMarker.exists()) {
             runCatching {
-                File(virtualFs.prootWorkspaceDir(), "sessions").listFiles()?.forEach { sessionDir ->
+                File(workspaceFs.prootWorkspaceDir(), "sessions").listFiles()?.forEach { sessionDir ->
                     File(sessionDir, "skills").deleteRecursively()
                 }
                 cleanupMarker.writeText("ok")
@@ -272,10 +272,10 @@ class SkillsManager(private val context: Context) {
 
     /** Hapus skill dari proot workspace global + salinan per-sesi lama (jika masih ada). */
     fun removeFromSkills(skillId: String) {
-        val virtualFs = VirtualFs(context)
-        runCatching { File(virtualFs.prootWorkspaceDir(), "skills/$skillId").deleteRecursively() }
+        val workspaceFs = VirtualFs(context)
+        runCatching { File(workspaceFs.prootWorkspaceDir(), "skills/$skillId").deleteRecursively() }
         runCatching {
-            File(virtualFs.prootWorkspaceDir(), "sessions").listFiles()?.forEach { sessionDir ->
+            File(workspaceFs.prootWorkspaceDir(), "sessions").listFiles()?.forEach { sessionDir ->
                 File(sessionDir, "skills/$skillId").deleteRecursively()
             }
         }
