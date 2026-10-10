@@ -29,7 +29,7 @@ const val AGENT_AUTO_CONTINUE_PROMPT =
 // Tools a Plan-mode AI is allowed to touch — read-only, nothing that writes
 // files, runs commands, or persists anything, so "just planning" can never
 // quietly turn into "already built it".
-private val PLAN_MODE_ALLOWED_TOOLS = setOf("read_file", "list_files", "skill", "web_fetch", "web_search")
+private val PLAN_MODE_ALLOWED_TOOLS = setOf("read_file", "list_files", "skill", "web_fetch", "web_search", "session_search")
 
 private val CHAT_MODE_SYSTEM_PROMPTS: Map<ChatMode, String> = mapOf(
     ChatMode.plan to "\n\n🗺️ MODE SAAT INI: PLAN\nUser sedang dalam mode perencanaan, BUKAN mode eksekusi. Tugasmu:\n- Diskusikan idenya, ajukan pertanyaan klarifikasi kalau perlu\n- Susun rencana / breakdown langkah kerja yang jelas (mis. daftar bernomor, tahapan)\n- JANGAN memanggil write_file, run_command, memory, atau stage_commit di mode ini — tool-tool itu bahkan tidak tersedia sekarang\n- Kalau user sudah setuju dengan rencananya dan minta mulai dikerjakan, beri tahu mereka untuk pindah ke mode Build atau Agent",
@@ -270,7 +270,12 @@ class ChatController(
                     ),
                 )
 
-                if (!willAutoContinue) break
+                if (!willAutoContinue) {
+                    if (chatMode == ChatMode.agent && !stoppedByCap) {
+                        runCatching { maybeCreateSkill(sessionId, responseContent) }
+                    }
+                    break
+                }
 
                 history = history + ChatMessage(role = "assistant", content = finalContent)
                 history = history + ChatMessage(role = "user", content = AGENT_AUTO_CONTINUE_PROMPT)
@@ -352,7 +357,7 @@ $toolsList
 
 CRITICAL: Only use the tools listed above. DO NOT use old tool names like:
 - ❌ memory_save (USE: memory with action="add")
-- ❌ memory_search (USE: memory with action="search" - not implemented yet)
+- ❌ memory_search (USE: memory with action="search")
 - ❌ memory_update (USE: memory with action="replace")
 - ❌ memory_delete (USE: memory with action="remove")
 
@@ -364,6 +369,7 @@ You have persistent memory that persists across sessions. Use the 'memory' tool 
 - action="add", target="memory" or "user", content="..." → Add new memory
 - action="replace", target="memory" or "user", old_text="substring", content="..." → Update existing memory
 - action="remove", target="memory" or "user", old_text="substring" → Remove memory
+- action="search", target="memory" or "user", old_text="keyword" → Find entries containing a keyword
 
 Memory has character limits (2,200 chars for agent notes, 1,375 chars for user profile).
 When memory is full, consolidate or remove old entries before adding new ones.
@@ -420,6 +426,68 @@ Keep responses short and actionable.$modePrompt$skillsBlock
                 _pendingApprovals.value = _pendingApprovals.value - sessionId
             }
         }
+    }
+
+    /**
+     * Auto-skill: setelah task agent selesai (bukan karena cap), kalau task
+     * cukup substansial (>=8 tool calls, >=3 tool berbeda, jawaban >=200 char),
+     * buat prompt-only skill dari hasilnya supaya bisa dipakai lagi.
+     */
+    private suspend fun maybeCreateSkill(sessionId: String, finalContent: String) {
+        val session = store.state.value.sessions.find { it.id == sessionId } ?: return
+        val toolCalls = session.messages.flatMap { it.toolCalls ?: emptyList() }
+        val distinctTools = toolCalls.map { it.name }.toSet()
+        if (toolCalls.size < 8 || distinctTools.size < 3) return
+        if (finalContent.length < 200) return
+
+        val firstUserMsg = session.messages.firstOrNull { it.role == MessageRole.user }?.content ?: return
+        val skillName = firstUserMsg.take(50)
+            .replace(Regex("[^\\p{L}\\p{N}\\s-]"), "")
+            .trim()
+            .replace(Regex("\\s+"), "-")
+            .lowercase()
+            .take(40)
+        if (skillName.length < 8) return
+
+        // Jangan duplikat kalau skill dengan nama sama sudah ada.
+        if (skills.installedSkills().any { it.name.equals(skillName, ignoreCase = true) }) return
+
+        val skillId = "auto-${skillName.take(30)}-${System.currentTimeMillis().toString(36)}"
+        val skillMd = buildString {
+            appendLine("---")
+            appendLine("name: $skillName")
+            appendLine("description: Auto-generated skill from agent session: ${session.title}")
+            appendLine("author: arka-agent")
+            appendLine("---")
+            appendLine()
+            appendLine("# $skillName")
+            appendLine()
+            appendLine("Skill ini dibuat otomatis oleh Arka setelah menyelesaikan tugas di mode Agent.")
+            appendLine()
+            appendLine("## Konteks Tugas")
+            appendLine()
+            appendLine("User meminta: ${firstUserMsg.take(500)}")
+            appendLine()
+            appendLine("## Langkah yang Dilakukan")
+            appendLine()
+            toolCalls.take(20).forEach { appendLine("- ${it.name}") }
+            appendLine()
+            appendLine("## Hasil Akhir")
+            appendLine()
+            appendLine(finalContent.take(1500))
+        }
+
+        val skill = Skill(
+            id = skillId,
+            name = skillName,
+            description = "Auto-generated: ${session.title}",
+            enhancement = skillMd.take(4000),
+            custom = true,
+            source = "auto",
+        )
+        val stored = skills.storeFiles(skill, mapOf("SKILL.md" to skillMd))
+        skills.addCustom(stored)
+        skills.syncSkills()
     }
 
     private fun genId(): String =

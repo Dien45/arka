@@ -130,6 +130,8 @@ class Store(
         val token = persistence.loadGithubToken()
         _state.value = reduce(AppState(), Action.Hydrate(persisted, token))
         _prefs.value = persistence.loadPrefs()
+        // Backfill FTS index sekali saat startup (no-op kalau sudah terisi).
+        runCatching { SessionIndex.getInstance(context).backfill(persisted.sessions) }
     }
 
     fun dispatch(action: Action) {
@@ -137,7 +139,18 @@ class Store(
         _state.value = next
         when (action) {
             is Action.SetGithubToken -> persistence.saveGithubToken(action.token)
-            is Action.DeleteSession -> VirtualFs(context).deleteSession(action.sessionId)
+            is Action.DeleteSession -> {
+                VirtualFs(context).deleteSession(action.sessionId)
+                runCatching { SessionIndex.getInstance(context).deleteSession(action.sessionId) }
+            }
+            is Action.AddMessage -> {
+                val msg = action.message
+                runCatching {
+                    SessionIndex.getInstance(context).indexMessage(
+                        action.sessionId, msg.id, msg.role.name, msg.content, msg.timestamp,
+                    )
+                }
+            }
             else -> Unit
         }
         scope.launch { persistence.saveState(toPersisted(next)) }

@@ -86,7 +86,7 @@ fun ArkaRoot() {
     val controller = remember(store) {
         ChatController(context, store, CoroutineScope(SupervisorJob() + Dispatchers.IO))
     }
-    val memoryManager = remember { MemoryManager(context) }
+    val memoryManager = remember { MemoryManager.getInstance(context) }
     val skillsManager = remember { SkillsManager(context) }
 
     val darkTheme = when (prefs.theme) {

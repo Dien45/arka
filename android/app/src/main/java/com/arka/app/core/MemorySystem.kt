@@ -29,12 +29,32 @@ data class MemoryResult(
     val usage: String? = null,
 )
 
-class MemoryManager(private val context: Context) {
+class MemoryManager private constructor(private val context: Context) {
+
+    companion object {
+        @Volatile
+        private var instance: MemoryManager? = null
+
+        fun getInstance(context: Context): MemoryManager =
+            instance ?: synchronized(this) {
+                instance ?: MemoryManager(context.applicationContext).also { instance = it }
+            }
+    }
 
     private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
     private val file: File get() = File(context.filesDir, "memory.json")
 
     private var store: MemoryStore = load()
+    private var lastMtime: Long = file.lastModified()
+
+    /** Reload dari disk kalau file berubah di luar instance ini (mis. instance lain menulis). */
+    private fun reloadIfChanged() {
+        val mtime = file.lastModified()
+        if (mtime != lastMtime) {
+            store = load()
+            lastMtime = mtime
+        }
+    }
 
     private fun load(): MemoryStore = try {
         json.decodeFromString<MemoryStore>(file.readText())
@@ -43,7 +63,10 @@ class MemoryManager(private val context: Context) {
     }
 
     private fun save() {
-        runCatching { file.writeText(json.encodeToString(store)) }
+        runCatching {
+            file.writeText(json.encodeToString(store))
+            lastMtime = file.lastModified()
+        }
     }
 
     private fun charCount(entries: List<MemoryEntry>): Int = entries.sumOf { it.content.length }
@@ -55,6 +78,7 @@ class MemoryManager(private val context: Context) {
         if (target == MemoryTarget.MEMORY) MEMORY_CHAR_LIMIT else USER_CHAR_LIMIT
 
     fun add(target: MemoryTarget, content: String): MemoryResult {
+        reloadIfChanged()
         val entries = if (target == MemoryTarget.MEMORY) store.memory else store.user
         val limit = limitFor(target)
         val currentCount = charCount(entries)
@@ -81,6 +105,7 @@ class MemoryManager(private val context: Context) {
     }
 
     fun replace(target: MemoryTarget, oldText: String, newContent: String): MemoryResult {
+        reloadIfChanged()
         val entries = if (target == MemoryTarget.MEMORY) store.memory else store.user
         val limit = limitFor(target)
         val matches = entries.filter { it.content.contains(oldText) }
@@ -110,6 +135,7 @@ class MemoryManager(private val context: Context) {
     }
 
     fun remove(target: MemoryTarget, oldText: String): MemoryResult {
+        reloadIfChanged()
         val entries = if (target == MemoryTarget.MEMORY) store.memory else store.user
         val matches = entries.filter { it.content.contains(oldText) }
         if (matches.isEmpty()) return MemoryResult(success = false, error = "No entry found containing \"$oldText\"")
@@ -124,9 +150,13 @@ class MemoryManager(private val context: Context) {
         return MemoryResult(success = true)
     }
 
-    fun getAll(): MemoryStore = store
+    fun getAll(): MemoryStore {
+        reloadIfChanged()
+        return store
+    }
 
     fun getFormatted(): String {
+        reloadIfChanged()
         val memoryCount = charCount(store.memory)
         val userCount = charCount(store.user)
 
@@ -149,7 +179,21 @@ class MemoryManager(private val context: Context) {
     }
 
     fun clear() {
+        reloadIfChanged()
         store = MemoryStore()
         save()
+    }
+
+    /** Cari entri yang mengandung kata kunci (case-insensitive). Target null = cari di keduanya. */
+    fun search(query: String, target: MemoryTarget? = null): List<MemoryEntry> {
+        reloadIfChanged()
+        if (query.isBlank()) return emptyList()
+        val q = query.lowercase()
+        val pools = when (target) {
+            MemoryTarget.MEMORY -> listOf(store.memory)
+            MemoryTarget.USER -> listOf(store.user)
+            null -> listOf(store.memory, store.user)
+        }
+        return pools.flatten().filter { it.content.lowercase().contains(q) }
     }
 }
