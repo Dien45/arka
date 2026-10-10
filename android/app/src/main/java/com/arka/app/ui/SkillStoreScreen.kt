@@ -60,15 +60,18 @@ import com.arka.app.net.SkillCandidate
 import com.arka.app.net.SkillFetcher
 import kotlinx.coroutines.launch
 
+/** Batas skill yang dipasang otomatis dari satu repo; di atas ini daftar ditampilkan untuk dipilih manual. */
+private const val AUTO_INSTALL_LIMIT = 25
+
 /**
  * M11 — Skill Store v2.
  *
  * Perubahan penting dari versi v1 (web maupun Android sebelumnya):
  *  1. Skill dari GitHub **diunduh berkasnya** (format Claude Skills: SKILL.md +
- *     berkas pendukung) lalu disimpan di `filesDir/skills/<id>/` *dan* disalin
- *     ke workspace sesi (`skills/<id>/`). Jadi skill benar-benar bisa dipakai —
- *     AI membacanya lewat tool `skill`/read_file, dan script-nya bisa dijalankan
- *     via run_command (Alpine) dengan approval seperti biasa.
+ *     berkas pendukung) lalu disimpan di `filesDir/skills/<id>/` *dan* tersedia
+ *     global di proot workspace (`/root/workspace/skills/<id>/`) untuk SEMUA
+ *     sesi — tanpa sinkron per sesi. AI membacanya lewat tool `skill`, dan
+ *     script-nya bisa dijalankan via run_command (Alpine) dengan approval.
  *  2. Koleksi besar (mis. affaan-m/ecc dengan 1.000+ SKILL.md) bisa dicari dan
  *     dipasang satu per satu: daftar ditampilkan ringan, detail diambil saat
  *     sebuah skill dibuka.
@@ -102,78 +105,106 @@ fun SkillStoreScreen(
     var previewLoading by remember { mutableStateOf(false) }
 
     val token = state.githubToken
-    val sessionId = state.currentSessionId ?: "default"
+    /** Unduh + simpan satu kandidat ke cache & daftar skill. Return true kalau berhasil. */
+    suspend fun installOne(candidate: SkillCandidate): Boolean {
+        return try {
+            // Ambil detail (nama/deskripsi/instruksi) bila belum ada.
+            val detail = if (candidate.instructions.isBlank()) {
+                runCatching { SkillFetcher.fetchDetail(candidate, token) }.getOrDefault(candidate)
+            } else {
+                candidate
+            }
+            val files = SkillFetcher.downloadFiles(detail, token) { done, total ->
+                status = "Mengunduh ${detail.name}: berkas $done/$total…"
+            }
+            if (files.isEmpty()) return false
+            val skill = Skill(
+                id = detail.id,
+                name = detail.name,
+                description = detail.description.ifBlank { "Skill dari ${detail.repo}" },
+                author = detail.author,
+                source = "github",
+                icon = "📦",
+                category = "GitHub",
+                version = detail.version,
+                repo = detail.repo,
+                dir = detail.dir,
+                enhancement = detail.instructions.take(MAX_SKILL_CONTENT_CHARS),
+                custom = true,
+            )
+            val stored = skills.storeFiles(skill, files)
+            skills.addCustom(stored)
+            true
+        } catch (e: Exception) {
+            false
+        }
+    }
 
     fun installCandidate(candidate: SkillCandidate) {
         installing = true
-        status = "Menyiapkan \"${candidate.name}\"…"
+        status = "Memasang \"${candidate.name}\"…"
         scope.launch {
-            try {
-                // Ambil detail (nama/deskripsi/instruksi) bila belum ada.
-                val detail = if (candidate.instructions.isBlank()) {
-                    runCatching { SkillFetcher.fetchDetail(candidate, token) }.getOrDefault(candidate)
-                } else {
-                    candidate
-                }
-                val files = SkillFetcher.downloadFiles(detail, token) { done, total ->
-                    status = "Mengunduh ${detail.name}: berkas $done/$total…"
-                }
-                if (files.isEmpty()) {
-                    status = "Gagal: tidak ada berkas yang berhasil diunduh dari ${detail.repo}."
-                    installing = false
-                    return@launch
-                }
-                val skill = Skill(
-                    id = detail.id,
-                    name = detail.name,
-                    description = detail.description.ifBlank { "Skill dari ${detail.repo}" },
-                    author = detail.author,
-                    source = "github",
-                    icon = "📦",
-                    category = "GitHub",
-                    version = detail.version,
-                    repo = detail.repo,
-                    dir = detail.dir,
-                    enhancement = detail.instructions.take(MAX_SKILL_CONTENT_CHARS),
-                    custom = true,
-                )
-                val stored = skills.storeFiles(skill, files)
-                skills.addCustom(stored)
-                val copied = skills.syncToWorkspace(sessionId)
-                refresh++
+            val ok = installOne(candidate)
+            skills.syncSkills()
+            refresh++
+            if (ok) {
                 preview = null
-                status = "✅ \"${stored.name}\" terpasang: ${stored.files.size} berkas disimpan" +
-                    (if (copied > 0) " (+$copied disalin ke workspace sesi ini → folder skills/${stored.id}/)." else ".")
-            } catch (e: Exception) {
-                status = "Gagal memasang ${candidate.name}: ${e.message}"
+                status = "✅ \"${candidate.name}\" terpasang — tersedia di semua sesi (/root/workspace/skills/)."
+            } else {
+                status = "Gagal memasang ${candidate.name}."
             }
             installing = false
         }
     }
 
     fun scanRepo() {
+        val input = repoInput.trim()
+        val isRepo = SkillFetcher.normalizeRepo(input) != null
         scanning = true
-        status = "Membaca daftar skill dari ${repoInput.trim()}…"
+        installing = true
+        status = if (isRepo) "Membaca skill dari $input…" else "Mencari repo GitHub untuk \"$input\"…"
         candidates = emptyList()
         scope.launch {
             try {
-                val found = SkillFetcher.discover(repoInput, token).distinctBy { it.id }
-                candidates = found
-                status = if (found.isEmpty()) {
-                    "Tidak ada skill yang ditemukan."
+                if (isRepo) {
+                    val found = SkillFetcher.discover(input, token).distinctBy { it.id }
+                    if (found.isEmpty()) {
+                        status = "Tidak ada skill di repo itu."
+                    } else if (found.size > AUTO_INSTALL_LIMIT) {
+                        candidates = found
+                        status = "Ditemukan ${found.size} skill (lebih dari $AUTO_INSTALL_LIMIT) — pilih manual dari daftar."
+                    } else {
+                        var ok = 0
+                        var fail = 0
+                        found.forEachIndexed { index, candidate ->
+                            status = "Memasang ${index + 1}/${found.size}: ${candidate.name}…"
+                            if (installOne(candidate)) ok++ else fail++
+                        }
+                        skills.syncSkills()
+                        refresh++
+                        status = "✅ $ok skill terpasang" + (if (fail > 0) ", $fail gagal" else "") +
+                            " dari $input — langsung berlaku untuk semua sesi."
+                    }
                 } else {
-                    "Ditemukan ${found.size} skill. Cari, buka untuk melihat detail, lalu Pasang."
-                }
-                // Repo dengan satu skill: langsung buka detailnya.
-                if (found.size == 1) {
-                    previewLoading = true
-                    preview = runCatching { SkillFetcher.fetchDetail(found.first(), token) }.getOrNull() ?: found.first()
-                    previewLoading = false
+                    val repos = SkillFetcher.searchRepos(input, token)
+                    if (repos.isEmpty()) {
+                        status = "Tidak ada repo GitHub yang cocok dengan \"$input\"."
+                    } else {
+                        val found = mutableListOf<SkillCandidate>()
+                        for (repo in repos) {
+                            status = "Membaca $repo… (${found.size} kandidat)"
+                            found += runCatching { SkillFetcher.discover(repo, token) }.getOrDefault(emptyList())
+                            if (found.size >= 60) break
+                        }
+                        candidates = found.distinctBy { it.id }
+                        status = "Ditemukan ${candidates.size} kandidat dari ${repos.size} repo. Pilih yang mau dipasang."
+                    }
                 }
             } catch (e: Exception) {
-                status = "Gagal membaca repo: ${e.message}"
+                status = "Gagal: ${e.message}"
             }
             scanning = false
+            installing = false
         }
     }
 
@@ -207,9 +238,9 @@ fun SkillStoreScreen(
                 .padding(horizontal = 12.dp),
         ) {
             Text(
-                "Skill yang dipasang dari GitHub disimpan lengkap berkasnya di perangkat, lalu disalin ke workspace " +
-                    "sesi (skills/<id>/). AI membacanya lewat tool `skill` dan bisa menjalankan script-nya lewat " +
-                    "run_command — jadi bukan cuma tempelan teks di prompt.",
+                "Skill yang dipasang dari GitHub disimpan di perangkat lalu tersedia GLOBAL di proot workspace " +
+                    "(/root/workspace/skills/<id>/) untuk semua sesi. Masukkan link/owner-repo → dipasang otomatis; " +
+                    "cukup nama skill → muncul daftar untuk dipilih.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -356,14 +387,14 @@ fun SkillStoreScreen(
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 4.dp)) {
                             if (fileCount > 0) {
                                 TextButton(onClick = {
-                                    val copied = skills.syncToWorkspace(sessionId)
-                                    status = "Disalin $copied berkas ke workspace sesi ini (skills/${skill.id}/)."
+                                    val copied = skills.syncSkills()
+                                    status = "Disinkron ke proot workspace: $copied berkas baru."
                                     refresh++
-                                }) { Text("Salin ke sesi ini") }
+                                }) { Text("Sinkron ulang") }
                             }
                             TextButton(onClick = {
                                 skills.uninstall(skill.id)
-                                skills.removeFromWorkspace(sessionId, skill.id)
+                                skills.removeFromSkills(skill.id)
                                 refresh++
                                 status = "\"${skill.name}\" dilepas."
                             }) { Text("Lepas", color = MaterialTheme.colorScheme.error) }

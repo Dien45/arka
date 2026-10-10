@@ -70,7 +70,7 @@ class ToolRegistry(
         "stage_commit" to "Snapshot the changes made to the virtual workspace since the last checkpoint (files added, edited, or deleted via write_file) into a named git-style commit, staged locally for the user to review and push to GitHub from the GitHub panel (\"Staged AI Commits\"). Call this after finishing a meaningful, self-contained chunk of work (e.g. \"added login form\", \"fixed the bug in cart total\"), or whenever the user asks to save/checkpoint/push progress. Does NOT push anything by itself — the user still has to click a button in the GitHub panel to actually push. Requires user approval before running.",
         "skill" to ("Buka skill yang terpasang (read-only). Actions: list (daftar skill terpasang), " +
             "read (buka instruksi lengkap SKILL.md atau berkas lain di dalam skill), files (daftar berkas skill). " +
-            "Skill hasil unduhan dari GitHub menyimpan berkas nyatanya di workspace sesi (folder skills/<id>/), " +
+            "Skill hasil unduhan dari GitHub menyimpan berkas nyatanya di proot workspace global (folder /root/workspace/skills/<id>/), " +
             "jadi isinya bisa dibaca dan script-nya dijalankan lewat run_command. " +
             "Panggil skill ini dulu sebelum memakai sebuah skill supaya instruksinya benar-benar diikuti."),
         "run_command" to ("Execute a shell command inside the on-device Alpine Linux distro (proot, no root) and return its output. " +
@@ -405,7 +405,7 @@ class ToolRegistry(
                 } else {
                     buildString {
                         append("📁 Berkas skill \"${skill.name}\" (id: ${skill.id}).\n")
-                        append("Tersalin juga di workspace sesi: skills/${skill.id}/\n\n")
+                        append("Juga tersedia di /root/workspace/skills/${skill.id}/ (dari cwd: ../skills/${skill.id}/)\n\n")
                         files.forEach { (p, size) -> append("- $p ($size bytes)\n") }
                         append("\nBuka dengan action=\"read\" name=\"${skill.id}\" path=\"<berkas>\".")
                     }
@@ -422,7 +422,7 @@ class ToolRegistry(
                     buildString {
                         append("# ${skill.name} — $path\n\n")
                         append(content.take(MAX_SKILL_READ_CHARS))
-                        if (truncated) append("\n\n…(dipotong; baca langsung lewat read_file \"skills/${skill.id}/$path\" kalau perlu sisanya)")
+                        if (truncated) append("\n\n…(dipotong; baca langsung lewat read_file \"../skills/${skill.id}/$path\" kalau perlu sisanya)")
                     }
                 } else {
                     val fromFile = skills.readSkillFile(skill, "SKILL.md")
@@ -436,7 +436,7 @@ class ToolRegistry(
                         if (skill.description.isNotBlank()) append("Deskripsi: ${skill.description}\n")
                         if (skill.files.isNotEmpty()) {
                             append("Berkas pendukung: ${skill.files.joinToString(", ").take(600)}\n")
-                            append("(tersedia juga di workspace: skills/${skill.id}/)\n")
+                            append("(tersedia di /root/workspace/skills/${skill.id}/)\n")
                         }
                         append("\n— instruksi —\n")
                         append(body.take(MAX_SKILL_READ_CHARS))
