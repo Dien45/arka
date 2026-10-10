@@ -12,6 +12,9 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.getBottom
+import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Chat
@@ -48,6 +51,8 @@ import androidx.compose.ui.unit.dp
 import com.arka.app.core.Action
 import com.arka.app.core.AppView
 import com.arka.app.core.ChatController
+import com.arka.app.core.I18n
+import com.arka.app.core.Key
 import com.arka.app.core.MemoryManager
 import com.arka.app.core.Persistence
 import com.arka.app.core.SkillsManager
@@ -102,13 +107,14 @@ fun ArkaRoot() {
     val uiScope = rememberCoroutineScope()
     val openDrawer: () -> Unit = { uiScope.launch { drawerState.open() } }
 
+    val t = { k: String -> I18n.t(prefs.language, k) }
     val primaryViews = listOf(
-        Triple(AppView.chat, "Chat", Icons.AutoMirrored.Filled.Chat),
-        Triple(AppView.files, "Files", Icons.Default.Folder),
-        Triple(AppView.prd, "PRD", Icons.Default.Description),
-        Triple(AppView.github, "GitHub", Icons.Default.Terminal),
-        Triple(AppView.skills, "Skills", Icons.Default.Extension),
-        Triple(AppView.settings, "Setelan", Icons.Default.Settings),
+        Triple(AppView.chat, t(Key.CHAT), Icons.AutoMirrored.Filled.Chat),
+        Triple(AppView.files, t(Key.FILES), Icons.Default.Folder),
+        Triple(AppView.prd, t(Key.PRD), Icons.Default.Description),
+        Triple(AppView.github, t(Key.GITHUB), Icons.Default.Terminal),
+        Triple(AppView.skills, t(Key.SKILLS), Icons.Default.Extension),
+        Triple(AppView.settings, t(Key.SETTINGS), Icons.Default.Settings),
     )
     CompositionLocalProvider(LocalDensity provides scaledDensity) {
         ArkaTheme(darkTheme = darkTheme) {
@@ -152,21 +158,26 @@ fun ArkaRoot() {
                     }
                 },
             ) {
+                // Sembunyikan bottom nav saat keyboard terbuka supaya textbox
+                // (bottomBar ChatScreen + imePadding) menempel tepat di atas keyboard.
+                val imeVisible = WindowInsets.ime.getBottom(density) > 0
                 Scaffold(
                     bottomBar = {
-                        Surface(tonalElevation = 3.dp) {
-                            Row(
-                                Modifier
-                                    .fillMaxWidth()
-                                    .horizontalScroll(rememberScrollState()),
-                            ) {
-                                primaryViews.forEach { (view, label, icon) ->
-                                    NavigationBarItem(
-                                        selected = state.currentView == view,
-                                        onClick = { store.dispatch(Action.SetView(view)) },
-                                        icon = { Icon(icon, contentDescription = label) },
-                                        label = { Text(label, style = MaterialTheme.typography.labelSmall) },
-                                    )
+                        if (!imeVisible) {
+                            Surface(tonalElevation = 3.dp) {
+                                Row(
+                                    Modifier
+                                        .fillMaxWidth()
+                                        .horizontalScroll(rememberScrollState()),
+                                ) {
+                                    primaryViews.forEach { (view, label, icon) ->
+                                        NavigationBarItem(
+                                            selected = state.currentView == view,
+                                            onClick = { store.dispatch(Action.SetView(view)) },
+                                            icon = { Icon(icon, contentDescription = label) },
+                                            label = { Text(label, style = MaterialTheme.typography.labelSmall) },
+                                        )
+                                    }
                                 }
                             }
                         }

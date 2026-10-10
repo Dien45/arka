@@ -52,6 +52,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.arka.app.core.I18n
+import com.arka.app.core.Key
 import com.arka.app.core.MAX_SKILL_CONTENT_CHARS
 import com.arka.app.core.Skill
 import com.arka.app.core.SkillsManager
@@ -86,6 +88,8 @@ fun SkillStoreScreen(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val state by store.state.collectAsState()
+    val prefs by store.prefs.collectAsState()
+    val t = { k: String -> I18n.t(prefs.language, k) }
     val skills = remember { SkillsManager(context) }
 
     var refresh by remember { mutableIntStateOf(0) }
@@ -223,7 +227,7 @@ fun SkillStoreScreen(
         modifier = modifier,
         topBar = {
             TopAppBar(
-                title = { Text("Skill Store") },
+                title = { Text(t(Key.SKILL_STORE)) },
                 navigationIcon = {
                     IconButton(onClick = onOpenDrawer) { Icon(Icons.Default.Menu, contentDescription = "Menu") }
                 },
@@ -258,7 +262,7 @@ fun SkillStoreScreen(
                 modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
             ) {
                 Column(Modifier.padding(10.dp)) {
-                    Text("Pasang dari GitHub", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                    Text(t(Key.INSTALL_FROM_GITHUB), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
                     Text(
                         "Masukkan repo berisi skill (folder dengan SKILL.md, atau skill.json/prompt.md). " +
                             "Contoh: affaan-m/ecc",
@@ -278,7 +282,7 @@ fun SkillStoreScreen(
                             if (scanning) {
                                 CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
                             } else {
-                                Text("Baca")
+                                Text(t(Key.READ))
                             }
                         }
                     }
@@ -326,11 +330,11 @@ fun SkillStoreScreen(
                                                 .getOrDefault(candidate)
                                             previewLoading = false
                                         }
-                                    }) { Text("Detail") }
+                                    }) { Text(t(Key.DETAIL)) }
                                     TextButton(
                                         onClick = { installCandidate(candidate) },
                                         enabled = !installing,
-                                    ) { Text("Pasang") }
+                                    ) { Text(t(Key.INSTALL)) }
                                 }
                             }
                         }
@@ -340,14 +344,14 @@ fun SkillStoreScreen(
 
             // ------------------------------------------------ terpasang
             Text(
-                "Terpasang (${installedSkills.size})",
+                "${t(Key.INSTALLED_TITLE)} (${installedSkills.size})",
                 style = MaterialTheme.typography.titleSmall,
                 fontWeight = FontWeight.SemiBold,
                 modifier = Modifier.padding(top = 12.dp, bottom = 4.dp),
             )
             if (installedSkills.isEmpty()) {
                 Text(
-                    "Belum ada skill terpasang.",
+                    t(Key.NO_SKILLS_INSTALLED),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -390,14 +394,14 @@ fun SkillStoreScreen(
                                     val copied = skills.syncSkills()
                                     status = "Disinkron ke proot workspace: $copied berkas baru."
                                     refresh++
-                                }) { Text("Sinkron ulang") }
+                                }) { Text(t(Key.RESYNC)) }
                             }
                             TextButton(onClick = {
                                 skills.uninstall(skill.id)
                                 skills.removeFromSkills(skill.id)
                                 refresh++
                                 status = "\"${skill.name}\" dilepas."
-                            }) { Text("Lepas", color = MaterialTheme.colorScheme.error) }
+                            }) { Text(t(Key.REMOVE), color = MaterialTheme.colorScheme.error) }
                         }
                     }
                 }
@@ -405,7 +409,7 @@ fun SkillStoreScreen(
 
             // ------------------------------------------------ katalog bawaan
             Text(
-                "Katalog bawaan (prompt-only)",
+                t(Key.BUILTIN_CATALOG),
                 style = MaterialTheme.typography.titleSmall,
                 fontWeight = FontWeight.SemiBold,
                 modifier = Modifier.padding(top = 14.dp, bottom = 4.dp),
@@ -413,7 +417,7 @@ fun SkillStoreScreen(
             OutlinedTextField(
                 value = search,
                 onValueChange = { search = it },
-                label = { Text("Cari skill…") },
+                label = { Text(t(Key.SEARCH_SKILLS)) },
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth(),
             )
@@ -421,7 +425,7 @@ fun SkillStoreScreen(
                 Modifier.fillMaxWidth().padding(vertical = 6.dp),
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
             ) {
-                FilterChip(selected = category == null, onClick = { category = null }, label = { Text("Semua") })
+                FilterChip(selected = category == null, onClick = { category = null }, label = { Text(t(Key.ALL)) })
                 categories.forEach { cat ->
                     FilterChip(
                         selected = category == cat,
