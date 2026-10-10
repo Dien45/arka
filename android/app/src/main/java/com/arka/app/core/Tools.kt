@@ -41,7 +41,7 @@ class ToolRegistry(
 ) {
     private val virtualFs = VirtualFs(context)
     private val skills = SkillsManager(context)
-    private val memoryManager = MemoryManager(context)
+    private val memoryManager = MemoryManager.getInstance(context)
     private val stagedCommits = StagedCommits(context)
     private val execRunner = ExecRunner(context)
     private val json = Json { ignoreUnknownKeys = true }
