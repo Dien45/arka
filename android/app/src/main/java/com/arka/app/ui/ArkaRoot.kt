@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Chat
+import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Extension
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Menu
@@ -58,8 +59,9 @@ import kotlinx.coroutines.launch
  * Composition root (M10).
  *
  * Navigasi: drawer = menu sesi (pindah / rename / hapus / baru) + bottom bar
- * untuk 5 tujuan utama. ChatController & Store dibuat di sini supaya pekerjaan
- * AI yang sedang berjalan tidak terbuang saat pindah layar.
+ * untuk 6 tujuan utama (termasuk PRD Generator). ChatController & Store dibuat
+ * di sini supaya pekerjaan AI yang sedang berjalan tidak terbuang saat pindah
+ * layar.
  */
 @Composable
 fun ArkaRoot() {
@@ -100,6 +102,7 @@ fun ArkaRoot() {
     val primaryViews = listOf(
         Triple(AppView.chat, "Chat", Icons.AutoMirrored.Filled.Chat),
         Triple(AppView.files, "Files", Icons.Default.Folder),
+        Triple(AppView.prd, "PRD", Icons.Default.Description),
         Triple(AppView.github, "GitHub", Icons.Default.Terminal),
         Triple(AppView.skills, "Skills", Icons.Default.Extension),
         Triple(AppView.settings, "Setelan", Icons.Default.Settings),
@@ -151,8 +154,7 @@ fun ArkaRoot() {
                         NavigationBar {
                             primaryViews.forEach { (view, label, icon) ->
                                 NavigationBarItem(
-                                    selected = state.currentView == view ||
-                                        (view == AppView.chat && state.currentView == AppView.prd),
+                                    selected = state.currentView == view,
                                     onClick = { store.dispatch(Action.SetView(view)) },
                                     icon = { Icon(icon, contentDescription = label) },
                                     label = { Text(label, style = MaterialTheme.typography.labelSmall) },
