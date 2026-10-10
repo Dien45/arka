@@ -43,6 +43,8 @@ data class Prefs(
     val distroRootfsUrl: String = DistroManager.DEFAULT_ROOTFS_URL,
     val prootNoSeccomp: Boolean = true,
     val bindWorkspace: Boolean = true,
+    /** Kalau true, semua tool sensitif langsung di-approve tanpa prompt. */
+    val autoApproveTools: Boolean = false,
 ) {
     fun toExecSettings(): ExecSettings = ExecSettings(
         allowlist = execAllowlist.split(',').map { it.trim() }.filter { it.isNotEmpty() },
@@ -119,6 +121,7 @@ class Persistence(private val context: Context) {
         distroRootfsUrl = runBlockingGet("distro_rootfs_url") ?: DistroManager.DEFAULT_ROOTFS_URL,
         prootNoSeccomp = (runBlockingGet("proot_no_seccomp") ?: "true").toBoolean(),
         bindWorkspace = (runBlockingGet("bind_workspace") ?: "true").toBoolean(),
+        autoApproveTools = (runBlockingGet("auto_approve_tools") ?: "false").toBoolean(),
     )
 
     private suspend fun runBlockingGet(key: String): String? =
@@ -137,6 +140,7 @@ class Persistence(private val context: Context) {
             it[stringPreferencesKey("distro_rootfs_url")] = prefs.distroRootfsUrl
             it[stringPreferencesKey("proot_no_seccomp")] = prefs.prootNoSeccomp.toString()
             it[stringPreferencesKey("bind_workspace")] = prefs.bindWorkspace.toString()
+            it[stringPreferencesKey("auto_approve_tools")] = prefs.autoApproveTools.toString()
         }
     }
 }

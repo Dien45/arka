@@ -27,6 +27,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -272,6 +273,26 @@ fun SettingsScreen(
                 }
             },
         )
+
+        HorizontalDivider(Modifier.padding(vertical = 8.dp))
+
+        SectionHeader(t(Key.AUTO_APPROVE_SECTION))
+        Row(
+            Modifier.fillMaxWidth().padding(vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                t(Key.AUTO_APPROVE_DESC),
+                style = MaterialTheme.typography.bodyMedium,
+                modifier = Modifier.weight(1f),
+            )
+            Switch(
+                checked = prefs.autoApproveTools,
+                onCheckedChange = { value ->
+                    store.updatePrefs { it.copy(autoApproveTools = value) }
+                },
+            )
+        }
 
         SectionHeader(t(Key.ABOUT))
         Text(
