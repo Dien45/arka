@@ -77,7 +77,8 @@ class ToolRegistry(
             "Full Linux userland (sh, apk, git, python3, node, ...) - use it for real builds/tests and to run skill scripts. " +
             "Working directory is the session workspace, so files created with write_file are visible here (and vice versa). " +
             "Requires user approval before running."),
-        "memory" to "Manage persistent memory. Actions: add (add new entry), replace (update existing entry using substring match), remove (delete entry using substring match). Target can be \"memory\" (agent notes) or \"user\" (user profile). Requires user approval before running.",
+        "memory" to "Manage persistent memory. Actions: add (add new entry), replace (update existing entry using substring match), remove (delete entry using substring match), search (find entries containing a keyword). Target can be \"memory\" (agent notes) or \"user\" (user profile). Requires user approval before running.",
+        "session_search" to "Search past conversation messages across all sessions. Returns matching messages with session id, role, content snippet, and timestamp. Use this to recall what was discussed in previous sessions.",
     )
 
     private fun parametersFor(name: String): JsonObject {
@@ -125,7 +126,7 @@ class ToolRegistry(
                 "memory" -> {
                     put("action", buildJsonObject {
                         put("type", "string")
-                        put("enum", strArray("add", "replace", "remove"))
+                        put("enum", strArray("add", "replace", "remove", "search"))
                         put("description", "Action to perform")
                     })
                     put("target", buildJsonObject {
@@ -140,9 +141,18 @@ class ToolRegistry(
                     })
                     put("old_text", buildJsonObject {
                         put("type", "string")
-                        put("description", "Substring to match for replace/remove actions")
+                        put("description", "Substring to match for replace/remove/search actions")
                         put("required", false)
                     })
+                }
+                "session_search" -> {
+                    put("query", p("Search keywords to find in past messages"))
+                    put("limit", buildJsonObject {
+                        put("type", "integer")
+                        put("description", "Max results (default 10, max 50)")
+                        put("required", false)
+                    })
+                    put("required", strArray("query"))
                 }
             }
         }
@@ -165,6 +175,7 @@ class ToolRegistry(
                 "stage_commit" -> stageCommit(str("message"), sessionId)
                 "run_command" -> runCommand(str("command"), sessionId)
                 "memory" -> memoryTool(args)
+                "session_search" -> sessionSearchTool(args)
                 else -> "Error: Tool \"$name\" not found"
             }
         } catch (e: Exception) {
@@ -523,8 +534,36 @@ class ToolRegistry(
                 if (oldText.isEmpty()) return json.encodeToString(MemoryResult.serializer(), MemoryResult(false, error = "old_text is required for remove action"))
                 memoryManager.remove(target, oldText)
             }
+            "search" -> {
+                val query = oldText.ifBlank { content }
+                if (query.isEmpty()) return json.encodeToString(MemoryResult.serializer(), MemoryResult(false, error = "old_text or content is required for search action"))
+                val matches = memoryManager.search(query, target)
+                if (matches.isEmpty()) {
+                    MemoryResult(success = true, currentEntries = emptyList(), usage = "0 matches for \"$query\"")
+                } else {
+                    MemoryResult(success = true, currentEntries = matches.map { "[${it.id}] ${it.content}" }, usage = "${matches.size} matches for \"$query\"")
+                }
+            }
             else -> MemoryResult(false, error = "Invalid action")
         }
         return json.encodeToString(MemoryResult.serializer(), result)
+    }
+
+    private fun sessionSearchTool(args: JsonObject): String {
+        fun str(key: String): String = args[key]?.jsonPrimitive?.contentOrNull ?: ""
+        val query = str("query")
+        if (query.isBlank()) return "Error: query is required"
+        val limit = args["limit"]?.jsonPrimitive?.contentOrNull?.toIntOrNull() ?: 10
+        val results = SessionIndex.getInstance(context).search(query, limit.coerceIn(1, 50))
+        if (results.isEmpty()) return "No matching messages found for \"$query\"."
+        val sb = StringBuilder("Found ${results.size} matching message(s):\n\n")
+        val fmt = java.text.SimpleDateFormat("yyyy-MM-dd HH:mm", java.util.Locale.US)
+        for (r in results) {
+            sb.append("[${r.role}] session=${r.sessionId} time=${fmt.format(java.util.Date(r.timestamp))}\n")
+            sb.append(r.content.take(300))
+            if (r.content.length > 300) sb.append("...")
+            sb.append("\n---\n")
+        }
+        return sb.toString()
     }
 }
