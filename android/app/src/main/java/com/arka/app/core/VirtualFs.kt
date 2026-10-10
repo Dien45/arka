@@ -172,7 +172,7 @@ class VirtualFs(private val context: Context) {
         ".git", "node_modules", "build", ".gradle", "dist", ".next",
         "target", "vendor", "__pycache__", ".cache", "rootfs", "distro",
     )
-    private const val MAX_TREE_ENTRIES = 3000
+    private val maxTreeEntries = 3000
 
     private fun listEntriesUnder(root: File): List<FsEntry> {
         if (!root.exists()) return emptyList()
@@ -181,7 +181,7 @@ class VirtualFs(private val context: Context) {
             .onEnter { it.name !in skipDirNames }
             .forEach { f ->
                 if (f == root) return@forEach
-                if (out.size >= MAX_TREE_ENTRIES) return out.sortedBy { it.path.lowercase() }
+                if (out.size >= maxTreeEntries) return out.sortedBy { it.path.lowercase() }
                 val rel = f.relativeTo(root).path.replace(File.separatorChar, '/')
                 out.add(FsEntry(path = rel, size = if (f.isFile) f.length() else 0L, modified = f.lastModified(), isDir = f.isDirectory))
             }
