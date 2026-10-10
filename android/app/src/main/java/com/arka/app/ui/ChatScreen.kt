@@ -137,7 +137,7 @@ fun ChatScreen(
                 } catch (e: CancellationException) {
                     throw e
                 } catch (e: Exception) {
-                    Toast.makeText(context, e.message ?: "Gagal membaca file", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(context, e.message ?: I18n.t(prefs.language, Key.FAILED_READ_FILE), Toast.LENGTH_SHORT).show()
                     null
                 }
                 if (loaded != null) {
@@ -179,7 +179,7 @@ fun ChatScreen(
                         Session(
                             id = newId,
                             title = trimmed
-                                .ifBlank { atts.firstOrNull()?.name ?: "Sesi Baru" }
+                                .ifBlank { atts.firstOrNull()?.name ?: I18n.t(prefs.language, Key.NEW_SESSION) }
                                 .replace('\n', ' ')
                                 .take(28),
                             createdAt = System.currentTimeMillis(),
@@ -217,6 +217,7 @@ fun ChatScreen(
                 attachments = attachments,
                 onAttachClick = { pickLauncher.launch(arrayOf("*/*")) },
                 onRemoveAttachment = { att -> attachments = attachments - att },
+                language = prefs.language,
             )
         },
     ) { padding ->
@@ -521,6 +522,7 @@ private fun InputBar(
     attachments: List<Attachment>,
     onAttachClick: () -> Unit,
     onRemoveAttachment: (Attachment) -> Unit,
+    language: ArkaLanguage,
 ) {
     var modeMenuExpanded by remember { mutableStateOf(false) }
 
@@ -624,7 +626,7 @@ private fun InputBar(
                             Box {
                                 if (input.isEmpty()) {
                                     Text(
-                                        "Tanyakan sesuatu tentang kode...",
+                                        I18n.t(language, Key.ASK_ABOUT_CODE),
                                         style = MaterialTheme.typography.bodyLarge,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     )

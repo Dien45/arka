@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -59,6 +60,8 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import com.arka.app.core.Action
 import com.arka.app.core.GitHubRepo
+import com.arka.app.core.I18n
+import com.arka.app.core.Key
 import com.arka.app.core.StagedCommit
 import com.arka.app.core.StagedCommits
 import com.arka.app.core.Store
@@ -89,6 +92,8 @@ fun GitHubScreen(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val state by store.state.collectAsState()
+    val prefs by store.prefs.collectAsState()
+    val t = { k: String -> I18n.t(prefs.language, k) }
     val fs = remember { VirtualFs(context) }
     val stagedStore = remember { StagedCommits(context) }
     val json = remember { Json { ignoreUnknownKeys = true; prettyPrint = true; encodeDefaults = true } }
@@ -272,13 +277,13 @@ fun GitHubScreen(
                 Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(vertical = 4.dp)) {
                     CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
                     Spacer(Modifier.width(8.dp))
-                    Text("Bekerja…", style = MaterialTheme.typography.bodySmall)
+                    Text(t(Key.WORKING), style = MaterialTheme.typography.bodySmall)
                 }
             }
 
             // -------------------------------------------------------- connect
             if (!state.githubConnected) {
-                Text("Hubungkan akun", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                Text(t(Key.CONNECT_ACCOUNT), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                 Text(
                     "Buat Personal Access Token di GitHub (Settings → Developer settings), scope minimal \"repo\", " +
                         "lalu tempel di sini. Token disimpan terenkripsi (EncryptedSharedPreferences).",
@@ -306,14 +311,14 @@ fun GitHubScreen(
                     onClick = { connect(tokenInput.trim()) },
                     enabled = tokenInput.isNotBlank() && !busy,
                     modifier = Modifier.fillMaxWidth(),
-                ) { Text("Hubungkan") }
+                ) { Text(t(Key.CONNECT)) }
             } else {
                 Card(
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer),
                     modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
                 ) {
                     Column(Modifier.padding(12.dp)) {
-                        Text("Terhubung", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                        Text(t(Key.CONNECTED_SHORT), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
                         Text(
                             "${state.githubRepos.size} repository tersedia",
                             style = MaterialTheme.typography.bodySmall,
@@ -321,19 +326,19 @@ fun GitHubScreen(
                     }
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 8.dp)) {
-                    OutlinedButton(onClick = { showCreateRepo = true }, enabled = !busy) { Text("Repo baru") }
+                    OutlinedButton(onClick = { showCreateRepo = true }, enabled = !busy) { Text(t(Key.NEW_REPO)) }
                     OutlinedButton(onClick = {
                         store.dispatch(Action.SetGithubToken(""))
                         store.dispatch(Action.SetGithubRepos(emptyList()))
                         store.dispatch(Action.SetGithubConnected(false))
                         selectedRepo = null
                         status = "Token dihapus."
-                    }) { Text("Putuskan") }
+                    }) { Text(t(Key.DISCONNECT)) }
                 }
 
                 // ------------------------------------------------------ repos
                 Text(
-                    "Pilih repository",
+                    t(Key.SELECT_REPO),
                     style = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.SemiBold,
                     modifier = Modifier.padding(top = 12.dp, bottom = 4.dp),
@@ -341,7 +346,7 @@ fun GitHubScreen(
                 OutlinedTextField(
                     value = search,
                     onValueChange = { search = it },
-                    label = { Text("Cari repo…") },
+                    label = { Text(t(Key.SEARCH_REPO)) },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                 )
@@ -382,16 +387,16 @@ fun GitHubScreen(
                 // ----------------------------------------------------- branch
                 selectedRepo?.let { repo ->
                     Text(
-                        "Branch (${repo.fullName})",
+                        "${t(Key.BRANCH)} (${repo.fullName})",
                         style = MaterialTheme.typography.titleSmall,
                         fontWeight = FontWeight.SemiBold,
                         modifier = Modifier.padding(top = 8.dp, bottom = 4.dp),
                     )
-                    Row(
+                    LazyRow(
                         Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(6.dp),
                     ) {
-                        branches.take(6).forEach { branch ->
+                        items(branches, key = { it }) { branch ->
                             FilterChip(
                                 selected = branch == selectedBranch,
                                 onClick = { selectedBranch = branch },
@@ -402,7 +407,7 @@ fun GitHubScreen(
                     OutlinedTextField(
                         value = selectedBranch ?: "",
                         onValueChange = { selectedBranch = it },
-                        label = { Text("Branch tujuan (bisa diketik manual)") },
+                        label = { Text(t(Key.TARGET_BRANCH)) },
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
                     )
@@ -410,15 +415,15 @@ fun GitHubScreen(
 
                 // ------------------------------------------------- push files
                 Text(
-                    "Push file workspace",
+                    t(Key.PUSH_FILES),
                     style = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.SemiBold,
                     modifier = Modifier.padding(top = 12.dp, bottom = 4.dp),
                 )
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    TextButton(onClick = { selectedFiles = files.map { it.first }.toSet() }) { Text("Pilih semua") }
-                    TextButton(onClick = { selectedFiles = emptySet() }) { Text("Kosongkan") }
-                    TextButton(onClick = { refreshKey++ }) { Text("Muat ulang file") }
+                    TextButton(onClick = { selectedFiles = files.map { it.first }.toSet() }) { Text(t(Key.SELECT_ALL)) }
+                    TextButton(onClick = { selectedFiles = emptySet() }) { Text(t(Key.CLEAR)) }
+                    TextButton(onClick = { refreshKey++ }) { Text(t(Key.RELOAD_FILES)) }
                 }
                 if (files.isEmpty()) {
                     Text(
@@ -449,7 +454,7 @@ fun GitHubScreen(
                 OutlinedTextField(
                     value = commitMessage,
                     onValueChange = { commitMessage = it },
-                    label = { Text("Commit message") },
+                    label = { Text(t(Key.COMMIT_MESSAGE)) },
                     placeholder = { Text("feat: tambah fitur X") },
                     modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
                 )
@@ -502,7 +507,7 @@ fun GitHubScreen(
                                     stagedStore.remove(commit.id)
                                     staged = stagedStore.load()
                                     status = "Checkpoint dihapus."
-                                }) { Text("Buang", color = MaterialTheme.colorScheme.error) }
+                                }) { Text(t(Key.DISCARD), color = MaterialTheme.colorScheme.error) }
                             }
                         }
                     }
@@ -518,14 +523,14 @@ fun GitHubScreen(
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedButton(onClick = {
                         manifestExporter.launch("arka-sync-manifest.json")
-                    }) { Text("Ekspor") }
+                    }) { Text(t(Key.EXPORT)) }
                     OutlinedButton(onClick = { manifestImporter.launch(arrayOf("application/json", "*/*")) }) {
-                        Text("Impor")
+                        Text(t(Key.IMPORT))
                     }
                     OutlinedButton(onClick = {
                         staged = stagedStore.load()
                         refreshKey++
-                    }) { Text("Muat ulang") }
+                    }) { Text(t(Key.RELOAD)) }
                 }
             }
 

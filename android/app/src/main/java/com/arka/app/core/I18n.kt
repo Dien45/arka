@@ -132,6 +132,37 @@ object Key {
     const val EXEC_FAILED = "execFailed"
     const val MEMORY_SECTION = "memorySection"
     const val PLACEHOLDER_TOOL_INPUT = "placeholderToolInput"
+
+    // UI tambahan (beyond i18n.ts)
+    const val PRD = "prd"
+    const val TYPING = "typing"
+    const val FILE_TOO_LARGE = "fileTooLarge"
+    const val FAILED_READ_FILE = "failedReadFile"
+    // GitHub panel
+    const val NEW_REPO = "newRepo"
+    const val SELECT_REPO = "selectRepo"
+    const val SEARCH_REPO = "searchRepo"
+    const val PUSH_FILES = "pushFiles"
+    const val SELECT_ALL = "selectAll"
+    const val CLEAR = "clear"
+    const val RELOAD_FILES = "reloadFiles"
+    const val WORKING = "working"
+    const val CONNECT_ACCOUNT = "connectAccount"
+    const val TARGET_BRANCH = "targetBranch"
+    const val EXPORT = "export"
+    const val IMPORT = "import"
+    const val RELOAD = "reload"
+    const val DISCARD = "discard"
+    const val CONNECTED_SHORT = "connectedShort"
+    // Skills
+    const val INSTALL_FROM_GITHUB = "installFromGithub"
+    const val READ = "read"
+    const val DETAIL = "detail"
+    const val INSTALLED_TITLE = "installedTitle"
+    const val NO_SKILLS_INSTALLED = "noSkillsInstalled"
+    const val RESYNC = "resync"
+    const val REMOVE = "remove"
+    const val BUILTIN_CATALOG = "builtinCatalog"
 }
 
 object I18n {
@@ -194,6 +225,23 @@ object I18n {
         Key.EXEC_SERVER_URL to "Exec Server URL", Key.EXEC_TEST to "Test Koneksi",
         Key.EXEC_CONNECTED to "Terhubung", Key.EXEC_FAILED to "Gagal terhubung",
         Key.MEMORY_SECTION to "Memory", Key.PLACEHOLDER_TOOL_INPUT to "Menjalankan tool...",
+        // UI tambahan
+        Key.PRD to "PRD", Key.TYPING to "Arka sedang mengetik...",
+        Key.FILE_TOO_LARGE to "File terlalu besar (maksimal 15 MB)",
+        Key.FAILED_READ_FILE to "Gagal membaca file",
+        Key.NEW_REPO to "Repo baru", Key.SELECT_REPO to "Pilih repository",
+        Key.SEARCH_REPO to "Cari repo…", Key.PUSH_FILES to "Push file workspace",
+        Key.SELECT_ALL to "Pilih semua", Key.CLEAR to "Kosongkan",
+        Key.RELOAD_FILES to "Muat ulang file", Key.WORKING to "Bekerja…",
+        Key.CONNECT_ACCOUNT to "Hubungkan akun",
+        Key.TARGET_BRANCH to "Branch tujuan (bisa diketik manual)",
+        Key.EXPORT to "Ekspor", Key.IMPORT to "Impor", Key.RELOAD to "Muat ulang",
+        Key.DISCARD to "Buang", Key.CONNECTED_SHORT to "Terhubung",
+        Key.INSTALL_FROM_GITHUB to "Pasang dari GitHub", Key.READ to "Baca",
+        Key.DETAIL to "Detail", Key.INSTALLED_TITLE to "Terpasang",
+        Key.NO_SKILLS_INSTALLED to "Belum ada skill terpasang.",
+        Key.RESYNC to "Sinkron ulang", Key.REMOVE to "Lepas",
+        Key.BUILTIN_CATALOG to "Katalog bawaan (prompt-only)",
     )
 
     private val en: Map<String, String> = mapOf(
@@ -255,6 +303,23 @@ object I18n {
         Key.EXEC_SERVER_URL to "Exec Server URL", Key.EXEC_TEST to "Test Connection",
         Key.EXEC_CONNECTED to "Connected", Key.EXEC_FAILED to "Failed to connect",
         Key.MEMORY_SECTION to "Memory", Key.PLACEHOLDER_TOOL_INPUT to "Running tool...",
+        // UI tambahan
+        Key.PRD to "PRD", Key.TYPING to "Arka is typing...",
+        Key.FILE_TOO_LARGE to "File too large (max 15 MB)",
+        Key.FAILED_READ_FILE to "Failed to read file",
+        Key.NEW_REPO to "New repo", Key.SELECT_REPO to "Select repository",
+        Key.SEARCH_REPO to "Search repos…", Key.PUSH_FILES to "Push workspace files",
+        Key.SELECT_ALL to "Select all", Key.CLEAR to "Clear",
+        Key.RELOAD_FILES to "Reload files", Key.WORKING to "Working…",
+        Key.CONNECT_ACCOUNT to "Connect account",
+        Key.TARGET_BRANCH to "Target branch (can type manually)",
+        Key.EXPORT to "Export", Key.IMPORT to "Import", Key.RELOAD to "Reload",
+        Key.DISCARD to "Discard", Key.CONNECTED_SHORT to "Connected",
+        Key.INSTALL_FROM_GITHUB to "Install from GitHub", Key.READ to "Read",
+        Key.DETAIL to "Detail", Key.INSTALLED_TITLE to "Installed",
+        Key.NO_SKILLS_INSTALLED to "No skills installed.",
+        Key.RESYNC to "Resync", Key.REMOVE to "Remove",
+        Key.BUILTIN_CATALOG to "Built-in catalog (prompt-only)",
     )
 
     fun t(lang: ArkaLanguage, key: String): String {

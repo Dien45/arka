@@ -89,7 +89,7 @@ fun SettingsScreen(
             IconButton(onClick = onOpenDrawer) {
                 Icon(Icons.Default.Menu, contentDescription = "Menu")
             }
-            Text("Pengaturan", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+            Text(t(Key.SETTINGS), style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
         }
 
         skills?.let { sm ->
@@ -312,7 +312,7 @@ fun SettingsScreen(
                     memory.replace(target, entry.content, editText.trim())
                     memRefresh++
                     editing = null
-                }) { Text("Simpan") }
+                }) { Text(t(Key.SAVE)) }
             },
             dismissButton = {
                 TextButton(onClick = { editing = null }) { Text(t(Key.CANCEL)) }
