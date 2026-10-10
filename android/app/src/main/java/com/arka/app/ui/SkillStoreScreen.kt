@@ -238,8 +238,8 @@ fun SkillStoreScreen(
                 .padding(horizontal = 12.dp),
         ) {
             Text(
-                "Skill yang dipasang dari GitHub disimpan di perangkat lalu tersedia GLOBAL di proot workspace "
-                    "(/root/workspace/skills/<id>/) untuk semua sesi. Masukkan link/owner-repo → dipasang otomatis; "
+                "Skill yang dipasang dari GitHub disimpan di perangkat lalu tersedia GLOBAL di proot workspace " +
+                    "(/root/workspace/skills/<id>/) untuk semua sesi. Masukkan link/owner-repo → dipasang otomatis; " +
                     "cukup nama skill → muncul daftar untuk dipilih.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
