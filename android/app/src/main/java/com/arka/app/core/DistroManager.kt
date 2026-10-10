@@ -350,29 +350,42 @@ class DistroManager(private val context: Context) {
     /**
      * Rangkaian argv untuk menjalankan [command] di dalam distro.
      * Mengembalikan null kalau prasyarat (proot + rootfs) belum siap.
+     *
+     * [prootWorkspaceDir] (root bersama semua sesi) di-bind ke `/root/workspace`;
+     * cwd command diarahkan ke subfolder sesi (`/root/workspace/sessions/<sid>`)
+     * kalau tersedia.
      */
     fun buildProotCommand(
         command: String,
-        workspaceDir: File?,
+        prootWorkspaceDir: File?,
+        sessionWorkspaceDir: File?,
         settings: ExecSettings,
     ): List<String>? {
         val proot = prootBinary() ?: return null
         val loader = loaderBinary() ?: return null
         if (!isInstalled()) return null
 
+        val pw = prootWorkspaceDir
+        val bindWorkspace = settings.bindWorkspace && pw != null
+        val workdir = if (bindWorkspace && sessionWorkspaceDir != null) {
+            "/root/workspace/sessions/${sessionWorkspaceDir.name}"
+        } else {
+            "/root"
+        }
+
         val argv = mutableListOf(
             proot.absolutePath,
             "--kill-on-exit",
             "-0",
             "-r", rootfsDir.absolutePath,
-            "-w", "/root",
+            "-w", workdir,
             "-b", "/dev",
             "-b", "/proc",
             "-b", "/sys",
             "-b", rootfsDir.absolutePath + "/tmp:/dev/shm",
         )
-        if (settings.bindWorkspace && workspaceDir != null) {
-            argv += listOf("-b", "${workspaceDir.absolutePath}:/root/workspace")
+        if (bindWorkspace && pw != null) {
+            argv += listOf("-b", "${pw.absolutePath}:/root/workspace")
         }
         argv += listOf(
             "/usr/bin/env",

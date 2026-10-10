@@ -72,12 +72,13 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /**
- * M7 — File Explorer native untuk workspace sesi.
+ * M7 — File Explorer native untuk proot workspace.
  *
- * Semua file di sini adalah file **nyata** di `<filesDir>/sessions/<id>/workspace`,
- * folder yang sama yang dipakai `run_command` sebagai cwd dan di-bind ke
- * `/root/workspace` di distro Alpine. Jadi apa yang dibuat AI lewat write_file
- * langsung kelihatan di sini, bisa diedit tangan, lalu dijalankan lewat shell.
+ * Tab ini menampilkan **proot workspace** (`<filesDir>/workspace/`) — folder
+ * yang di-bind ke `/root/workspace` di distro Alpine. Tiap chat session punya
+ * subfolder sendiri di `sessions/<id>/` (cwd run_command); file yang dibuat AI
+ * lewat write_file langsung kelihatan di sini, bisa diedit tangan, lalu
+ * dijalankan lewat shell.
  *
  * Fitur: pohon folder, tab file, editor, preview (Markdown/SVG/HTML/CSV),
  * buat file & folder, rename, hapus, impor ZIP/file, unduh ZIP.
@@ -98,7 +99,9 @@ fun FileExplorerScreen(
     var refreshKey by remember { mutableIntStateOf(0) }
     var openTabs by remember(sessionId) { mutableStateOf(listOf<String>()) }
     var activeTab by remember(sessionId) { mutableStateOf<String?>(null) }
-    var expanded by remember(sessionId) { mutableStateOf(setOf<String>()) }
+    var expanded by remember(sessionId) {
+        mutableStateOf(setOf("sessions", "sessions/" + fs.sanitizeSessionId(sessionId)))
+    }
     var draft by remember { mutableStateOf("") }
     var dirty by remember { mutableStateOf(false) }
     var previewMode by remember { mutableStateOf(true) }
@@ -112,13 +115,13 @@ fun FileExplorerScreen(
     var showNewFile by remember { mutableStateOf(false) }
     var showNewFolder by remember { mutableStateOf(false) }
 
-    val entries = remember(refreshKey, sessionId) { fs.tree(sessionId) }
+    val entries = remember(refreshKey) { fs.treeProot() }
     val files = entries.filterNot { it.isDir }
 
     fun openFile(path: String) {
         if (path !in openTabs) openTabs = openTabs + path
         activeTab = path
-        draft = fs.read(sessionId, path) ?: ""
+        draft = fs.readProot(path) ?: ""
         dirty = false
         showTree = false
     }
@@ -151,7 +154,7 @@ fun FileExplorerScreen(
             val ok = withContext(Dispatchers.IO) {
                 runCatching {
                     context.contentResolver.openInputStream(uri)?.use { stream ->
-                        fs.writeBytes(sessionId, name, stream.readBytes())
+                        fs.writeBytesProot(name, stream.readBytes())
                     } ?: false
                 }.getOrDefault(false)
             }
@@ -206,7 +209,7 @@ fun FileExplorerScreen(
                         TextButton(
                             onClick = {
                                 activeTab?.let { path ->
-                                    val ok = fs.write(sessionId, path, draft)
+                                    val ok = fs.writeProot(path, draft)
                                     refresh(if (ok) "Tersimpan: $path" else "Gagal menyimpan $path")
                                     dirty = false
                                 }
@@ -330,7 +333,7 @@ fun FileExplorerScreen(
             onConfirm = {
                 val name = newFileName.trim()
                 if (name.isNotEmpty()) {
-                    fs.write(sessionId, name, "")
+                    fs.writeProot(name, "")
                     if (name !in openTabs) openTabs = openTabs + name
                     activeTab = name
                     draft = ""
@@ -354,7 +357,7 @@ fun FileExplorerScreen(
             onConfirm = {
                 val name = newFolderName.trim().trimEnd('/')
                 if (name.isNotEmpty()) {
-                    val f = fs.resolve(sessionId, "$name/.keep")
+                    val f = fs.resolveProot("$name/.keep")
                     if (f != null) {
                         f.parentFile?.mkdirs()
                         f.writeText("")
@@ -377,9 +380,9 @@ fun FileExplorerScreen(
             onConfirm = {
                 val newPath = renameDraft.trim()
                 if (newPath.isNotEmpty() && newPath != path) {
-                    val content = fs.read(sessionId, path)
-                    if (content != null && fs.write(sessionId, newPath, content)) {
-                        fs.remove(sessionId, path)
+                    val content = fs.readProot(path)
+                    if (content != null && fs.writeProot(newPath, content)) {
+                        fs.removeProot(path)
                         openTabs = openTabs.map { if (it == path) newPath else it }
                         if (activeTab == path) activeTab = newPath
                         refresh("Dipindahkan ke $newPath")
@@ -399,7 +402,7 @@ fun FileExplorerScreen(
             text = { Text(path) },
             confirmButton = {
                 TextButton(onClick = {
-                    fs.remove(sessionId, path)
+                    fs.removeProot(path)
                     openTabs = openTabs - path
                     if (activeTab == path) activeTab = openTabs.firstOrNull()
                     deleteTarget = null
@@ -437,10 +440,11 @@ private fun TreePane(
 
         if (entries.isEmpty()) {
             Column(Modifier.padding(16.dp)) {
-                Text("Workspace sesi ini masih kosong.", style = MaterialTheme.typography.bodyMedium)
+                Text("Proot workspace masih kosong.", style = MaterialTheme.typography.bodyMedium)
                 Spacer(Modifier.height(6.dp))
                 Text(
-                    "File yang dibuat AI lewat tool write_file muncul di sini, atau tambahkan sendiri dengan Impor / + File.",
+                    "Folder sessions/<id-sesi> di bawah ini di-bind ke /root/workspace di Alpine. "
+                        + "File yang dibuat AI lewat write_file muncul di sini, atau tambahkan sendiri dengan Impor / + File.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )

@@ -1,15 +1,18 @@
 package com.arka.app.ui
 
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Chat
 import androidx.compose.material.icons.filled.Description
@@ -24,9 +27,9 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalDrawerSheet
 import androidx.compose.material3.ModalNavigationDrawer
-import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
@@ -151,14 +154,20 @@ fun ArkaRoot() {
             ) {
                 Scaffold(
                     bottomBar = {
-                        NavigationBar {
-                            primaryViews.forEach { (view, label, icon) ->
-                                NavigationBarItem(
-                                    selected = state.currentView == view,
-                                    onClick = { store.dispatch(Action.SetView(view)) },
-                                    icon = { Icon(icon, contentDescription = label) },
-                                    label = { Text(label, style = MaterialTheme.typography.labelSmall) },
-                                )
+                        Surface(tonalElevation = 3.dp) {
+                            Row(
+                                Modifier
+                                    .fillMaxWidth()
+                                    .horizontalScroll(rememberScrollState()),
+                            ) {
+                                primaryViews.forEach { (view, label, icon) ->
+                                    NavigationBarItem(
+                                        selected = state.currentView == view,
+                                        onClick = { store.dispatch(Action.SetView(view)) },
+                                        icon = { Icon(icon, contentDescription = label) },
+                                        label = { Text(label, style = MaterialTheme.typography.labelSmall) },
+                                    )
+                                }
                             }
                         }
                     },

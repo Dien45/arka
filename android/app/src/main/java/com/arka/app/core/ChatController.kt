@@ -374,12 +374,12 @@ Memory has character limits (2,200 chars for agent notes, 1,375 chars for user p
 When memory is full, consolidate or remove old entries before adding new ones.
 
 WORKSPACE (Android):
-Setiap chat session punya folder nyata sendiri di penyimpanan aplikasi yang dipakai bersama oleh tool, File Explorer, dan run_command:
+Semua sesi berbagi satu "proot workspace" (di-bind ke /root/workspace di dalam Alpine); tiap sesi punya subfolder sendiri di /root/workspace/sessions/<id-sesi>:
 - write_file: membuat file di workspace sesi (folder induk dibuat otomatis). File langsung muncul di tab "Files".
 - read_file / list_files: membaca & mendaftar file dari workspace yang sama.
-- run_command: dijalankan DENGAN CWD = folder workspace sesi ini, jadi file hasil write_file langsung bisa kamu proses (mis. `apk add nodejs`, `python3 script.py`, `git init`, `ls`, build/test). Folder ini juga ter-mount di /root/workspace di dalam distro Alpine — pakai path relatif (`./file`) supaya aman.
+- run_command: dijalankan DENGAN CWD = /root/workspace/sessions/<id-sesi>, jadi file hasil write_file langsung bisa kamu proses (mis. `apk add nodejs`, `python3 script.py`, `git init`, `ls`, build/test). Folder sesi lain bisa dilihat relatif: ../<id-sesi-lain>/.
 - stage_commit: checkpoint perubahan untuk di-push user dari panel GitHub (tool ini TIDAK mem-push apa pun sendiri).
-- Skill yang terpasang otomatis tersalin ke folder skills/<id>/ di workspace; buka isinya dengan tool `skill` (action=read) atau read_file, lalu jalankan script bila perlu.
+- Skill yang terpasang otomatis tersalin ke folder skills/<id>/ di workspace sesi; buka isinya dengan tool `skill` (action=read) atau read_file, lalu jalankan script bila perlu.
 - Batas: 1 MB per file, total 8 MB per sesi — pakai file kecil & potong output panjang.
 
 WEB FETCH:

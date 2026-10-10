@@ -18,10 +18,8 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -37,7 +35,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -53,14 +50,11 @@ import com.arka.app.core.MemoryTarget
 import com.arka.app.core.SkillsManager
 import com.arka.app.core.Store
 import com.arka.app.core.USER_CHAR_LIMIT
-import com.arka.app.net.SimpleHttp
-import kotlinx.coroutines.launch
 
 /**
- * M4 — Settings screen: AI providers (reuses ProvidersSheet), command exec
- * server URL + connection test, memory browser (add/edit/delete/clear with
- * usage bars), appearance (theme light/dark/auto, font size), language
- * (id/en), and About.
+ * M4 — Settings screen: AI providers (reuses ProvidersSheet), memory browser
+ * (add/edit/delete/clear with usage bars), appearance (theme light/dark/auto,
+ * font size), language (id/en), and About.
  */
 @Composable
 fun SettingsScreen(
@@ -73,13 +67,7 @@ fun SettingsScreen(
     val prefs by store.prefs.collectAsState()
     val state by store.state.collectAsState()
     val t = { k: String -> I18n.t(prefs.language, k) }
-    val scope = rememberCoroutineScope()
-
     var showProviders by remember { mutableStateOf(false) }
-
-    var execUrl by remember { mutableStateOf(prefs.execUrl) }
-    var execTesting by remember { mutableStateOf(false) }
-    var execStatus by remember { mutableStateOf<String?>(null) }
 
     var memRefresh by remember { mutableIntStateOf(0) }
     var memTarget by remember { mutableStateOf(MemoryTarget.MEMORY) }
@@ -145,64 +133,6 @@ fun SettingsScreen(
                         )
                     }
                 }
-            }
-        }
-
-        SectionHeader("Eksekusi Command")
-        OutlinedTextField(
-            value = execUrl,
-            onValueChange = {
-                execUrl = it
-                store.updatePrefs { p -> p.copy(execUrl = it) }
-            },
-            label = { Text(t(Key.EXEC_SERVER_URL)) },
-            singleLine = true,
-            modifier = Modifier.fillMaxWidth(),
-        )
-        Spacer(Modifier.height(6.dp))
-        Text(
-            if (prefs.language == ArkaLanguage.ID) {
-                "Di Android, run_command dieksekusi langsung di perangkat (tanpa server). URL ini hanya dipertahankan " +
-                    "untuk kompatibilitas skema config dengan versi web."
-            } else {
-                "On Android run_command executes on-device (no server). This URL only exists for config-schema " +
-                    "compatibility with the web build."
-            },
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        Spacer(Modifier.height(8.dp))
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Button(onClick = {
-                scope.launch {
-                    execTesting = true
-                    execStatus = null
-                    execStatus = try {
-                        val (code, _) = SimpleHttp.get(execUrl.trim())
-                        "${t(Key.EXEC_CONNECTED)} (HTTP $code)"
-                    } catch (e: Exception) {
-                        "${t(Key.EXEC_FAILED)}: ${e.message.orEmpty().take(60)}"
-                    }
-                    execTesting = false
-                }
-            }, enabled = !execTesting) {
-                if (execTesting) {
-                    CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
-                } else {
-                    Text(t(Key.EXEC_TEST))
-                }
-            }
-            Spacer(Modifier.width(8.dp))
-            execStatus?.let {
-                Text(
-                    it,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = if (it.startsWith(t(Key.EXEC_CONNECTED))) {
-                        MaterialTheme.colorScheme.tertiary
-                    } else {
-                        MaterialTheme.colorScheme.error
-                    },
-                )
             }
         }
 

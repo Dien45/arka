@@ -157,7 +157,7 @@ fun SkillStoreScreen(
         candidates = emptyList()
         scope.launch {
             try {
-                val found = SkillFetcher.discover(repoInput, token)
+                val found = SkillFetcher.discover(repoInput, token).distinctBy { it.id }
                 candidates = found
                 status = if (found.isEmpty()) {
                     "Tidak ada skill yang ditemukan."
@@ -271,7 +271,7 @@ fun SkillStoreScreen(
                                 .fillMaxWidth()
                                 .heightIn(max = 280.dp),
                         ) {
-                            items(visibleCandidates, key = { it.id }) { candidate ->
+                            items(visibleCandidates, key = { it.id + "|" + it.dir }) { candidate ->
                                 Row(
                                     Modifier
                                         .fillMaxWidth()
