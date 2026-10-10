@@ -9,6 +9,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -21,17 +22,21 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.imePadding
-import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.ime
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.union
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.AttachFile
@@ -50,7 +55,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
@@ -69,6 +73,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -100,7 +105,7 @@ import kotlinx.serialization.json.jsonObject
 
 /**
  * M3/M4. Chat screen: message list with markdown rendering, input bar with
- * file attachment picker (max 15 MB), Plan/Build/Agent mode dropdown,
+ * file attachment picker (max 15 MB), Plan/Build/Agent mode pill inside the input,
  * Send/Stop, model picker, and the sensitive-tool approval bottom sheet
  * (per-session). Session list (switch / rename / delete / new) lives in the
  * sidebar drawer.
@@ -524,8 +529,7 @@ private fun InputBar(
             .fillMaxWidth()
             .background(MaterialTheme.colorScheme.surface)
             .padding(horizontal = 12.dp, vertical = 8.dp)
-            .imePadding()
-            .navigationBarsPadding(),
+            .windowInsetsPadding(WindowInsets.ime.union(WindowInsets.navigationBars)),
     ) {
         if (attachments.isNotEmpty()) {
             Row(
@@ -575,38 +579,62 @@ private fun InputBar(
                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
-            Box {
-                OutlinedButton(
-                    onClick = { modeMenuExpanded = true },
-                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
+            Surface(
+                shape = RoundedCornerShape(24.dp),
+                color = MaterialTheme.colorScheme.surface,
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
+                modifier = Modifier.weight(1f),
+            ) {
+                Row(
+                    Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Text(modeLabel(mode), style = MaterialTheme.typography.labelMedium)
-                    Icon(Icons.Default.ArrowDropDown, contentDescription = null)
-                }
-                DropdownMenu(
-                    expanded = modeMenuExpanded,
-                    onDismissRequest = { modeMenuExpanded = false },
-                ) {
-                    ChatMode.entries.forEach { m ->
-                        DropdownMenuItem(
-                            text = { Text(modeLabel(m)) },
-                            onClick = {
-                                modeMenuExpanded = false
-                                onModeChange(m)
-                            },
-                        )
+                    Box {
+                        TextButton(
+                            onClick = { modeMenuExpanded = true },
+                            contentPadding = PaddingValues(0.dp),
+                        ) {
+                            Text(modeLabel(mode), style = MaterialTheme.typography.labelSmall)
+                            Icon(Icons.Default.ArrowDropDown, contentDescription = null)
+                        }
+                        DropdownMenu(
+                            expanded = modeMenuExpanded,
+                            onDismissRequest = { modeMenuExpanded = false },
+                        ) {
+                            ChatMode.entries.forEach { m ->
+                                DropdownMenuItem(
+                                    text = { Text(modeLabel(m)) },
+                                    onClick = {
+                                        modeMenuExpanded = false
+                                        onModeChange(m)
+                                    },
+                                )
+                            }
+                        }
                     }
+                    Spacer(Modifier.width(6.dp))
+                    BasicTextField(
+                        value = input,
+                        onValueChange = onInputChange,
+                        textStyle = MaterialTheme.typography.bodyLarge.copy(color = MaterialTheme.colorScheme.onSurface),
+                        cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                        maxLines = 4,
+                        modifier = Modifier.weight(1f),
+                        decorationBox = { innerTextField ->
+                            Box {
+                                if (input.isEmpty()) {
+                                    Text(
+                                        "Tanyakan sesuatu tentang kode...",
+                                        style = MaterialTheme.typography.bodyLarge,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                }
+                                innerTextField()
+                            }
+                        },
+                    )
                 }
             }
-            Spacer(Modifier.width(6.dp))
-            OutlinedTextField(
-                value = input,
-                onValueChange = onInputChange,
-                placeholder = { Text("Tanyakan sesuatu tentang kode...") },
-                shape = RoundedCornerShape(24.dp),
-                maxLines = 4,
-                modifier = Modifier.weight(1f),
-            )
             Spacer(Modifier.width(8.dp))
             if (isLoading) {
                 IconButton(onClick = onStop) {

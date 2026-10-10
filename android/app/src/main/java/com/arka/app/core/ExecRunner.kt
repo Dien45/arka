@@ -70,14 +70,21 @@ class ExecRunner(
             throw IllegalStateException("Distro Alpine belum siap: $reason.")
         }
 
-        val workspace = sessionId?.let { runCatching { VirtualFs(context).workspaceDir(it) }.getOrNull() }
-        return runProot(command, workspace, settings)
+        val fs = VirtualFs(context)
+        val prootWorkspace = runCatching { fs.prootWorkspaceDir() }.getOrNull()
+        val sessionWorkspace = sessionId?.let { runCatching { fs.workspaceDir(it) }.getOrNull() }
+        return runProot(command, prootWorkspace, sessionWorkspace, settings)
     }
 
     // ------------------------------------------------------------------- proot
 
-    private suspend fun runProot(command: String, workspace: File?, settings: ExecSettings): ExecResult {
-        val argv = distro.buildProotCommand(command, workspace, settings)
+    private suspend fun runProot(
+        command: String,
+        prootWorkspace: File?,
+        sessionWorkspace: File?,
+        settings: ExecSettings,
+    ): ExecResult {
+        val argv = distro.buildProotCommand(command, prootWorkspace, sessionWorkspace, settings)
             ?: throw IllegalStateException("Distro Alpine belum siap (rootfs atau binary proot tidak lengkap).")
 
         val builder = ProcessBuilder(argv)

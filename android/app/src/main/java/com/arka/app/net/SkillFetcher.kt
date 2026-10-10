@@ -163,7 +163,7 @@ object SkillFetcher {
                 .map { RemoteFile(it.path.removePrefix(prefix), it.size) }
             val folderName = dir.substringAfterLast('/').ifBlank { repo.substringAfter('/') }
             SkillCandidate(
-                id = "gh-${repo.replace('/', '-')}-${folderName}".take(80),
+                id = ("gh-${repo.replace('/', '-')}-${folderName}").take(64) + "-" + dir.hashCode().toUInt().toString(16),
                 name = folderName.replace('-', ' ').replace('_', ' ').trim(),
                 dir = dir,
                 files = files,

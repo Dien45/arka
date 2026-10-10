@@ -17,6 +17,6 @@ data class ExecSettings(
     val distroRootfsUrl: String = DistroManager.DEFAULT_ROOTFS_URL,
     /** proot butuh seccomp dimatikan di sebagian perangkat ARM64. */
     val prootNoSeccomp: Boolean = true,
-    /** Bind folder workspace sesi ke /root/workspace di dalam distro. */
+    /** Bind proot workspace (berisi folder per sesi) ke /root/workspace di dalam distro. */
     val bindWorkspace: Boolean = true,
 )

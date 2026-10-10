@@ -230,7 +230,7 @@ fun DistroSection(store: Store) {
         )
         Spacer(Modifier.width(8.dp))
         Text(
-            "Bind folder sesi ke /root/workspace",
+            "Bind proot workspace (semua sesi) ke /root/workspace",
             style = MaterialTheme.typography.bodySmall,
             modifier = Modifier.weight(1f),
         )
