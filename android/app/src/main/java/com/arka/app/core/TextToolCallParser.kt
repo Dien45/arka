@@ -27,6 +27,21 @@ private val BLOCK_RE = Regex(
     """\[TOOL_CALL:\s*([a-zA-Z0-9_]+)\s*\]([\s\S]*?)(?:\[/TOOL_CALL\]|</function>|(?=\[TOOL_CALL:)|$)""",
 )
 
+// fence form some models emit
+private val FENCE_TOOL_RE = Regex(
+    """```(?:tool|function)\s*([a-zA-Z0-9_]+)\s*\n([\s\S]*?)```""",
+)
+
+// bare JSON object some models emit
+private val JSON_TOOL_RE = Regex(
+    """\{\s*"name"\s*:\s*"([a-zA-Z0-9_]+)"\s*,\s*"arguments"\s*:\s*(\{[\s\S]*?\})\s*\}""",
+)
+
+// Anthropic XML-style invoke
+private val INVOKE_RE = Regex(
+    """<invoke\s+name\s*=\s*"([a-zA-Z0-9_]+)"\s*>([\s\S]*?)</invoke>""",
+)
+
 private val PARAM_TAG_RE = Regex(
     """<parameter(?:\s+name)?\s*[=:]\s*"?([a-zA-Z0-9_]+)"?\s*>([\s\S]*?)(?:</parameter>|(?=<parameter)|$)""",
 )
@@ -59,16 +74,17 @@ private fun parseBlockBody(body: String): JsonElement? {
 }
 
 fun extractTextToolCalls(content: String): TextToolCallExtraction {
-    if (content.isEmpty() || !content.contains("[TOOL_CALL:")) {
-        return TextToolCallExtraction(emptyList(), content)
-    }
+    if (content.isEmpty()) return TextToolCallExtraction(emptyList(), content)
+    val looksLikeTool = content.contains("[TOOL_CALL:") ||
+        Regex("""```(?:tool|function)\s+[a-zA-Z0-9_]""").containsMatchIn(content) ||
+        (content.contains("\"name\"") && content.contains("\"arguments\"")) ||
+        content.contains("<invoke")
+    if (!looksLikeTool) return TextToolCallExtraction(emptyList(), content)
 
     val toolCalls = mutableListOf<ParsedTextToolCall>()
     var cleanedContent = content
-    for (match in BLOCK_RE.findAll(content)) {
-        val fullMatch = match.value
-        val name = match.groupValues[1]
-        val body = match.groupValues[2]
+
+    fun addCall(name: String, body: String, fullMatch: String) {
         val args = parseBlockBody(body)
         if (args != null) {
             toolCalls.add(
@@ -80,6 +96,19 @@ fun extractTextToolCalls(content: String): TextToolCallExtraction {
             )
             cleanedContent = cleanedContent.replace(fullMatch, "")
         }
+    }
+
+    for (match in BLOCK_RE.findAll(content)) {
+        addCall(match.groupValues[1], match.groupValues[2], match.value)
+    }
+    for (match in FENCE_TOOL_RE.findAll(cleanedContent)) {
+        addCall(match.groupValues[1], match.groupValues[2], match.value)
+    }
+    for (match in JSON_TOOL_RE.findAll(cleanedContent)) {
+        addCall(match.groupValues[1], match.groupValues[2], match.value)
+    }
+    for (match in INVOKE_RE.findAll(cleanedContent)) {
+        addCall(match.groupValues[1], match.groupValues[2], match.value)
     }
     return TextToolCallExtraction(toolCalls, cleanedContent.trim())
 }

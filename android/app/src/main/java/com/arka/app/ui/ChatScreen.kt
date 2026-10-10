@@ -254,6 +254,10 @@ fun ChatScreen(
                 approval = approval,
                 onApprove = { controller.resolveApproval(approval.sessionId, true) },
                 onReject = { controller.resolveApproval(approval.sessionId, false) },
+                onApproveAll = {
+                    store.updatePrefs { it.copy(autoApproveTools = true) }
+                    controller.resolveApproval(approval.sessionId, true)
+                },
             )
         }
     }
@@ -663,6 +667,7 @@ private fun ApprovalSheet(
     approval: PendingToolApproval,
     onApprove: () -> Unit,
     onReject: () -> Unit,
+    onApproveAll: () -> Unit = {},
 ) {
     val t = { k: String -> I18n.t(language, k) }
     ModalBottomSheet(onDismissRequest = onReject) {
@@ -697,6 +702,7 @@ private fun ApprovalSheet(
             Spacer(Modifier.height(16.dp))
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                 TextButton(onClick = onReject) { Text(t(Key.REJECT)) }
+                TextButton(onClick = onApproveAll) { Text(t(Key.ALLOW_ALL)) }
                 TextButton(onClick = onApprove) { Text(t(Key.APPROVE)) }
             }
         }

@@ -125,6 +125,9 @@ object Key {
     const val STOPPED_BY_USER = "stoppedByUser"
     const val APPROVE = "approve"
     const val REJECT = "reject"
+    const val ALLOW_ALL = "allowAll"
+    const val AUTO_APPROVE_SECTION = "autoApproveSection"
+    const val AUTO_APPROVE_DESC = "autoApproveDesc"
     const val TOOL_APPROVAL_TITLE = "toolApprovalTitle"
     const val EXEC_SERVER_URL = "execServerUrl"
     const val EXEC_TEST = "execTest"
@@ -221,6 +224,8 @@ object I18n {
         // Arka-specific
         Key.STOPPED_BY_USER to "⏹️ Dihentikan oleh pengguna.",
         Key.APPROVE to "Izinkan", Key.REJECT to "Tolak",
+        Key.ALLOW_ALL to "Izinkan Semua", Key.AUTO_APPROVE_SECTION to "Otorisasi Tool",
+        Key.AUTO_APPROVE_DESC to "Setujui semua tool sensitif otomatis tanpa prompt",
         Key.TOOL_APPROVAL_TITLE to "Persetujuan yang diminta untuk tool berikut:",
         Key.EXEC_SERVER_URL to "Exec Server URL", Key.EXEC_TEST to "Test Koneksi",
         Key.EXEC_CONNECTED to "Terhubung", Key.EXEC_FAILED to "Gagal terhubung",
@@ -299,6 +304,8 @@ object I18n {
         // Arka-specific
         Key.STOPPED_BY_USER to "⏹️ Stopped by user.",
         Key.APPROVE to "Allow", Key.REJECT to "Reject",
+        Key.ALLOW_ALL to "Allow All", Key.AUTO_APPROVE_SECTION to "Tool Authorization",
+        Key.AUTO_APPROVE_DESC to "Auto-approve all sensitive tools without prompting",
         Key.TOOL_APPROVAL_TITLE to "Approval requested for tool:",
         Key.EXEC_SERVER_URL to "Exec Server URL", Key.EXEC_TEST to "Test Connection",
         Key.EXEC_CONNECTED to "Connected", Key.EXEC_FAILED to "Failed to connect",
