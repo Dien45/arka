@@ -124,9 +124,9 @@ class ChatController(
 
         var autoContinueDepth = depth
         try {
-            // Skill yang terpasang disalin ke workspace sesi (hanya kalau berubah),
-            // supaya read_file/run_command/File Explorer melihat berkas yang sama.
-            runCatching { skills.syncToWorkspace(sessionId) }
+            // Skill yang terpasang disinkron ke proot workspace global (sekali,
+            // berlaku untuk semua sesi) supaya run_command bisa memakai script-nya.
+            runCatching { skills.syncSkills() }
 
             val session = store.state.value.sessions.find { it.id == sessionId }
             var history = session?.messages
@@ -379,7 +379,7 @@ Semua sesi berbagi satu "proot workspace" (di-bind ke /root/workspace di dalam A
 - read_file / list_files: membaca & mendaftar file dari workspace yang sama.
 - run_command: dijalankan DENGAN CWD = /root/workspace/sessions/<id-sesi>, jadi file hasil write_file langsung bisa kamu proses (mis. `apk add nodejs`, `python3 script.py`, `git init`, `ls`, build/test). Folder sesi lain bisa dilihat relatif: ../<id-sesi-lain>/.
 - stage_commit: checkpoint perubahan untuk di-push user dari panel GitHub (tool ini TIDAK mem-push apa pun sendiri).
-- Skill yang terpasang otomatis tersalin ke folder skills/<id>/ di workspace sesi; buka isinya dengan tool `skill` (action=read) atau read_file, lalu jalankan script bila perlu.
+- Skill yang terpasang tersedia di SEMUA sesi pada /root/workspace/skills/<id>/ (dari cwd sesi: ../skills/<id>/); buka isinya dengan tool `skill` (action=read), lalu jalankan script bila perlu.
 - Batas: 1 MB per file, total 8 MB per sesi — pakai file kecil & potong output panjang.
 
 WEB FETCH:
