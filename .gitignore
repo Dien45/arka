@@ -38,3 +38,6 @@ coverage/
 .temp/
 *.tmp
 .next/
+
+# Sesi agent: lampiran screenshot & file kerja lokal
+/attachments/

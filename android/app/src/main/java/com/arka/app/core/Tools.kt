@@ -66,7 +66,7 @@ class ToolRegistry(
         }
 
     private fun availableToolDescriptors(): List<Pair<String, String>> = listOf(
-        "web_fetch" to "Fetch content from a URL. Returns the text content of the webpage. Automatically handles GitHub repositories and uses CORS proxy for external sites. Requires user approval before running.",
+        "web_fetch" to "Fetch content from a URL. Returns the text content of the webpage. Automatically handles GitHub repositories; external sites are fetched directly from the device. Requires user approval before running.",
         "web_search" to "Search GitHub repositories and the web. Returns relevant results with descriptions.",
         "read_file" to "Read the content of a file from the proot workspace (/root/workspace/sessions/<session-id>/).",
         "write_file" to "Write content to a file in the proot workspace (/root/workspace/sessions/<session-id>/). Files are scoped to this chat session and can be viewed in the Workspace tab. Requires user approval before running.",
@@ -248,27 +248,18 @@ class ToolRegistry(
                         return "❌ GitHub API rate-limited (403) saat mengakses \"$repoPath\". Coba lagi beberapa menit lagi, atau hubungkan GitHub token di Settings untuk limit yang lebih tinggi."
                     }
                 } catch (t: Throwable) {
-                    // fall through to CORS proxy
+                    // fall through to direct fetch
                 }
             }
 
-            // General URLs through public CORS proxies (same caveat as web).
-            val corsProxies = listOf(
-                "https://api.allorigins.win/raw?url=",
-                "https://api.codetabs.com/v1/proxy?quest=",
-            )
-            for (proxy in corsProxies) {
-                try {
-                    val proxyUrl = proxy + URLEncoder.encode(url, "UTF-8")
-                    val res = SimpleHttp.getChecked(proxyUrl) { com.arka.app.net.NetGuard.checkPublicUrl(it) }
-                    if (res.first in 200..299) {
-                        return "$UNTRUSTED_CONTENT_BANNER${res.second.take(MAX_FETCH_CHARS)}"
-                    }
-                } catch (t: Throwable) {
-                    continue
-                }
+            // General URLs: fetch LANGSUNG dari device.
+            // Native app tidak punya same-origin policy, jadi CORS proxy tidak perlu.
+            // Tiap redirect hop divalidasi ulang via NetGuard (anti-SSRF).
+            val res = SimpleHttp.getChecked(url) { com.arka.app.net.NetGuard.checkPublicUrl(it) }
+            if (res.first in 200..299) {
+                return "$UNTRUSTED_CONTENT_BANNER\n\n${res.second.take(MAX_FETCH_CHARS)}"
             }
-            throw IllegalStateException("All CORS proxies failed")
+            return "Error fetching URL: HTTP ${res.first}"
         } catch (e: Exception) {
             return "Error fetching URL: ${e.message ?: "Unknown error"}\n\nNote: Some websites may block automated access, or the URL was rejected for security reasons."
         }
