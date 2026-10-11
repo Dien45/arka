@@ -118,8 +118,10 @@ fun GitHubScreen(
     var newRepoPrivate by remember { mutableStateOf(true) }
 
     val files = remember(refreshKey, sessionId) { fs.list(sessionId) }
-    val filteredRepos = state.githubRepos.filter {
-        search.isBlank() || it.fullName.contains(search, ignoreCase = true)
+    val filteredRepos = remember(state.githubRepos, search) {
+        state.githubRepos.filter {
+            search.isBlank() || it.fullName.contains(search, ignoreCase = true)
+        }
     }
 
     fun connect(token: String) {

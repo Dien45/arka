@@ -102,6 +102,9 @@ fun SessionMenu(
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
             )
         } else {
+            val msgCounts = remember(state.sessions) {
+                state.sessions.associate { it.id to it.messages.count { m -> m.role != MessageRole.system } }
+            }
             LazyColumn(Modifier.fillMaxWidth().heightIn(max = 440.dp)) {
                 items(state.sessions, key = { it.id }) { session ->
                     val isCurrent = session.id == state.currentSessionId
@@ -129,7 +132,7 @@ fun SessionMenu(
                         )
                         Spacer(Modifier.width(8.dp))
                         Text(
-                            "${session.messages.count { it.role != MessageRole.system }} msg",
+                            "${msgCounts[session.id] ?: 0} msg",
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )

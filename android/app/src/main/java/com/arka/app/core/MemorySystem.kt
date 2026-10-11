@@ -44,6 +44,8 @@ class MemoryManager private constructor(private val context: Context) {
     private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
     private val file: File get() = File(context.filesDir, "memory.json")
 
+    private val lock = Any()
+
     private var store: MemoryStore = load()
     private var lastMtime: Long = file.lastModified()
 
@@ -56,15 +58,21 @@ class MemoryManager private constructor(private val context: Context) {
         }
     }
 
-    private fun load(): MemoryStore = try {
-        json.decodeFromString<MemoryStore>(file.readText())
-    } catch (t: Throwable) {
-        MemoryStore()
+    private fun load(): MemoryStore {
+        val parsed = runCatching {
+            json.decodeFromString<MemoryStore>(file.readText())
+        }.getOrNull()
+        if (parsed != null) return parsed
+        // File utama corrupt/hilang — coba backup sebelum menyerah ke kosong.
+        return runCatching {
+            json.decodeFromString<MemoryStore>(AtomicFile.backupFileFor(file).readText())
+        }.getOrDefault(MemoryStore())
     }
 
     private fun save() {
         runCatching {
-            file.writeText(json.encodeToString(store))
+            AtomicFile.backup(file)
+            AtomicFile.writeText(file, json.encodeToString(store))
             lastMtime = file.lastModified()
         }
     }
@@ -77,7 +85,7 @@ class MemoryManager private constructor(private val context: Context) {
     private fun limitFor(target: MemoryTarget): Int =
         if (target == MemoryTarget.MEMORY) MEMORY_CHAR_LIMIT else USER_CHAR_LIMIT
 
-    fun add(target: MemoryTarget, content: String): MemoryResult {
+    fun add(target: MemoryTarget, content: String): MemoryResult = synchronized(lock) {
         reloadIfChanged()
         val entries = if (target == MemoryTarget.MEMORY) store.memory else store.user
         val limit = limitFor(target)
@@ -104,7 +112,7 @@ class MemoryManager private constructor(private val context: Context) {
         return MemoryResult(success = true)
     }
 
-    fun replace(target: MemoryTarget, oldText: String, newContent: String): MemoryResult {
+    fun replace(target: MemoryTarget, oldText: String, newContent: String): MemoryResult = synchronized(lock) {
         reloadIfChanged()
         val entries = if (target == MemoryTarget.MEMORY) store.memory else store.user
         val limit = limitFor(target)
@@ -134,7 +142,7 @@ class MemoryManager private constructor(private val context: Context) {
         return MemoryResult(success = true)
     }
 
-    fun remove(target: MemoryTarget, oldText: String): MemoryResult {
+    fun remove(target: MemoryTarget, oldText: String): MemoryResult = synchronized(lock) {
         reloadIfChanged()
         val entries = if (target == MemoryTarget.MEMORY) store.memory else store.user
         val matches = entries.filter { it.content.contains(oldText) }
@@ -178,7 +186,7 @@ class MemoryManager private constructor(private val context: Context) {
         return sb.toString()
     }
 
-    fun clear() {
+    fun clear() = synchronized(lock) {
         reloadIfChanged()
         store = MemoryStore()
         save()

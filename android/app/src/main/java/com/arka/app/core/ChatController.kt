@@ -22,6 +22,10 @@ import java.util.concurrent.ConcurrentHashMap
 // Port of the constants in src/components/Chat.tsx.
 const val MAX_TOOL_ITERATIONS = 200
 const val MAX_AUTO_CONTINUES_AGENT_MODE = 3
+/** Batas history model: 40 pesan terakhir, output tool 4000 char, lampiran 4000 char. */
+const val MAX_HISTORY_MESSAGES = 40
+const val MAX_TOOL_RESULT_CHARS = 4000
+const val MAX_ATTACHMENT_HISTORY_CHARS = 4000
 
 const val AGENT_AUTO_CONTINUE_PROMPT =
     "Lanjutkan PERSIS dari langkah terakhir di atas — jangan mengulang apa yang sudah dikerjakan, jangan minta konfirmasi untuk hal-hal kecil, langsung lanjutkan sampai task benar-benar selesai."
@@ -94,8 +98,14 @@ class ChatController(
 
     /** Called by the UI bottom sheet (Izinkan / Tolak). */
     fun resolveApproval(sessionId: String, approved: Boolean) {
-        approvalResolvers.remove(sessionId)?.let { it(approved) }
-        _pendingApprovals.value = _pendingApprovals.value - sessionId
+        // Hanya singkirkan sheet kalau benar-benar me-resolve request yang
+        // masih menggantung — kalau tidak, request PENGGANTI yang baru masuk
+        // ikut terhapus dan loop tool menggantung selamanya.
+        val resolver = approvalResolvers.remove(sessionId)
+        if (resolver != null) {
+            resolver(approved)
+            _pendingApprovals.value = _pendingApprovals.value - sessionId
+        }
     }
 
     // ------------------------------------------------------------------ run
@@ -131,12 +141,16 @@ class ChatController(
             val session = store.state.value.sessions.find { it.id == sessionId }
             var history = session?.messages
                 ?.filter { it.role == MessageRole.user || it.role == MessageRole.assistant }
+                ?.takeLast(MAX_HISTORY_MESSAGES)
                 ?.map { m ->
-                    val filePart = m.attachmentContent
+                    val rawPart = m.attachmentContent
+                    val filePart = if (rawPart != null && rawPart.length > MAX_ATTACHMENT_HISTORY_CHARS) {
+                        rawPart.take(MAX_ATTACHMENT_HISTORY_CHARS) + "\n...(lampiran dipotong)"
+                    } else rawPart
                     val content = if (filePart.isNullOrBlank()) {
                         m.content
                     } else {
-                        m.content + "\n\n[Lampiran file]\n" + filePart
+                        m.content + "\n\n[Lampiran file]\n$UNTRUSTED_FILE_BANNER" + filePart
                     }
                     ChatMessage(role = m.role.name, content = content)
                 }
@@ -145,13 +159,16 @@ class ChatController(
             var responseContent = ""
             var stoppedByCap = false
 
+            val turnChatMode = store.prefs.value.chatMode
+            val provider = resolveProvider()
+                ?: throw IllegalStateException("Provider tidak ditemukan atau belum diaktifkan. Buka Settings untuk setup.")
+            val toolDefinitions = buildToolDefinitions(turnChatMode)
+            val systemMessage = ChatMessage(role = "system", content = buildSystemPrompt(turnChatMode))
+
             while (true) {
                 currentCoroutineContext().ensureActive()
+                // Mode dibaca live tiap iterasi supaya gate Plan-mode tetap responsif.
                 val chatMode = store.prefs.value.chatMode
-                val provider = resolveProvider()
-                    ?: throw IllegalStateException("Provider tidak ditemukan atau belum diaktifkan. Buka Settings untuk setup.")
-                val toolDefinitions = buildToolDefinitions(chatMode)
-                val systemMessage = ChatMessage(role = "system", content = buildSystemPrompt(chatMode))
 
                 var response = applyTextToolCallFallback(
                     aiClient.callAIProviderFull(provider, listOf(systemMessage) + history, toolDefinitions),
@@ -232,9 +249,12 @@ class ChatController(
                             content = "",
                             toolCalls = listOf(toolCall),
                         )
+                        val historyResult = if (result.length > MAX_TOOL_RESULT_CHARS) {
+                            result.take(MAX_TOOL_RESULT_CHARS) + "\n...(output dipotong, ${result.length} chars total)"
+                        } else result
                         history = history + ChatMessage(
                             role = "tool",
-                            content = result,
+                            content = historyResult,
                             toolCallId = toolCall.id,
                             name = toolCall.name,
                         )

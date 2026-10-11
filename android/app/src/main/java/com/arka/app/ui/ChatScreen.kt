@@ -146,9 +146,13 @@ fun ChatScreen(
                     null
                 }
                 if (loaded != null) {
-                    attachments = attachments + loaded.first
-                    attachmentBlobs = attachmentBlobs + loaded.third
-                    attachmentParts = attachmentParts + loaded.second
+                    if (attachments.size >= 5) {
+                        Toast.makeText(context, "Maksimal 5 lampiran per pesan.", Toast.LENGTH_SHORT).show()
+                    } else {
+                        attachments = attachments + loaded.first
+                        attachmentBlobs = attachmentBlobs + loaded.third
+                        attachmentParts = attachmentParts + loaded.second
+                    }
                 }
             }
         }
@@ -161,7 +165,12 @@ fun ChatScreen(
 
     LaunchedEffect(messages.size, messages.lastOrNull()?.id, isLoading) {
         val count = listState.layoutInfo.totalItemsCount
-        if (count > 0) listState.animateScrollToItem(count - 1)
+        if (count > 0) {
+            // Saat AI streaming puluhan pesan tool, lompat instan (tanpa animasi
+            // yang di-restart terus); animasi hanya untuk pesan final user.
+            if (isLoading) listState.scrollToItem(count - 1)
+            else listState.animateScrollToItem(count - 1)
+        }
     }
 
     val send: (String) -> Unit = { text ->
@@ -445,11 +454,12 @@ private fun ToolResultCard(message: Message) {
     val context = LocalContext.current
     var expanded by remember { mutableStateOf(false) }
     var copiedOut by remember { mutableStateOf(false) }
-    val output = toolCall.output?.let { raw ->
+    val rawOutput = toolCall.output ?: "(no output)"
+    val output = remember(rawOutput) {
         runCatching {
-            Json { prettyPrint = true }.parseToJsonElement(raw).jsonObject.toString()
-        }.getOrElse { raw }
-    } ?: "(no output)"
+            Json { prettyPrint = true }.parseToJsonElement(rawOutput).jsonObject.toString()
+        }.getOrElse { rawOutput }
+    }
 
     Card(
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh),
@@ -745,9 +755,11 @@ private fun ApprovalSheet(
                 Column(Modifier.padding(12.dp)) {
                     Text(approval.name, style = MaterialTheme.typography.titleSmall)
                     Spacer(Modifier.height(6.dp))
-                    val prettyParams = runCatching {
-                        Json { prettyPrint = true }.parseToJsonElement(approval.paramsJson).jsonObject.toString()
-                    }.getOrElse { approval.paramsJson }
+                    val prettyParams = remember(approval.paramsJson) {
+                        runCatching {
+                            Json { prettyPrint = true }.parseToJsonElement(approval.paramsJson).jsonObject.toString()
+                        }.getOrElse { approval.paramsJson }
+                    }
                     Text(
                         prettyParams,
                         style = MaterialTheme.typography.bodySmall,
