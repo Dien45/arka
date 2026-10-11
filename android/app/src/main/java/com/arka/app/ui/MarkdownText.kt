@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -13,8 +14,13 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.AnnotatedString
@@ -156,17 +162,36 @@ private fun parseBlocks(md: String): List<MdBlock> {
 
 @Composable
 private fun CodeBlock(text: String, background: Color) {
+    val context = LocalContext.current
+    var copied by remember { mutableStateOf(false) }
     Surface(
         color = background,
         shape = RoundedCornerShape(8.dp),
     ) {
-        Text(
-            text,
-            fontFamily = FontFamily.Monospace,
-            style = MaterialTheme.typography.bodySmall,
-            modifier = Modifier
-                .padding(horizontal = 10.dp, vertical = 8.dp),
-        )
+        Column {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.End,
+            ) {
+                TextButton(onClick = {
+                    val cm = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                    cm.setPrimaryClip(android.content.ClipData.newPlainText("code", text))
+                    copied = true
+                }) {
+                    Text(
+                        if (copied) "Disalin ✓" else "Salin",
+                        style = MaterialTheme.typography.labelSmall,
+                    )
+                }
+            }
+            Text(
+                text,
+                fontFamily = FontFamily.Monospace,
+                style = MaterialTheme.typography.bodySmall,
+                modifier = Modifier
+                    .padding(horizontal = 10.dp, vertical = 8.dp),
+            )
+        }
     }
 }
 

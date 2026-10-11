@@ -1,5 +1,7 @@
 package com.arka.app.ui
 
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Context
 import android.net.Uri
 import android.provider.OpenableColumns
@@ -26,6 +28,7 @@ import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.union
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.width
@@ -95,6 +98,7 @@ import com.arka.app.core.ProviderConfig
 import com.arka.app.core.Session
 import com.arka.app.core.Store
 import com.arka.app.core.ToolCallStatus
+import com.arka.app.core.VirtualFs
 import java.io.ByteArrayOutputStream
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -125,7 +129,8 @@ fun ChatScreen(
     var input by rememberSaveable { mutableStateOf("") }
     var showModelPicker by remember { mutableStateOf(false) }
     var attachments by remember { mutableStateOf(listOf<Attachment>()) }
-    var attachmentText by remember { mutableStateOf("") }
+    var attachmentBlobs by remember { mutableStateOf(listOf<ByteArray>()) }
+    var attachmentParts by remember { mutableStateOf(listOf<String?>()) }
 
     val context = LocalContext.current
     val pickerScope = rememberCoroutineScope()
@@ -142,10 +147,8 @@ fun ChatScreen(
                 }
                 if (loaded != null) {
                     attachments = attachments + loaded.first
-                    loaded.second?.let { part ->
-                        val entry = "[FILE: ${loaded.first.name}]\n$part"
-                        attachmentText = if (attachmentText.isEmpty()) entry else attachmentText + "\n\n" + entry
-                    }
+                    attachmentBlobs = attachmentBlobs + loaded.third
+                    attachmentParts = attachmentParts + loaded.second
                 }
             }
         }
@@ -164,30 +167,43 @@ fun ChatScreen(
     val send: (String) -> Unit = { text ->
         val trimmed = text.trim()
         val atts = attachments
-        val attText = attachmentText.ifBlank { null }
+        val blobs = attachmentBlobs
+        val parts = attachmentParts
         if ((trimmed.isNotEmpty() || atts.isNotEmpty()) && !isLoading) {
             input = ""
             attachments = emptyList()
-            attachmentText = ""
-            val sid = currentSession?.id
-            if (sid != null) {
-                controller.sendMessage(trimmed, sid, atts, attText)
-            } else {
-                val newId = "sess_${System.currentTimeMillis()}"
-                store.dispatch(
-                    Action.AddSession(
-                        Session(
-                            id = newId,
-                            title = trimmed
-                                .ifBlank { atts.firstOrNull()?.name ?: I18n.t(prefs.language, Key.NEW_SESSION) }
-                                .replace('\n', ' ')
-                                .take(28),
-                            createdAt = System.currentTimeMillis(),
-                            model = prefs.selectedModel,
+            attachmentBlobs = emptyList()
+            attachmentParts = emptyList()
+            pickerScope.launch {
+                var sid = currentSession?.id
+                if (sid == null) {
+                    sid = "sess_${System.currentTimeMillis()}"
+                    store.dispatch(
+                        Action.AddSession(
+                            Session(
+                                id = sid,
+                                title = trimmed
+                                    .ifBlank { atts.firstOrNull()?.name ?: I18n.t(prefs.language, Key.NEW_SESSION) }
+                                    .replace('\n', ' ')
+                                    .take(28),
+                                createdAt = System.currentTimeMillis(),
+                                model = prefs.selectedModel,
+                            ),
                         ),
-                    ),
-                )
-                controller.sendMessage(trimmed, newId, atts, attText)
+                    )
+                }
+                val finalSid = sid
+                val baseEntries = atts.mapIndexedNotNull { i, att ->
+                    parts.getOrNull(i)?.let { "[FILE: ${att.name}]\n$it" }
+                }
+                val savedNotes = withContext(Dispatchers.IO) {
+                    atts.zip(blobs).mapNotNull { (att, bytes) ->
+                        saveAttachmentToWorkspace(context, finalSid, att.name, bytes)
+                            ?.let { "[FILE: ${att.name} — tersimpan di workspace: $it]" }
+                    }
+                }
+                val allParts = baseEntries + savedNotes
+                controller.sendMessage(trimmed, finalSid, atts, allParts.joinToString("\n\n").ifBlank { null })
             }
         }
     }
@@ -216,7 +232,14 @@ fun ChatScreen(
                 onModeChange = { mode -> store.updatePrefs { it.copy(chatMode = mode) } },
                 attachments = attachments,
                 onAttachClick = { pickLauncher.launch(arrayOf("*/*")) },
-                onRemoveAttachment = { att -> attachments = attachments - att },
+                onRemoveAttachment = { att ->
+                    val idx = attachments.indexOf(att)
+                    if (idx >= 0) {
+                        attachments = attachments.filterIndexed { i, _ -> i != idx }
+                        attachmentBlobs = attachmentBlobs.filterIndexed { i, _ -> i != idx }
+                        attachmentParts = attachmentParts.filterIndexed { i, _ -> i != idx }
+                    }
+                },
                 language = prefs.language,
             )
         },
@@ -293,54 +316,54 @@ private fun ChatTopBar(
     val activeProvider = providers.firstOrNull { it.enabled }
     val hasAnyModel = providers.any { it.enabled && (it.models.isNotEmpty() || it.effectiveModel.isNotBlank()) }
 
-    TopAppBar(
-        modifier = Modifier.height(52.dp),
-        navigationIcon = {
+    Surface(color = MaterialTheme.colorScheme.surface) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .windowInsetsPadding(WindowInsets.statusBars)
+                .height(48.dp)
+                .padding(horizontal = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
             IconButton(onClick = onOpenDrawer, modifier = Modifier.size(40.dp)) {
                 Icon(Icons.Default.Menu, contentDescription = "Menu")
             }
-        },
-        title = {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    title,
-                    maxLines = 1,
-                    style = MaterialTheme.typography.titleSmall,
-                    modifier = Modifier.weight(1f, fill = false),
-                )
-                Spacer(Modifier.width(8.dp))
-                Surface(
-                    shape = RoundedCornerShape(12.dp),
-                    color = if (hasAnyModel) {
-                        MaterialTheme.colorScheme.secondaryContainer
-                    } else {
-                        MaterialTheme.colorScheme.errorContainer
-                    },
-                    modifier = Modifier.clickable(onClick = onOpenModelPicker),
+            Text(
+                title,
+                maxLines = 1,
+                style = MaterialTheme.typography.titleSmall,
+                modifier = Modifier.weight(1f, fill = false),
+            )
+            Spacer(Modifier.width(8.dp))
+            Surface(
+                shape = RoundedCornerShape(12.dp),
+                color = if (hasAnyModel) {
+                    MaterialTheme.colorScheme.secondaryContainer
+                } else {
+                    MaterialTheme.colorScheme.errorContainer
+                },
+                modifier = Modifier.clickable(onClick = onOpenModelPicker),
+            ) {
+                Row(
+                    Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Row(
-                        Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Text(
-                            buildString {
-                                activeProvider?.icon?.let { append("$it ") }
-                                append(selectedModel.ifBlank { "Pilih model" })
-                            },
-                            maxLines = 1,
-                            style = MaterialTheme.typography.labelSmall,
-                        )
-                        Text(" ▾", style = MaterialTheme.typography.labelSmall)
-                    }
+                    Text(
+                        buildString {
+                            activeProvider?.icon?.let { append("$it ") }
+                            append(selectedModel.ifBlank { "Pilih model" })
+                        },
+                        maxLines = 1,
+                        style = MaterialTheme.typography.labelSmall,
+                    )
+                    Text(" ▾", style = MaterialTheme.typography.labelSmall)
                 }
             }
-        },
-        actions = {
             if (isLoading) {
                 IconButton(onClick = onStop) { Icon(Icons.Default.Stop, contentDescription = "Stop") }
             }
-        },
-    )
+        }
+    }
 }
 
 // ------------------------------------------------------------- messages
@@ -386,17 +409,32 @@ private fun UserBubble(content: String, attachments: List<Attachment>? = null) {
 
 @Composable
 private fun AssistantBubble(content: String) {
+    val context = LocalContext.current
+    var copied by remember { mutableStateOf(false) }
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Start) {
         Surface(
             color = MaterialTheme.colorScheme.surfaceVariant,
             shape = RoundedCornerShape(4.dp, 16.dp, 16.dp, 16.dp),
             modifier = Modifier.widthIn(max = 340.dp),
         ) {
-            MarkdownText(
-                markdown = content,
-                modifier = Modifier.padding(12.dp, 8.dp),
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+            Column(Modifier.padding(12.dp, 8.dp)) {
+                MarkdownText(
+                    markdown = content,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                    TextButton(onClick = {
+                        val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                        cm.setPrimaryClip(ClipData.newPlainText("chat", content))
+                        copied = true
+                    }) {
+                        Text(
+                            if (copied) "Disalin ✓" else "Salin",
+                            style = MaterialTheme.typography.labelSmall,
+                        )
+                    }
+                }
+            }
         }
     }
 }
@@ -404,7 +442,9 @@ private fun AssistantBubble(content: String) {
 @Composable
 private fun ToolResultCard(message: Message) {
     val toolCall = message.toolCalls?.firstOrNull() ?: return
+    val context = LocalContext.current
     var expanded by remember { mutableStateOf(false) }
+    var copiedOut by remember { mutableStateOf(false) }
     val output = toolCall.output?.let { raw ->
         runCatching {
             Json { prettyPrint = true }.parseToJsonElement(raw).jsonObject.toString()
@@ -434,6 +474,16 @@ private fun ToolResultCard(message: Message) {
                     fontWeight = FontWeight.SemiBold,
                 )
                 Spacer(Modifier.weight(1f))
+                TextButton(onClick = {
+                    val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                    cm.setPrimaryClip(ClipData.newPlainText("tool_output", output))
+                    copiedOut = true
+                }) {
+                    Text(
+                        if (copiedOut) "Disalin ✓" else "Salin",
+                        style = MaterialTheme.typography.labelSmall,
+                    )
+                }
                 TextButton(onClick = { expanded = !expanded }) {
                     Text(if (expanded) "Sembunyikan" else "Lihat")
                 }
@@ -753,7 +803,7 @@ private fun isTextFile(mime: String?, name: String): Boolean {
  * (max [MAX_ATTACHMENT_TEXT_CHARS] karakter) ikut dikembalikan supaya bisa
  * disuntikkan ke konteks model; file binari hanya metadata-nya saja.
  */
-private fun loadAttachment(context: Context, uri: Uri): Pair<Attachment, String?> {
+private fun loadAttachment(context: Context, uri: Uri): Triple<Attachment, String?, ByteArray> {
     val resolver = context.contentResolver
     var name = "file"
     var size = -1L
@@ -789,7 +839,19 @@ private fun loadAttachment(context: Context, uri: Uri): Pair<Attachment, String?
     } else {
         null
     }
-    return Attachment(name = name, size = size) to content
+    return Triple(Attachment(name = name, size = size), content, bytes)
+}
+
+/**
+ * Simpan bytes attachment ke workspace sesi (`attachments/<nama>`).
+ * Return path relatif kalau berhasil, null kalau gagal.
+ */
+private fun saveAttachmentToWorkspace(context: Context, sessionId: String, name: String, bytes: ByteArray): String? {
+    val fs = VirtualFs(context)
+    val safe = name.replace(Regex("[/\\\\]"), "_").replace("..", "_").take(100).ifBlank { "file" }
+    var rel = "attachments/$safe"
+    if (fs.resolve(sessionId, rel)?.exists() == true) rel = "attachments/${System.currentTimeMillis()}_$safe"
+    return if (fs.writeBytes(sessionId, rel, bytes)) rel else null
 }
 
 private fun formatBytes(bytes: Long): String = when {
