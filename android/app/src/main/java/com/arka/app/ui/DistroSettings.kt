@@ -39,6 +39,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.arka.app.core.DistroManager
+import com.arka.app.core.DistroStatus
 import com.arka.app.core.ExecRunner
 import com.arka.app.core.Store
 import kotlinx.coroutines.Dispatchers
@@ -128,13 +129,13 @@ fun DistroSection(store: Store) {
     ) {
         Column(Modifier.padding(12.dp)) {
             Text(
-                "Distro: Alpine · ${status.abi}",
+                "Distro: Alpine · ${status?.abi ?: "..."}",
                 style = MaterialTheme.typography.bodyMedium,
                 fontWeight = FontWeight.SemiBold,
             )
             Spacer(Modifier.height(4.dp))
-            Text(status.message, style = MaterialTheme.typography.bodySmall)
-            if (!status.prootAvailable || !status.loaderAvailable) {
+            Text(status?.message ?: "Memuat status distro…", style = MaterialTheme.typography.bodySmall)
+            if (status?.let { !it.prootAvailable || !it.loaderAvailable } == true) {
                 Text(
                     "Binary proot tidak ada di APK ini. Build ulang dengan jaringan (task Gradle downloadProotBinaries).",
                     style = MaterialTheme.typography.bodySmall,

@@ -95,6 +95,16 @@ fun ModelPickerSheet(
     val relevant = remember(state.providers) {
         state.providers.filter { it.enabled || it.canScan() || it.models.isNotEmpty() }
     }
+    val modelsByProvider = remember(relevant, query) {
+        relevant.associate { provider ->
+            provider.id to provider.models.filter { m ->
+                query.isBlank() ||
+                    m.id.contains(query, ignoreCase = true) ||
+                    m.name.contains(query, ignoreCase = true) ||
+                    provider.name.contains(query, ignoreCase = true)
+            }
+        }
+    }
 
     fun scan(provider: ProviderConfig, force: Boolean = false) {
         if (provider.id in detecting) return
@@ -193,14 +203,7 @@ fun ModelPickerSheet(
                         .heightIn(max = 360.dp),
                 ) {
                     relevant.forEach { provider ->
-                        val models = remember(provider.models, query) {
-                            provider.models.filter { m ->
-                                query.isBlank() ||
-                                    m.id.contains(query, ignoreCase = true) ||
-                                    m.name.contains(query, ignoreCase = true) ||
-                                    provider.name.contains(query, ignoreCase = true)
-                            }
-                        }
+                        val models = modelsByProvider[provider.id] ?: emptyList()
                         item(key = "head_${provider.id}") {
                             ProviderSectionHeader(
                                 provider = provider,
