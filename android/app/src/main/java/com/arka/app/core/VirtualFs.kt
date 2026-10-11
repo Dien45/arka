@@ -174,16 +174,25 @@ class VirtualFs(private val context: Context) {
     )
     private val maxTreeEntries = 3000
 
+    private fun isSymlink(f: File): Boolean =
+        runCatching { java.nio.file.Files.isSymbolicLink(f.toPath()) }.getOrDefault(false)
+
     private fun listEntriesUnder(root: File): List<FsEntry> {
         if (!root.exists()) return emptyList()
         val out = mutableListOf<FsEntry>()
         root.walkTopDown()
-            .onEnter { it.name !in skipDirNames }
+            .onEnter { dir -> dir.name !in skipDirNames && !isSymlink(dir) }
             .forEach { f ->
                 if (f == root) return@forEach
                 if (out.size >= maxTreeEntries) return out.sortedBy { it.path.lowercase() }
-                val rel = f.relativeTo(root).path.replace(File.separatorChar, '/')
-                out.add(FsEntry(path = rel, size = if (f.isFile) f.length() else 0L, modified = f.lastModified(), isDir = f.isDirectory))
+                val rel = runCatching { f.relativeTo(root).path.replace(File.separatorChar, '/') }.getOrNull()
+                    ?: return@forEach
+                if (rel.isEmpty()) return@forEach
+                val link = isSymlink(f)
+                val isDir = !link && runCatching { f.isDirectory }.getOrDefault(false)
+                val len = if (isDir) 0L else runCatching { f.length() }.getOrDefault(0L)
+                val mod = runCatching { f.lastModified() }.getOrDefault(0L)
+                out.add(FsEntry(path = rel, size = len, modified = mod, isDir = isDir))
             }
         return out.sortedBy { it.path.lowercase() }
     }

@@ -13,6 +13,11 @@ import java.util.zip.ZipOutputStream
  */
 object ZipUtil {
 
+    private val skipImportDirs = setOf(
+        "__MACOSX", ".git", "node_modules", "build", ".gradle",
+        "dist", ".next", "target", "__pycache__",
+    )
+
     /** Tulis seluruh file workspace sesi ke [out] sebagai satu arsip ZIP. */
     fun exportWorkspace(fs: VirtualFs, sessionId: String, out: OutputStream): Int {
         val entries = fs.listEntries(sessionId).filterNot { it.isDir }
@@ -45,6 +50,7 @@ object ZipUtil {
                 if (entry.isDirectory) continue
                 val name = entry.name.replace('\\', '/').removePrefix("./").trimStart('/')
                 if (name.isBlank() || name.split('/').any { it == ".." } || name.contains(":")) continue
+                if (name.split('/').any { it in skipImportDirs }) continue
                 val bytes = zip.readBytes()
                 if (bytes.size > MAX_FILE_BYTES) continue
                 total += bytes.size

@@ -116,11 +116,21 @@ fun FileExplorerScreen(
     var showNewFile by remember { mutableStateOf(false) }
     var showNewFolder by remember { mutableStateOf(false) }
 
+    var showAllSessions by remember(sessionId) { mutableStateOf(false) }
     var entries by remember { mutableStateOf<List<FsEntry>>(emptyList()) }
     var treeLoading by remember { mutableStateOf(true) }
-    LaunchedEffect(refreshKey) {
+    LaunchedEffect(refreshKey, showAllSessions, sessionId) {
         treeLoading = true
-        entries = withContext(Dispatchers.IO) { fs.treeProot() }
+        entries = withContext(Dispatchers.IO) {
+            runCatching {
+                if (showAllSessions) {
+                    fs.treeProot()
+                } else {
+                    val sid = fs.sanitizeSessionId(sessionId)
+                    fs.tree(sessionId).map { it.copy(path = "sessions/$sid/" + it.path) }
+                }
+            }.getOrDefault(emptyList())
+        }
         treeLoading = false
     }
     val files = entries.filterNot { it.isDir }
@@ -165,14 +175,21 @@ fun FileExplorerScreen(
         if (uri == null) return@rememberLauncherForActivityResult
         scope.launch {
             val name = queryDisplayName(context, uri) ?: "impor_${System.currentTimeMillis()}.txt"
-            val ok = withContext(Dispatchers.IO) {
+            val result = withContext(Dispatchers.IO) {
                 runCatching {
                     context.contentResolver.openInputStream(uri)?.use { stream ->
-                        fs.writeBytesProot(name, stream.readBytes())
-                    } ?: false
-                }.getOrDefault(false)
+                        val bytes = readCapped(stream, MAX_IMPORT_BYTES) ?: return@use "too_big"
+                        if (fs.writeBytesProot(name, bytes)) "ok" else "fail"
+                    } ?: "fail"
+                }.getOrDefault("fail")
             }
-            refresh(if (ok) "File \"$name\" diimpor." else "Gagal mengimpor file.")
+            refresh(
+                when (result) {
+                    "ok" -> "File \"$name\" diimpor."
+                    "too_big" -> "File terlalu besar (maksimal 15 MB)."
+                    else -> "Gagal mengimpor file."
+                },
+            )
         }
     }
 
@@ -252,6 +269,8 @@ fun FileExplorerScreen(
             if (showTree) {
                 TreePane(
                     entries = entries,
+                    showAll = showAllSessions,
+                    onToggleScope = { showAllSessions = !showAllSessions },
                     expanded = expanded,
                     onToggleFolder = { path ->
                         expanded = if (path in expanded) expanded - path else expanded + path
@@ -433,6 +452,8 @@ fun FileExplorerScreen(
 @Composable
 private fun TreePane(
     entries: List<FsEntry>,
+    showAll: Boolean,
+    onToggleScope: () -> Unit,
     expanded: Set<String>,
     onToggleFolder: (String) -> Unit,
     onOpenFile: (String) -> Unit,
@@ -449,12 +470,20 @@ private fun TreePane(
         ) {
             FilterChip(selected = false, onClick = onNewFile, label = { Text("+ File") })
             FilterChip(selected = false, onClick = onNewFolder, label = { Text("+ Folder") })
+            FilterChip(
+                selected = showAll,
+                onClick = onToggleScope,
+                label = { Text(if (showAll) "Semua sesi" else "Sesi ini") },
+            )
         }
         Spacer(Modifier.height(4.dp))
 
         if (entries.isEmpty()) {
             Column(Modifier.padding(16.dp)) {
-                Text("Proot workspace masih kosong.", style = MaterialTheme.typography.bodyMedium)
+                Text(
+                    if (showAll) "Proot workspace masih kosong." else "Sesi ini belum ada file.",
+                    style = MaterialTheme.typography.bodyMedium,
+                )
                 Spacer(Modifier.height(6.dp))
                 Text(
                     "Folder sessions/<id-sesi> di bawah ini di-bind ke /root/workspace di Alpine. "
@@ -464,12 +493,14 @@ private fun TreePane(
                 )
             }
         } else {
-            LazyColumn(Modifier.fillMaxSize()) {
-                val visible = entries.filter { entry ->
+            val visible = remember(entries, expanded) {
+                entries.filter { entry ->
                     val parts = entry.path.split('/')
                     if (parts.size <= 1) entry.isDir || parts.size == 1
                     else (0 until parts.size - 1).all { expanded.contains(parts.take(it + 1).joinToString("/")) }
                 }
+            }
+            LazyColumn(Modifier.fillMaxSize()) {
                 items(visible, key = { it.path }) { entry ->
                     val depth = entry.path.count { it == '/' }
                     Row(
@@ -623,6 +654,23 @@ private fun iconFor(path: String): String = when (path.substringAfterLast('.', "
     "png", "jpg", "jpeg", "webp", "gif" -> "🖼️"
     "zip", "tar", "gz" -> "🗜️"
     else -> "📄"
+}
+
+private const val MAX_IMPORT_BYTES = 15 * 1024 * 1024
+
+/** Baca stream dengan batas — return null kalau melebihi [cap]. */
+private fun readCapped(stream: java.io.InputStream, cap: Int): ByteArray? {
+    val out = java.io.ByteArrayOutputStream()
+    val tmp = ByteArray(8192)
+    var total = 0
+    while (true) {
+        val n = runCatching { stream.read(tmp) }.getOrDefault(-1)
+        if (n <= 0) break
+        total += n
+        if (total > cap) return null
+        out.write(tmp, 0, n)
+    }
+    return out.toByteArray()
 }
 
 private fun queryDisplayName(context: android.content.Context, uri: android.net.Uri): String? {
