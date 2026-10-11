@@ -2,6 +2,9 @@ package com.arka.app.core
 
 import android.content.Context
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -101,8 +104,26 @@ fun reduce(state: AppState, action: Action): AppState = when (action) {
     )
 }
 
+private const val MAX_PERSIST_TOOL_OUTPUT_CHARS = 8000
+private const val MAX_PERSIST_ATTACHMENT_CHARS = 8000
+
 fun toPersisted(state: AppState): PersistedState = PersistedState(
-    sessions = state.sessions,
+    sessions = state.sessions.map { s ->
+        s.copy(messages = s.messages.map { m ->
+            val trimmedTools = m.toolCalls?.map { tc ->
+                val out = tc.output
+                if (out != null && out.length > MAX_PERSIST_TOOL_OUTPUT_CHARS) {
+                    tc.copy(output = out.take(MAX_PERSIST_TOOL_OUTPUT_CHARS) + "\n...(dipotong saat simpan)")
+                } else tc
+            }
+            val trimmedAtt = m.attachmentContent?.let {
+                if (it.length > MAX_PERSIST_ATTACHMENT_CHARS) it.take(MAX_PERSIST_ATTACHMENT_CHARS) + "\n...(dipotong saat simpan)" else it
+            }
+            if (trimmedTools !== m.toolCalls || trimmedAtt !== m.attachmentContent) {
+                m.copy(toolCalls = trimmedTools, attachmentContent = trimmedAtt)
+            } else m
+        })
+    },
     currentSessionId = state.currentSessionId,
     agents = state.agents,
     providers = state.providers,
@@ -134,28 +155,46 @@ class Store(
         runCatching { SessionIndex.getInstance(context).backfill(persisted.sessions) }
     }
 
+    private var saveJob: Job? = null
+
     fun dispatch(action: Action) {
         val next = reduce(_state.value, action)
         _state.value = next
         when (action) {
             is Action.SetGithubToken -> persistence.saveGithubToken(action.token)
             is Action.DeleteSession -> {
-                VirtualFs(context).deleteSession(action.sessionId)
-                runCatching { SessionIndex.getInstance(context).deleteSession(action.sessionId) }
+                scope.launch(Dispatchers.IO) {
+                    VirtualFs(context).deleteSession(action.sessionId)
+                    runCatching { SessionIndex.getInstance(context).deleteSession(action.sessionId) }
+                }
             }
             is Action.AddMessage -> {
                 val msg = action.message
-                runCatching {
-                    SessionIndex.getInstance(context).indexMessage(
-                        action.sessionId, msg.id, msg.role.name, msg.content, msg.timestamp,
-                    )
+                scope.launch(Dispatchers.IO) {
+                    runCatching {
+                        SessionIndex.getInstance(context).indexMessage(
+                            action.sessionId, msg.id, msg.role.name, msg.content, msg.timestamp,
+                        )
+                    }
                 }
             }
             else -> Unit
         }
         // Navigasi/tab saja tidak mengubah data persist — skip encode+save raksasa biar pindah halaman enteng.
         val persistRelevant = action !is Action.SetView && action !is Action.ToggleSidebar
-        if (persistRelevant) scope.launch { persistence.saveState(toPersisted(next)) }
+        if (!persistRelevant) return
+        // Aksi destruktif/sensitif disimpan segera; sisanya di-debounce 1,5 dtk
+        // (satu turn agent bisa ratusan AddMessage — tanpa ini tiap pesan memicu
+        // encode + tulis seluruh state).
+        if (action is Action.DeleteSession || action is Action.SetGithubToken) {
+            scope.launch { persistence.saveState(toPersisted(_state.value)) }
+            return
+        }
+        saveJob?.cancel()
+        saveJob = scope.launch {
+            delay(1500)
+            persistence.saveState(toPersisted(_state.value))
+        }
     }
 
     fun updatePrefs(transform: (Prefs) -> Prefs) {

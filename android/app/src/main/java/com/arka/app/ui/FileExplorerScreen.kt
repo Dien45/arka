@@ -55,6 +55,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -98,15 +99,15 @@ fun FileExplorerScreen(
 
     val sessionId = state.currentSessionId ?: "default"
     var refreshKey by remember { mutableIntStateOf(0) }
-    var openTabs by remember(sessionId) { mutableStateOf(listOf<String>()) }
-    var activeTab by remember(sessionId) { mutableStateOf<String?>(null) }
+    var openTabs by rememberSaveable(sessionId) { mutableStateOf(listOf<String>()) }
+    var activeTab by rememberSaveable(sessionId) { mutableStateOf<String?>(null) }
     var expanded by remember(sessionId) {
         mutableStateOf(setOf("sessions", "sessions/" + fs.sanitizeSessionId(sessionId)))
     }
     var draft by remember { mutableStateOf("") }
     var dirty by remember { mutableStateOf(false) }
-    var previewMode by remember { mutableStateOf(true) }
-    var showTree by remember { mutableStateOf(true) }
+    var previewMode by rememberSaveable { mutableStateOf(true) }
+    var showTree by rememberSaveable { mutableStateOf(true) }
     var newFileName by remember { mutableStateOf("") }
     var newFolderName by remember { mutableStateOf("") }
     var renameTarget by remember { mutableStateOf<String?>(null) }
@@ -240,9 +241,12 @@ fun FileExplorerScreen(
                         TextButton(
                             onClick = {
                                 activeTab?.let { path ->
-                                    val ok = fs.writeProot(path, draft)
-                                    refresh(if (ok) "Tersimpan: $path" else "Gagal menyimpan $path")
-                                    dirty = false
+                                    val text = draft
+                                    scope.launch {
+                                        val ok = withContext(Dispatchers.IO) { fs.writeProot(path, text) }
+                                        refresh(if (ok) "Tersimpan: $path" else "Gagal menyimpan $path")
+                                        dirty = false
+                                    }
                                 }
                             },
                             enabled = dirty,
@@ -366,7 +370,6 @@ fun FileExplorerScreen(
             onConfirm = {
                 val name = newFileName.trim()
                 if (name.isNotEmpty()) {
-                    fs.writeProot(name, "")
                     if (name !in openTabs) openTabs = openTabs + name
                     activeTab = name
                     draft = ""
@@ -374,7 +377,10 @@ fun FileExplorerScreen(
                     showTree = false
                     showNewFile = false
                     newFileName = ""
-                    refresh("File \"$name\" dibuat.")
+                    scope.launch {
+                        val ok = withContext(Dispatchers.IO) { fs.writeProot(name, "") }
+                        refresh(if (ok) "File \"$name\" dibuat." else "Gagal membuat file.")
+                    }
                 }
             },
         )
@@ -390,11 +396,16 @@ fun FileExplorerScreen(
             onConfirm = {
                 val name = newFolderName.trim().trimEnd('/')
                 if (name.isNotEmpty()) {
-                    val f = fs.resolveProot("$name/.keep")
-                    if (f != null) {
-                        f.parentFile?.mkdirs()
-                        f.writeText("")
-                        refresh("Folder \"$name\" dibuat.")
+                    scope.launch {
+                        val ok = withContext(Dispatchers.IO) {
+                            val f = fs.resolveProot("$name/.keep")
+                            if (f != null) {
+                                f.parentFile?.mkdirs()
+                                f.writeText("")
+                                true
+                            } else false
+                        }
+                        refresh(if (ok) "Folder \"$name\" dibuat." else "Gagal membuat folder.")
                     }
                 }
                 showNewFolder = false
@@ -413,14 +424,21 @@ fun FileExplorerScreen(
             onConfirm = {
                 val newPath = renameDraft.trim()
                 if (newPath.isNotEmpty() && newPath != path) {
-                    val content = fs.readProot(path)
-                    if (content != null && fs.writeProot(newPath, content)) {
-                        fs.removeProot(path)
-                        openTabs = openTabs.map { if (it == path) newPath else it }
-                        if (activeTab == path) activeTab = newPath
-                        refresh("Dipindahkan ke $newPath")
-                    } else {
-                        status = "Gagal memindahkan (path tidak valid?)."
+                    scope.launch {
+                        val ok = withContext(Dispatchers.IO) {
+                            val content = fs.readProot(path)
+                            if (content != null && fs.writeProot(newPath, content)) {
+                                fs.removeProot(path)
+                                true
+                            } else false
+                        }
+                        if (ok) {
+                            openTabs = openTabs.map { if (it == path) newPath else it }
+                            if (activeTab == path) activeTab = newPath
+                            refresh("Dipindahkan ke $newPath")
+                        } else {
+                            status = "Gagal memindahkan (path tidak valid?)."
+                        }
                     }
                 }
                 renameTarget = null
@@ -435,11 +453,13 @@ fun FileExplorerScreen(
             text = { Text(path) },
             confirmButton = {
                 TextButton(onClick = {
-                    fs.removeProot(path)
-                    openTabs = openTabs - path
-                    if (activeTab == path) activeTab = openTabs.firstOrNull()
-                    deleteTarget = null
-                    refresh("Dihapus: $path")
+                    scope.launch {
+                        withContext(Dispatchers.IO) { fs.removeProot(path) }
+                        openTabs = openTabs - path
+                        if (activeTab == path) activeTab = openTabs.firstOrNull()
+                        deleteTarget = null
+                        refresh("Dihapus: $path")
+                    }
                 }) { Text("Hapus", color = MaterialTheme.colorScheme.error) }
             },
             dismissButton = { TextButton(onClick = { deleteTarget = null }) { Text("Batal") } },
@@ -570,7 +590,7 @@ private fun WebPreview(html: String, height: androidx.compose.ui.unit.Dp) {
             modifier = Modifier.fillMaxSize(),
             factory = { ctx ->
                 WebView(ctx).apply {
-                    settings.javaScriptEnabled = true
+                    // Preview statis file lokal: JS dimatikan (konten tak-terpercaya).
                     settings.domStorageEnabled = false
                     // Preview file lokal: tidak boleh memuat apa pun dari jaringan.
                     settings.blockNetworkLoads = true

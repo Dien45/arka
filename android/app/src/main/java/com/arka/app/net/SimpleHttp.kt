@@ -29,6 +29,44 @@ object SimpleHttp {
     }
 
     /**
+     * GET dengan redirect manual: tiap hop (maks 5) divalidasi ulang lewat
+     * [checkUrl] supaya redirect ke host internal ikut tertolak (anti-SSRF).
+     */
+    suspend fun getChecked(
+        url: String,
+        headers: Map<String, String> = emptyMap(),
+        maxHops: Int = 5,
+        checkUrl: (String) -> Any? = {},
+    ): Pair<Int, String> {
+        var current = url
+        var hops = 0
+        val noFollow = client().newBuilder().followRedirects(false).followSslRedirects(false).build()
+        while (true) {
+            checkUrl(current)
+            val req = Request.Builder().url(current).apply {
+                headers.forEach { (k, v) -> if (v.isNotBlank()) this.header(k, v) }
+            }.build()
+            val response: Response = withContext(Dispatchers.IO) { noFollow.newCall(req).execute() }
+            response.use { resp ->
+                val code = resp.code
+                if (code in 300..399) {
+                    val loc = resp.header("Location")
+                        ?: return Pair(code, resp.body?.string() ?: "")
+                    current = try {
+                        java.net.URI(current).resolve(loc).toString()
+                    } catch (e: Exception) {
+                        throw IllegalStateException("Redirect tidak valid.")
+                    }
+                    hops++
+                    if (hops > maxHops) throw IllegalStateException("Terlalu banyak redirect.")
+                    return@use
+                }
+                return Pair(code, resp.body?.string() ?: "")
+            }
+        }
+    }
+
+    /**
      * GET yang langsung mengembalikan body dan melempar error yang bisa dibaca
      * user (dipakai pengunduh skill).
      */

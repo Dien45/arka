@@ -39,9 +39,12 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.arka.app.core.DistroManager
+import com.arka.app.core.DistroStatus
 import com.arka.app.core.ExecRunner
 import com.arka.app.core.Store
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
  * M8 — Runtime distro untuk `run_command` (satu-satunya backend).
@@ -58,7 +61,7 @@ fun DistroSection(store: Store) {
     val distro = remember { DistroManager(context) }
     val runner = remember { ExecRunner(context, distro) }
 
-    var status by remember { mutableStateOf(distro.status()) }
+    var status by remember { mutableStateOf<DistroStatus?>(null) }
     var progress by remember { mutableIntStateOf(0) }
     var busy by remember { mutableStateOf(false) }
     var message by remember { mutableStateOf<String?>(null) }
@@ -78,7 +81,7 @@ fun DistroSection(store: Store) {
             }
                 .onSuccess {
                     message = "Alpine terpasang dari file lokal."
-                    status = distro.status()
+                    status = withContext(Dispatchers.IO) { distro.status() }
                 }
                 .onFailure { e -> message = "Gagal memasang: ${e.message}" }
             busy = false
@@ -126,13 +129,13 @@ fun DistroSection(store: Store) {
     ) {
         Column(Modifier.padding(12.dp)) {
             Text(
-                "Distro: Alpine · ${status.abi}",
+                "Distro: Alpine · ${status?.abi ?: "..."}",
                 style = MaterialTheme.typography.bodyMedium,
                 fontWeight = FontWeight.SemiBold,
             )
             Spacer(Modifier.height(4.dp))
-            Text(status.message, style = MaterialTheme.typography.bodySmall)
-            if (!status.prootAvailable || !status.loaderAvailable) {
+            Text(status?.message ?: "Memuat status distro…", style = MaterialTheme.typography.bodySmall)
+            if (status?.let { !it.prootAvailable || !it.loaderAvailable } == true) {
                 Text(
                     "Binary proot tidak ada di APK ini. Build ulang dengan jaringan (task Gradle downloadProotBinaries).",
                     style = MaterialTheme.typography.bodySmall,
@@ -160,7 +163,7 @@ fun DistroSection(store: Store) {
                             }
                                 .onSuccess {
                                     message = "Alpine terpasang. Coba \"Tes distro\"."
-                                    status = distro.status()
+                                    status = withContext(Dispatchers.IO) { distro.status() }
                                 }
                                 .onFailure { e -> message = "Gagal memasang: ${e.message}" }
                             busy = false
@@ -173,7 +176,7 @@ fun DistroSection(store: Store) {
                         CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
                         Spacer(Modifier.width(8.dp))
                     }
-                    Text(if (status.installed) "Perbarui rootfs" else "Unduh & pasang (±3,6 MB)")
+                    Text(if (status?.installed == true) "Perbarui rootfs" else "Unduh & pasang (±3,6 MB)")
                 }
                 OutlinedButton(onClick = { filePicker.launch(arrayOf("*/*")) }, enabled = !busy) {
                     Text("Impor .tar.gz")
@@ -184,7 +187,7 @@ fun DistroSection(store: Store) {
                 OutlinedButton(onClick = { runDiagnostics() }, enabled = !busy) {
                     Text("Tes distro")
                 }
-                OutlinedButton(onClick = { showRemove = true }, enabled = status.installed && !busy) {
+                OutlinedButton(onClick = { showRemove = true }, enabled = status?.installed == true && !busy) {
                     Text("Hapus rootfs")
                 }
             }
@@ -255,10 +258,12 @@ fun DistroSection(store: Store) {
             text = { Text("Semua paket yang di-install di dalam distro ikut terhapus.") },
             confirmButton = {
                 TextButton(onClick = {
-                    distro.remove()
-                    status = distro.status()
-                    message = "Rootfs dihapus."
-                    showRemove = false
+                    scope.launch {
+                        withContext(Dispatchers.IO) { distro.remove() }
+                        status = withContext(Dispatchers.IO) { distro.status() }
+                        message = "Rootfs dihapus."
+                        showRemove = false
+                    }
                 }) { Text("Hapus", color = MaterialTheme.colorScheme.error) }
             },
             dismissButton = {
@@ -267,6 +272,6 @@ fun DistroSection(store: Store) {
         )
     }
 
-    // Status di-refresh saat pertama dibuka (mis. setelah update APK).
-    LaunchedEffect(Unit) { status = distro.status() }
+    // Status di-refresh saat pertama dibuka (mis. setelah update APK) — di IO karena scan ribuan file.
+    LaunchedEffect(Unit) { status = withContext(Dispatchers.IO) { distro.status() } }
 }

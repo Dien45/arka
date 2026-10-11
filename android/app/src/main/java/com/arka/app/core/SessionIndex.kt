@@ -37,7 +37,14 @@ class SessionIndex private constructor(context: Context) :
             }
     }
 
-    private var useFts = false
+    /** Terdeteksi dari skema yang benar-benar ada (bertahan antar restart, bukan flag memori). */
+    private val useFts: Boolean by lazy {
+        runCatching {
+            readableDatabase.rawQuery("SELECT sql FROM sqlite_master WHERE name='$TABLE'", null).use { c ->
+                if (c.moveToFirst()) (c.getString(0) ?: "").contains("USING fts5", ignoreCase = true) else false
+            }
+        }.getOrDefault(false)
+    }
 
     override fun onCreate(db: SQLiteDatabase) {
         try {
@@ -45,7 +52,6 @@ class SessionIndex private constructor(context: Context) :
                 "CREATE VIRTUAL TABLE IF NOT EXISTS $TABLE USING fts5(" +
                     "content, session_id UNINDEXED, message_id UNINDEXED, role UNINDEXED, timestamp UNINDEXED)",
             )
-            useFts = true
         } catch (e: Exception) {
             db.execSQL(
                 "CREATE TABLE IF NOT EXISTS $TABLE (" +
@@ -54,7 +60,6 @@ class SessionIndex private constructor(context: Context) :
             )
             db.execSQL("CREATE INDEX IF NOT EXISTS idx_session ON $TABLE(session_id)")
             db.execSQL("CREATE INDEX IF NOT EXISTS idx_timestamp ON $TABLE(timestamp)")
-            useFts = false
         }
     }
 
@@ -63,8 +68,15 @@ class SessionIndex private constructor(context: Context) :
         onCreate(db)
     }
 
+    private fun isIndexed(messageId: String): Boolean = runCatching {
+        readableDatabase.rawQuery("SELECT 1 FROM $TABLE WHERE message_id = ? LIMIT 1", arrayOf(messageId)).use { c ->
+            c.moveToFirst()
+        }
+    }.getOrDefault(false)
+
     fun indexMessage(sessionId: String, messageId: String, role: String, content: String, timestamp: Long) {
         if (content.isBlank()) return
+        if (isIndexed(messageId)) return
         val truncated = content.take(MAX_CONTENT_CHARS)
         val values = ContentValues().apply {
             put("content", truncated)

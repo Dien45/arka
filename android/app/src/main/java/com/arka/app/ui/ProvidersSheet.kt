@@ -179,11 +179,13 @@ fun ProvidersSheet(
                 val draftUrl = baseUrls[provider.id] ?: provider.baseUrl
                 val draftModel = modelInputs[provider.id] ?: provider.model
                 val draft = provider.copy(apiKey = draftKey, baseUrl = draftUrl, model = draftModel)
-                val visibleModels = provider.models.filter { m ->
-                    query.isBlank() ||
-                        m.id.contains(query, ignoreCase = true) ||
-                        m.name.contains(query, ignoreCase = true) ||
-                        provider.name.contains(query, ignoreCase = true)
+                val visibleModels = remember(provider.models, query) {
+                    provider.models.filter { m ->
+                        query.isBlank() ||
+                            m.id.contains(query, ignoreCase = true) ||
+                            m.name.contains(query, ignoreCase = true) ||
+                            provider.name.contains(query, ignoreCase = true)
+                    }
                 }
 
                 ProviderHeader(

@@ -76,6 +76,14 @@ class SkillsManager(private val context: Context) {
             null
         }
         if (fromDisk != null) return fromDisk
+        // File utama corrupt — coba backup sebelum fallback migrasi legacy.
+        val fromBak = try {
+            val bak = AtomicFile.backupFileFor(file)
+            if (bak.exists()) json.decodeFromString<SkillState>(bak.readText()) else null
+        } catch (t: Throwable) {
+            null
+        }
+        if (fromBak != null) return fromBak
         // Migrasi dari format v1 (daftar custom skills terpisah).
         val legacy = try {
             if (legacyFile.exists()) json.decodeFromString<List<Skill>>(legacyFile.readText()) else emptyList()
@@ -105,10 +113,13 @@ class SkillsManager(private val context: Context) {
         return current
     }
 
-    private fun save(next: SkillState) {
+    private val saveLock = Any()
+
+    private fun save(next: SkillState) = synchronized(saveLock) {
         cached = next
         runCatching {
-            file.writeText(json.encodeToString(next))
+            AtomicFile.backup(file)
+            AtomicFile.writeText(file, json.encodeToString(next))
             lastWrite = file.lastModified()
         }
     }

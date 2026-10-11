@@ -51,8 +51,24 @@ object ZipUtil {
                 val name = entry.name.replace('\\', '/').removePrefix("./").trimStart('/')
                 if (name.isBlank() || name.split('/').any { it == ".." } || name.contains(":")) continue
                 if (name.split('/').any { it in skipImportDirs }) continue
-                val bytes = zip.readBytes()
-                if (bytes.size > MAX_FILE_BYTES) continue
+                // Inflasi bertahap dengan cap berjalan — jangan readBytes() dulu
+                // (zip-bomb kecil bisa meledak jadi GB di RAM sebelum cap dicek).
+                val inflated = java.io.ByteArrayOutputStream()
+                val buf = ByteArray(8192)
+                var entryTotal = 0
+                var overCap = false
+                while (true) {
+                    val n = zip.read(buf)
+                    if (n < 0) break
+                    entryTotal += n
+                    if (entryTotal > MAX_FILE_BYTES) {
+                        overCap = true
+                        break
+                    }
+                    inflated.write(buf, 0, n)
+                }
+                if (overCap) continue
+                val bytes = inflated.toByteArray()
                 total += bytes.size
                 if (total > maxTotalBytes) break
                 if (fs.writeBytes(sessionId, name, bytes)) written++

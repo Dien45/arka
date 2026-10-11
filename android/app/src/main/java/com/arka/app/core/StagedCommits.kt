@@ -23,14 +23,21 @@ class StagedCommits(context: Context) {
     private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
     private val file: File = File(context.filesDir, "staged_commits.json")
 
-    fun load(): List<StagedCommit> = try {
-        json.decodeFromString<List<StagedCommit>>(file.readText())
-    } catch (t: Throwable) {
-        emptyList()
+    fun load(): List<StagedCommit> {
+        val parsed = runCatching {
+            json.decodeFromString<List<StagedCommit>>(file.readText())
+        }.getOrNull()
+        if (parsed != null) return parsed
+        return runCatching {
+            json.decodeFromString<List<StagedCommit>>(AtomicFile.backupFileFor(file).readText())
+        }.getOrDefault(emptyList())
     }
 
     private fun save(commits: List<StagedCommit>) {
-        runCatching { file.writeText(json.encodeToString(commits)) }
+        runCatching {
+            AtomicFile.backup(file)
+            AtomicFile.writeText(file, json.encodeToString(commits))
+        }
     }
 
     fun add(commit: StagedCommit): Boolean {
