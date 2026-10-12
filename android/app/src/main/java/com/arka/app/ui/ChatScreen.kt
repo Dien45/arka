@@ -223,11 +223,9 @@ fun ChatScreen(
             ChatTopBar(
                 title = currentSession?.title ?: "Arka",
                 selectedModel = prefs.selectedModel,
-                isLoading = isLoading,
                 providers = state.providers,
                 onOpenModelPicker = { showModelPicker = true },
                 onOpenDrawer = onOpenDrawer,
-                onStop = { currentSession?.id?.let(controller::stop) },
             )
         },
         bottomBar = {
@@ -314,11 +312,9 @@ fun ChatScreen(
 private fun ChatTopBar(
     title: String,
     selectedModel: String,
-    isLoading: Boolean,
     providers: List<ProviderConfig>,
     onOpenModelPicker: () -> Unit,
     onOpenDrawer: () -> Unit = {},
-    onStop: () -> Unit,
 ) {
     // Chip model: menampilkan provider aktif + model, tap untuk membuka picker
     // yang bisa dicari (semua model hasil scan, bukan cuma beberapa entri).
@@ -367,9 +363,6 @@ private fun ChatTopBar(
                     )
                     Text(" ▾", style = MaterialTheme.typography.labelSmall)
                 }
-            }
-            if (isLoading) {
-                IconButton(onClick = onStop) { Icon(Icons.Default.Stop, contentDescription = "Stop") }
             }
         }
     }
