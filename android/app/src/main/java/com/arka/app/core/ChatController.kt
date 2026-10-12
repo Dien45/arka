@@ -26,6 +26,8 @@ const val MAX_AUTO_CONTINUES_AGENT_MODE = 3
 const val MAX_HISTORY_MESSAGES = 40
 const val MAX_TOOL_RESULT_CHARS = 4000
 const val MAX_ATTACHMENT_HISTORY_CHARS = 4000
+/** Gema hasil tool turn lama di history (per entri). */
+const val MAX_PREV_TOOL_CHARS = 1500
 
 const val AGENT_AUTO_CONTINUE_PROMPT =
     "Lanjutkan PERSIS dari langkah terakhir di atas — jangan mengulang apa yang sudah dikerjakan, jangan minta konfirmasi untuk hal-hal kecil, langsung lanjutkan sampai task benar-benar selesai."
@@ -139,22 +141,63 @@ class ChatController(
             runCatching { skills.syncSkills() }
 
             val session = store.state.value.sessions.find { it.id == sessionId }
-            var history = session?.messages
-                ?.filter { it.role == MessageRole.user || it.role == MessageRole.assistant }
-                ?.takeLast(MAX_HISTORY_MESSAGES)
-                ?.map { m ->
-                    val rawPart = m.attachmentContent
-                    val filePart = if (rawPart != null && rawPart.length > MAX_ATTACHMENT_HISTORY_CHARS) {
-                        rawPart.take(MAX_ATTACHMENT_HISTORY_CHARS) + "\n...(lampiran dipotong)"
-                    } else rawPart
-                    val content = if (filePart.isNullOrBlank()) {
-                        m.content
-                    } else {
-                        m.content + "\n\n[Lampiran file]\n$UNTRUSTED_FILE_BANNER" + filePart
+            // History lintas-turn: user + assistant + GEMA hasil tool turn-turn
+            // sebelumnya sebagai TEKS (agnostik-provider — replay native
+            // tool_calls rapuh saat ganti model/provider). Peran sama yang
+            // berurutan digabung agar alternasi user/assistant valid di semua
+            // provider (khususnya Anthropic yang menolak peran ganda/awalan non-user).
+            var history = buildList {
+                var lastRole: String? = null
+                var buffer = StringBuilder()
+                fun flush() {
+                    if (buffer.isNotEmpty() && lastRole != null) {
+                        add(ChatMessage(role = lastRole!!, content = buffer.toString()))
                     }
-                    ChatMessage(role = m.role.name, content = content)
+                    buffer = StringBuilder()
                 }
-                ?: emptyList()
+                fun push(role: String, text: String) {
+                    if (text.isBlank()) return
+                    if (lastRole == role) buffer.append("\n\n").append(text)
+                    else {
+                        flush()
+                        lastRole = role
+                        buffer.append(text)
+                    }
+                }
+                val raw = session?.messages
+                    ?.filter { it.role == MessageRole.user || it.role == MessageRole.assistant || it.role == MessageRole.tool }
+                    ?.takeLast(MAX_HISTORY_MESSAGES)
+                    ?: emptyList()
+                for (m in raw) {
+                    when (m.role) {
+                        MessageRole.user -> {
+                            val rawPart = m.attachmentContent
+                            val filePart = if (rawPart != null && rawPart.length > MAX_ATTACHMENT_HISTORY_CHARS) {
+                                rawPart.take(MAX_ATTACHMENT_HISTORY_CHARS) + "\n...(lampiran dipotong)"
+                            } else rawPart
+                            val text = if (filePart.isNullOrBlank()) m.content
+                            else m.content + "\n\n[Lampiran file]\n$UNTRUSTED_FILE_BANNER" + filePart
+                            push("user", text)
+                        }
+                        MessageRole.assistant -> push("assistant", m.content)
+                        MessageRole.tool -> {
+                            val tc = m.toolCalls?.firstOrNull() ?: continue
+                            val out = tc.output ?: continue
+                            val shortOut = if (out.length > MAX_PREV_TOOL_CHARS) {
+                                out.take(MAX_PREV_TOOL_CHARS) + "\n...(output dipotong)"
+                            } else out
+                            push("assistant", "Tool `${tc.name}` ${tc.input.take(300)} ->\n$shortOut")
+                        }
+                        else -> {}
+                    }
+                }
+                flush()
+            }
+            // Jangan awali history dengan non-user (ditolak sebagian provider).
+            // Peran sudah digabung di atas sehingga maksimal satu entri terbuang.
+            if (history.isNotEmpty() && history.first().role != "user") {
+                history = history.drop(1)
+            }
 
             var responseContent = ""
             var stoppedByCap = false
