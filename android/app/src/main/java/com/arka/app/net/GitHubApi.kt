@@ -69,9 +69,11 @@ object GitHubApi {
     ): HttpResult = withContext(Dispatchers.IO) {
         val builder = Request.Builder()
             .url(url)
-            .header("Authorization", "Bearer $token")
             .header("Accept", "application/vnd.github+json")
             .header("X-GitHub-Api-Version", "2022-11-28")
+        // Token kosong = jangan kirim header auth sama sekali ("Bearer " kosong
+        // selalu dibalas 401, padahal endpoint publik bisa diakses anonim).
+        if (token.isNotBlank()) builder.header("Authorization", "Bearer $token")
         when (method) {
             "POST" -> builder.post((body?.toString() ?: "{}").toRequestBody(mediaJson))
             "PATCH" -> builder.patch((body?.toString() ?: "{}").toRequestBody(mediaJson))
