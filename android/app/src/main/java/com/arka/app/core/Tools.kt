@@ -50,6 +50,10 @@ class ToolRegistry(
     private val execRunner = ExecRunner(context)
     private val json = Json { ignoreUnknownKeys = true }
 
+    /** Token GitHub yang dihubungkan user di panel GitHub (kosong kalau belum). */
+    private fun githubToken(): String =
+        runCatching { Persistence(context).loadGithubToken() }.getOrDefault("")
+
     fun isSensitive(name: String): Boolean = name in SENSITIVE_TOOLS
 
     /** Formatted memory block for the system prompt (shared manager). */
@@ -66,7 +70,7 @@ class ToolRegistry(
         }
 
     private fun availableToolDescriptors(): List<Pair<String, String>> = listOf(
-        "web_fetch" to "Fetch content from a URL. Returns the text content of the webpage. Automatically handles GitHub repositories; external sites are fetched directly from the device. Requires user approval before running.",
+        "web_fetch" to "Fetch content from a URL. Returns the text content of the webpage. Automatically handles GitHub repositories (uses the user's connected GitHub token when available, so private repos work); external sites are fetched directly from the device. Requires user approval before running.",
         "web_search" to "Search GitHub repositories and the web. Returns relevant results with descriptions.",
         "read_file" to "Read the content of a file from the proot workspace (/root/workspace/sessions/<session-id>/).",
         "write_file" to "Write content to a file in the proot workspace (/root/workspace/sessions/<session-id>/). Files are scoped to this chat session and can be viewed in the Workspace tab. Requires user approval before running.",
@@ -200,13 +204,19 @@ class ToolRegistry(
             val url = assertSafeFetchTarget(rawUrl).toString()
 
             // GitHub repository handling — served straight from api.github.com.
+            // Token user dipakai kalau ada (repo private + limit 5000/jam vs 60 anonim).
             val repoMatch = Regex("github\\.com/([^/?#]+/[^/?#]+)").find(url)
             if (repoMatch != null) {
-                val repoPath = repoMatch.groupValues[1].replace(".git", "").trimEnd('/')
+                val ghToken = githubToken()
+                fun ghHeaders(accept: String): Map<String, String> = buildMap {
+                    put("Accept", accept)
+                    if (ghToken.isNotBlank()) put("Authorization", "Bearer $ghToken")
+                }
+                val repoPath = repoMatch.groupValues[1].trim().removeSuffix(".git").trimEnd('/').trimEnd(')', '.', ',', ';', '!')
                 try {
                     val (readmeStatus, readmeBody) = SimpleHttp.get(
                         "https://api.github.com/repos/$repoPath/readme",
-                        mapOf("Accept" to "application/vnd.github.v3.raw"),
+                        ghHeaders("application/vnd.github.v3.raw"),
                     )
                     if (readmeStatus in 200..299) {
                         return "# GitHub Repository: $repoPath\n\n$UNTRUSTED_CONTENT_BANNER${readmeBody.take(MAX_FETCH_CHARS)}"
@@ -216,12 +226,11 @@ class ToolRegistry(
                 }
 
                 try {
-                    val ghHeaders = mapOf("Accept" to "application/vnd.github.v3+json")
-                    val repoInfo = SimpleHttp.get("https://api.github.com/repos/$repoPath", ghHeaders)
+                    val repoInfo = SimpleHttp.get("https://api.github.com/repos/$repoPath", ghHeaders("application/vnd.github.v3+json"))
                     if (repoInfo.first in 200..299) {
                         val info = runCatching { json.parseToJsonElement(repoInfo.second).jsonObject }.getOrNull() ?: JsonObject(emptyMap())
                         val contents = try {
-                            SimpleHttp.get("https://api.github.com/repos/$repoPath/contents/", ghHeaders).second
+                            SimpleHttp.get("https://api.github.com/repos/$repoPath/contents/", ghHeaders("application/vnd.github.v3+json")).second
                         } catch (t: Throwable) { "" }
                         val sb = StringBuilder("# GitHub Repository: $repoPath\n\n$UNTRUSTED_CONTENT_BANNER")
                         sb.append("**${info["full_name"]?.jsonPrimitive?.contentOrNull ?: repoPath}**")
@@ -242,10 +251,15 @@ class ToolRegistry(
                         return sb.toString().take(MAX_FETCH_CHARS)
                     }
                     if (repoInfo.first == 404) {
-                        return "❌ Repository \"$repoPath\" tidak ditemukan (404) — cek ejaan owner/nama repo, atau repo tersebut private dan butuh token."
+                        val hint = if (ghToken.isBlank()) {
+                            "Kalau repo ini private, hubungkan token GitHub di panel GitHub lalu coba lagi. Kalau publik, cek ejaan owner/nama persis (contoh: github.com/<owner>/<repo>)."
+                        } else {
+                            "Token GitHub sudah terpasang tapi tetap 404: cek ejaan owner/nama persis, pastikan repo ada dan token punya akses ke repo tersebut."
+                        }
+                        return "❌ Repository \"$repoPath\" tidak ditemukan (404). $hint"
                     }
                     if (repoInfo.first == 403) {
-                        return "❌ GitHub API rate-limited (403) saat mengakses \"$repoPath\". Coba lagi beberapa menit lagi, atau hubungkan GitHub token di Settings untuk limit yang lebih tinggi."
+                        return "❌ GitHub API rate-limited (403) saat mengakses \"$repoPath\". Coba lagi beberapa menit lagi, atau hubungkan GitHub token di panel GitHub untuk limit yang lebih tinggi."
                     }
                 } catch (t: Throwable) {
                     // fall through to direct fetch
