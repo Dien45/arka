@@ -219,6 +219,8 @@ class DistroManager(private val context: Context) {
         }
 
     private fun postInstall() {
+        // Rootfs fresh tidak punya kredensial git — pasang ulang dari token tersimpan.
+        runCatching { GitCredentials.sync(context, Persistence(context).loadGithubToken()) }
         runCatching {
             File(rootfsDir, "root/workspace").mkdirs()
             File(rootfsDir, "etc/resolv.conf").writeText("nameserver 1.1.1.1\nnameserver 8.8.8.8\n")
