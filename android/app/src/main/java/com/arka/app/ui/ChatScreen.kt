@@ -196,7 +196,8 @@ fun ChatScreen(
                                     .replace('\n', ' ')
                                     .take(28),
                                 createdAt = System.currentTimeMillis(),
-                                model = prefs.selectedModel,
+                                provider = prefs.selectedProvider?.let { runCatching { com.arka.app.core.Provider.valueOf(it) }.getOrNull() },
+                                model = prefs.selectedModel.takeIf { it.isNotBlank() },
                             ),
                         ),
                     )
@@ -222,7 +223,8 @@ fun ChatScreen(
         topBar = {
             ChatTopBar(
                 title = currentSession?.title ?: "Arka",
-                selectedModel = prefs.selectedModel,
+                selectedModel = currentSession?.model ?: prefs.selectedModel,
+                pinnedProviderName = currentSession?.provider?.name,
                 providers = state.providers,
                 onOpenModelPicker = { showModelPicker = true },
                 onOpenDrawer = onOpenDrawer,
@@ -312,13 +314,15 @@ fun ChatScreen(
 private fun ChatTopBar(
     title: String,
     selectedModel: String,
+    pinnedProviderName: String?,
     providers: List<ProviderConfig>,
     onOpenModelPicker: () -> Unit,
     onOpenDrawer: () -> Unit = {},
 ) {
     // Chip model: menampilkan provider aktif + model, tap untuk membuka picker
     // yang bisa dicari (semua model hasil scan, bukan cuma beberapa entri).
-    val activeProvider = providers.firstOrNull { it.enabled }
+    val activeProvider = pinnedProviderName?.let { n -> providers.find { it.id.name == n } }
+        ?: providers.firstOrNull { it.enabled }
     val hasAnyModel = providers.any { it.enabled && (it.models.isNotEmpty() || it.effectiveModel.isNotBlank()) }
 
     Surface(color = MaterialTheme.colorScheme.surface) {

@@ -141,6 +141,7 @@ fun ArkaRoot() {
                             store = store,
                             language = prefs.language,
                             defaultModel = prefs.selectedModel,
+                            defaultProviderName = prefs.selectedProvider,
                             onSessionSelected = {
                                 store.dispatch(Action.SetView(AppView.chat))
                                 uiScope.launch { drawerState.close() }

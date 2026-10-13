@@ -95,6 +95,10 @@ fun ModelPickerSheet(
     val relevant = remember(state.providers) {
         state.providers.filter { it.enabled || it.canScan() || it.models.isNotEmpty() }
     }
+    // Pilihan efektif sesi aktif (pin sesi > default global) — untuk tanda centang.
+    val pinnedSession = state.sessions.find { it.id == state.currentSessionId }
+    val effProviderName = pinnedSession?.provider?.name ?: prefs.selectedProvider
+    val effModel = pinnedSession?.model ?: prefs.selectedModel
     val modelsByProvider = remember(relevant, query) {
         relevant.associate { provider ->
             provider.id to provider.models.filter { m ->
@@ -229,7 +233,7 @@ fun ModelPickerSheet(
                         items(models, key = { "${provider.id}_${it.id}" }) { model ->
                             ModelRow(
                                 model = model,
-                                selected = provider.id.name == prefs.selectedProvider && model.id == prefs.selectedModel,
+                                selected = provider.id.name == effProviderName && model.id == effModel,
                                 onClick = {
                                     store.selectModel(provider.id, model.id)
                                     onDismiss()

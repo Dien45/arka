@@ -28,6 +28,7 @@ data class AppState(
 sealed interface Action {
     data class SetView(val view: AppView) : Action
     data class SetSession(val id: String?) : Action
+    data class UpdateSessionModel(val sessionId: String, val provider: Provider?, val model: String?) : Action
     data class AddSession(val session: Session) : Action
     data class AddMessage(val sessionId: String, val message: Message) : Action
     data class UpdateMessage(val sessionId: String, val messageId: String, val content: String) : Action
@@ -49,6 +50,11 @@ sealed interface Action {
 fun reduce(state: AppState, action: Action): AppState = when (action) {
     is Action.SetView -> state.copy(currentView = action.view, sidebarOpen = false)
     is Action.SetSession -> state.copy(currentSessionId = action.id)
+    is Action.UpdateSessionModel -> state.copy(
+        sessions = state.sessions.map { s ->
+            if (s.id == action.sessionId) s.copy(provider = action.provider, model = action.model) else s
+        },
+    )
     is Action.AddSession -> state.copy(
         sessions = listOf(action.session) + state.sessions,
         currentSessionId = action.session.id,
@@ -229,6 +235,11 @@ class Store(
      */
     fun selectModel(providerId: Provider, model: String, enableIfReady: Boolean = true) {
         updatePrefs { it.copy(selectedProvider = providerId.name, selectedModel = model) }
+        // Pin ke sesi aktif supaya ganti model di sesi lain tidak ikut mengubah sesi ini.
+        // prefs global tetap jadi default untuk sesi baru.
+        state.value.currentSessionId?.let { sid ->
+            dispatch(Action.UpdateSessionModel(sid, providerId, model.takeIf { it.isNotBlank() }))
+        }
         if (!enableIfReady) return
         // Model yang dipilih user SELALU ikut tersimpan di provider-nya (sebelumnya
         // hanya saat provider masih nonaktif, sehingga provider yang sudah aktif

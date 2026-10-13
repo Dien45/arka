@@ -203,7 +203,7 @@ class ChatController(
             var stoppedByCap = false
 
             val turnChatMode = store.prefs.value.chatMode
-            val provider = resolveProvider()
+            val provider = resolveProvider(sessionId)
                 ?: throw IllegalStateException("Provider tidak ditemukan atau belum diaktifkan. Buka Settings untuk setup.")
             val toolDefinitions = buildToolDefinitions(turnChatMode)
             val systemMessage = ChatMessage(role = "system", content = buildSystemPrompt(turnChatMode))
@@ -367,9 +367,22 @@ class ChatController(
 
     // ------------------------------------------------------------------ aids
 
-    private fun resolveProvider(): ProviderConfig? {
+    private fun resolveProvider(sessionId: String?): ProviderConfig? {
         val state = store.state.value
         val prefs = store.prefs.value
+        // 1. Pin model sesi ini (kalau user pernah memilih model khusus sesi ini).
+        //    Ini yang mencegah sesi A ketarik model sesi B.
+        val session = sessionId?.let { id -> state.sessions.find { it.id == id } }
+        val pinnedProvider = session?.provider
+        val pinnedModel = session?.model
+        if (pinnedProvider != null && !pinnedModel.isNullOrBlank()) {
+            state.providers.find { it.id == pinnedProvider }?.let { base ->
+                return base.copy(
+                    model = pinnedModel,
+                    baseUrl = normalizeBaseUrl(base.baseUrl),
+                )
+            }
+        }
         val selectedModel = prefs.selectedModel
         // Provider yang DIPILIH user lewat model picker dipakai apa adanya, meski
         // flag enabled-nya belum sempat tersinkron. Fallback lama hanya mencocokkan
