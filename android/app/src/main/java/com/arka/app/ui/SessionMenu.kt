@@ -51,6 +51,7 @@ fun SessionMenu(
     store: Store,
     language: ArkaLanguage,
     defaultModel: String,
+    defaultProviderName: String?,
     modifier: Modifier = Modifier,
     onSessionSelected: () -> Unit = {},
 ) {
@@ -68,7 +69,8 @@ fun SessionMenu(
                     id = "sess_${System.currentTimeMillis()}",
                     title = "Sesi Baru",
                     createdAt = System.currentTimeMillis(),
-                    model = defaultModel,
+                    provider = defaultProviderName?.let { runCatching { com.arka.app.core.Provider.valueOf(it) }.getOrNull() },
+                    model = defaultModel.takeIf { it.isNotBlank() },
                 ),
             ),
         )

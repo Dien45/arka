@@ -79,13 +79,16 @@ data class Message(
 )
 
 @Serializable
+// provider/model null = belum di-pin ke sesi ini → ikut default global
+// (prefs.selectedProvider/selectedModel). Memilih model saat sesi aktif
+// me-pin ke sesi itu saja, sehingga sesi lain tidak ikut berubah.
 data class Session(
     val id: String,
     val title: String,
     val messages: List<Message> = emptyList(),
     val createdAt: Long,
-    val provider: Provider = Provider.openai,
-    val model: String = "gpt-4o",
+    val provider: Provider? = null,
+    val model: String? = null,
 )
 
 @Serializable
