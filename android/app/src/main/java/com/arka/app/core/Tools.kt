@@ -74,8 +74,8 @@ class ToolRegistry(
         "web_search" to "Search GitHub repositories and the web. Returns relevant results with descriptions.",
         "read_file" to "Read the content of a file from the proot workspace (/root/workspace/sessions/<session-id>/).",
         "write_file" to "Write content to a file in the proot workspace (/root/workspace/sessions/<session-id>/). Files are scoped to this chat session and can be viewed in the Workspace tab. Requires user approval before running.",
-        "list_files" to "List files in the proot workspace (/root/workspace/sessions/<session-id>/).",
-        "stage_commit" to "Snapshot the changes made to the proot workspace since the last checkpoint (files added, edited, or deleted via write_file) into a named git-style commit, staged locally for the user to review and push to GitHub from the GitHub panel (\"Staged AI Commits\"). Call this after finishing a meaningful, self-contained chunk of work (e.g. \"added login form\", \"fixed the bug in cart total\"), or whenever the user asks to save/checkpoint/push progress. Does NOT push anything by itself — the user still has to click a button in the GitHub panel to actually push. Requires user approval before running.",
+        "list_files" to "List files AND folders. Scope session (default): this session’s workspace (/root/workspace/sessions/<session-id>/). Scope workspace: the whole /root/workspace (other sessions, skills) — use when hunting files outside this session. Params: path (subfolder filter), scope (session|workspace).",
+        "stage_commit" to "Snapshot ONLY files changed in THIS session’s workspace (auto-skips attachments/ and system files; unchanged files skipped by diff vs last checkpoint) into a named git-style commit, staged locally for the user to review and push to GitHub from the GitHub panel (\"Staged AI Commits\"). Call this after finishing a meaningful, self-contained chunk of work (e.g. \"added login form\", \"fixed the bug in cart total\"), or whenever the user asks to save/checkpoint/push progress. Does NOT push anything by itself — the user still has to click a button in the GitHub panel to actually push. Requires user approval before running.",
         "skill" to ("Buka skill yang terpasang (read-only). Actions: list (daftar skill terpasang), " +
             "read (buka instruksi lengkap SKILL.md atau berkas lain di dalam skill), files (daftar berkas skill). " +
             "Skill hasil unduhan dari GitHub menyimpan berkas nyatanya di proot workspace global (folder /root/workspace/skills/<id>/), " +
@@ -113,7 +113,14 @@ class ToolRegistry(
                     put("content", p("The content to write"))
                     put("required", strArray("path", "content"))
                 }
-                "list_files" -> put("path", p("The directory path to list (use \"/\" for root)"))
+                "list_files" -> {
+                    put("path", p("Subfolder to filter (use "/" for root)"))
+                    put("scope", buildJsonObject {
+                        put("type", "string")
+                        put("enum", strArray("session", "workspace"))
+                        put("description", "session = this session only (default); workspace = whole /root/workspace incl. other sessions and skills")
+                    })
+                }
                 "stage_commit" -> {
                     put("message", p("A short, descriptive commit message summarizing what changed since the last checkpoint"))
                     put("required", strArray("message"))
@@ -178,7 +185,7 @@ class ToolRegistry(
                 "web_search" -> webSearch(str("query"))
                 "read_file" -> readFile(str("path"), sessionId)
                 "write_file" -> writeFile(str("path"), str("content"), sessionId)
-                "list_files" -> listFiles(str("path"), sessionId)
+                "list_files" -> listFiles(str("path"), sessionId, str("scope").ifBlank { "session" })
                 "skill" -> skillTool(args)
                 "stage_commit" -> stageCommit(str("message"), sessionId)
                 "run_command" -> runCommand(str("command"), sessionId)
@@ -350,25 +357,29 @@ class ToolRegistry(
         }
     }
 
-    private fun listFiles(path: String, sessionId: String?): String {
+    private fun listFiles(path: String, sessionId: String?, scope: String): String {
         return try {
             val sid = sessionId ?: ""
-            val entries = workspaceFs.listEntries(sid).filterNot { it.isDir }
-            if (entries.isEmpty()) return "📁 Workspace kosong. Belum ada file yang dibuat."
+            val useAll = scope.trim().lowercase() == "workspace"
+            val rootLabel = if (useAll) "/root/workspace" else "/root/workspace/sessions/$sid"
+            // Scope session = sesi ini saja; scope workspace = seluruh proot (sesi lain + skills).
+            val entries = if (useAll) workspaceFs.treeProot().take(3000) else workspaceFs.listEntries(sid)
+            if (entries.isEmpty()) return "📁 $rootLabel kosong. Belum ada file yang dibuat."
 
             var filtered = entries
             if (path.isNotEmpty() && path != "/") {
-                val normalized = path.trimEnd('/')
+                val normalized = path.trim().trimStart('/').trimEnd('/')
                 filtered = entries.filter { it.path.startsWith("$normalized/") || it.path == normalized }
             }
 
             val shown = filtered.take(200)
             val fmt = SimpleDateFormat("dd/MM/yyyy, HH.mm", Locale("id", "ID"))
             val fileList = shown.joinToString("\n") { e ->
-                "- ${e.path} (${e.size} bytes, modified: ${fmt.format(Date(e.modified))})"
+                if (e.isDir) "- 📁 ${e.path}/"
+                else "- 📄 ${e.path} (${e.size} bytes, modified: ${fmt.format(Date(e.modified))})"
             }
-            val more = if (filtered.size > shown.size) "\n...dan ${filtered.size - shown.size} file lain (ditampilkan 200 pertama)." else ""
-            "📁 Files in workspace (/root/workspace/sessions/$sid, ${filtered.size} files):\n\n$fileList$more"
+            val more = if (filtered.size > shown.size) "\n...dan ${filtered.size - shown.size} entri lain (ditampilkan 200 pertama)." else ""
+            "📁 Isi $rootLabel (${filtered.size} entri, scope=$scope):\n\n$fileList$more"
         } catch (e: Exception) {
             "❌ Error listing files: ${e.message ?: "Unknown error"}"
         }
@@ -442,18 +453,40 @@ class ToolRegistry(
         }
     }
 
+    /** File/folder bawaan sistem yang tidak pernah ikut stage_commit (bukan kerja user). */
+    private fun isStageExcluded(path: String): Boolean {
+        if (path.startsWith("attachments/")) return true
+        val segs = path.split('/')
+        if (segs.any { it == ".git" }) return true
+        val name = segs.last()
+        if (name == ".arka-migrated" || name == ".migrated") return true
+        if (name.endsWith(".tmp") || name.endsWith(".bak")) return true
+        return false
+    }
+
     private fun stageCommit(message: String, sessionId: String?): String {
         try {
             if (message.isBlank()) return "❌ Pesan commit tidak boleh kosong."
             val sid = sessionId ?: ""
 
-            val filesNow = workspaceFs.getAllKeys(sid)
-            val files = mutableListOf<StagedCommitFile>()
-            for (path in filesNow) {
-                val content = workspaceFs.read(sid, path) ?: ""
-                files.add(StagedCommitFile(path, content))
+            // Diff jujur vs checkpoint terakhir: hanya yang baru/berubah/dihapus.
+            val prev: Map<String, String?> = stagedCommits.load().lastOrNull()?.files
+                ?.associate { it.path to it.content } ?: emptyMap()
+            var skipped = 0
+            val current = mutableMapOf<String, String>()
+            for (e in workspaceFs.listEntries(sid)) {
+                if (e.isDir) continue
+                if (isStageExcluded(e.path)) {
+                    skipped++
+                    continue
+                }
+                current[e.path] = workspaceFs.read(sid, e.path) ?: ""
             }
-            if (files.isEmpty()) return "ℹ️ Tidak ada perubahan file sejak checkpoint terakhir — tidak ada yang di-stage."
+            val added = current.filter { (path, _) -> path !in prev }.map { StagedCommitFile(it.key, it.value) }
+            val updated = current.filter { (path, content) -> path in prev && prev[path] != content }.map { StagedCommitFile(it.key, it.value) }
+            val deleted = prev.keys.filter { it !in current }.map { StagedCommitFile(it, null) }
+            val files = added + updated + deleted
+            if (files.isEmpty()) return "ℹ️ Tidak ada perubahan sejak checkpoint terakhir — tidak ada yang di-stage."
 
             val commit = StagedCommit(
                 id = "${System.currentTimeMillis()}-${java.util.UUID.randomUUID().toString().substring(0, 6)}",
@@ -465,7 +498,7 @@ class ToolRegistry(
                 return "❌ Staged commits sudah terlalu besar untuk disimpan. Minta user push/terapkan dulu staged commits yang ada dari panel GitHub sebelum bikin checkpoint baru."
             }
 
-            return "✅ Checkpoint \"${commit.message}\" dibuat: ${files.count { it.content != null }} file ditambah/diupdate, ${files.count { it.content == null }} file dihapus. Total ${stagedCommits.load().size} commit siap di-push dari panel GitHub (bagian \"Staged AI Commits\")."
+            return "✅ Checkpoint \"${commit.message}\" dibuat: ${added.size} baru, ${updated.size} diubah, ${deleted.size} dihapus" + (if (skipped > 0) " ($skipped file sistem dilewati)" else "") + ". Total ${stagedCommits.load().size} commit siap di-push dari panel GitHub (bagian \"Staged AI Commits\")."
         } catch (e: Exception) {
             return "❌ Error membuat checkpoint: ${e.message ?: "Unknown error"}"
         }
