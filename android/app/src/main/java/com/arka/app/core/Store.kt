@@ -153,6 +153,10 @@ class Store(
         _prefs.value = persistence.loadPrefs()
         // Backfill FTS index sekali saat startup (no-op kalau sudah terisi).
         runCatching { SessionIndex.getInstance(context).backfill(persisted.sessions) }
+        // Teruskan PAT GitHub (kalau ada) ke credential helper proot.
+        scope.launch(Dispatchers.IO) {
+            runCatching { GitCredentials.sync(context, token) }
+        }
     }
 
     private var saveJob: Job? = null
@@ -161,7 +165,12 @@ class Store(
         val next = reduce(_state.value, action)
         _state.value = next
         when (action) {
-            is Action.SetGithubToken -> persistence.saveGithubToken(action.token)
+            is Action.SetGithubToken -> {
+                persistence.saveGithubToken(action.token)
+                scope.launch(Dispatchers.IO) {
+                    runCatching { GitCredentials.sync(context, action.token) }
+                }
+            }
             is Action.DeleteSession -> {
                 scope.launch(Dispatchers.IO) {
                     VirtualFs(context).deleteSession(action.sessionId)
