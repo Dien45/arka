@@ -114,7 +114,7 @@ class ToolRegistry(
                     put("required", strArray("path", "content"))
                 }
                 "list_files" -> {
-                    put("path", p("Subfolder to filter (use "/" for root)"))
+                    put("path", p("Subfolder to filter (use \"/\" for root)"))
                     put("scope", buildJsonObject {
                         put("type", "string")
                         put("enum", strArray("session", "workspace"))
