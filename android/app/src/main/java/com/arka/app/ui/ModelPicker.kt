@@ -53,6 +53,7 @@ import com.arka.app.core.ModelInfo
 import com.arka.app.core.ModelScanner
 import com.arka.app.core.normalizeBaseUrl
 import com.arka.app.core.Provider
+import com.arka.app.core.providerFromName
 import com.arka.app.core.ProviderConfig
 import com.arka.app.core.canScan
 import com.arka.app.core.modelsAreStale
@@ -88,7 +89,7 @@ fun ModelPickerSheet(
     var detecting by remember { mutableStateOf<Set<Provider>>(emptySet()) }
     var error by remember { mutableStateOf<String?>(null) }
     var manualProvider by remember {
-        mutableStateOf<Provider?>(prefs.selectedProvider?.let { runCatching { Provider.valueOf(it) }.getOrNull() })
+        mutableStateOf<Provider?>(providerFromName(prefs.selectedProvider))
     }
     var manualModel by remember { mutableStateOf("") }
 
@@ -156,7 +157,7 @@ fun ModelPickerSheet(
                 fontWeight = FontWeight.Bold,
             )
             Text(
-                "${prefs.selectedProvider ?: "-"} · ${prefs.selectedModel}",
+                "${effProviderName ?: "-"} · $effModel",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -283,7 +284,7 @@ fun ModelPickerSheet(
                         // Provider yang tampak terpilih di chip = yang dipakai (bukan tebakan).
                         val id = manualProvider
                             ?: relevant.firstOrNull()?.id
-                            ?: prefs.selectedProvider?.let { runCatching { Provider.valueOf(it) }.getOrNull() }
+                            ?: providerFromName(prefs.selectedProvider)
                         if (id != null && manualModel.isNotBlank()) {
                             store.selectModel(id, manualModel.trim())
                             onDismiss()

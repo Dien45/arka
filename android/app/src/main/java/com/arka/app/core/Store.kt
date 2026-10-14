@@ -135,6 +135,7 @@ fun toPersisted(state: AppState): PersistedState = PersistedState(
     providers = state.providers,
     githubRepos = state.githubRepos,
     githubConnected = state.githubConnected,
+    schemaVersion = CURRENT_SCHEMA_VERSION,
 )
 
 /**
@@ -238,7 +239,10 @@ class Store(
         // Pin ke sesi aktif supaya ganti model di sesi lain tidak ikut mengubah sesi ini.
         // prefs global tetap jadi default untuk sesi baru.
         state.value.currentSessionId?.let { sid ->
-            dispatch(Action.UpdateSessionModel(sid, providerId, model.takeIf { it.isNotBlank() }))
+            // Kalau model kosong, jangan pin provider sendirian — biar UI dan
+            // request tetap sinkron (dua-duanya jatuh ke default global).
+            val pinned = model.takeIf { it.isNotBlank() }
+            dispatch(Action.UpdateSessionModel(sid, pinned?.let { providerId }, pinned))
         }
         if (!enableIfReady) return
         // Model yang dipilih user SELALU ikut tersimpan di provider-nya (sebelumnya

@@ -95,6 +95,7 @@ import com.arka.app.core.Message
 import com.arka.app.core.MessageRole
 import com.arka.app.core.PendingToolApproval
 import com.arka.app.core.ProviderConfig
+import com.arka.app.core.providerFromName
 import com.arka.app.core.Session
 import com.arka.app.core.Store
 import com.arka.app.core.ToolCallStatus
@@ -196,7 +197,7 @@ fun ChatScreen(
                                     .replace('\n', ' ')
                                     .take(28),
                                 createdAt = System.currentTimeMillis(),
-                                provider = prefs.selectedProvider?.let { runCatching { com.arka.app.core.Provider.valueOf(it) }.getOrNull() },
+                                provider = providerFromName(prefs.selectedProvider),
                                 model = prefs.selectedModel.takeIf { it.isNotBlank() },
                             ),
                         ),
