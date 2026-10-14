@@ -1,0 +1,17 @@
+{
+  "name": "arka-android-e2e",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Playwright-driven end-to-end tests for the Arka Android native app (adb device automation).",
+  "scripts": {
+    "test": "playwright test",
+    "test:smoke": "playwright test tests/01-launch.spec.ts tests/02-navigation.spec.ts",
+    "report": "playwright show-report artifacts/html-report",
+    "install-app": "node scripts/install-apk.mjs",
+    "doctor": "node scripts/doctor.mjs"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.49.1",
+    "@types/node": "^22.10.2"
+  }
+}
