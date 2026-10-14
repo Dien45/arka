@@ -5,6 +5,7 @@ import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.jsonObject
+import java.util.concurrent.atomic.AtomicInteger
 
 /**
  * Port of `src/textToolCallParser.ts`. Recovers tool calls from the textual
@@ -48,7 +49,7 @@ private val PARAM_TAG_RE = Regex(
 
 private val json = Json { ignoreUnknownKeys = true }
 
-private var uid = 0
+private val uid = AtomicInteger()
 
 private fun parseBlockBody(body: String): JsonElement? {
     val trimmed = body.trim()
@@ -84,31 +85,40 @@ fun extractTextToolCalls(content: String): TextToolCallExtraction {
     val toolCalls = mutableListOf<ParsedTextToolCall>()
     var cleanedContent = content
 
-    fun addCall(name: String, body: String, fullMatch: String) {
-        val args = parseBlockBody(body)
-        if (args != null) {
-            toolCalls.add(
-                ParsedTextToolCall(
-                    id = "text_toolcall_${System.currentTimeMillis()}_${uid++}",
-                    name = name,
-                    arguments = args.toString(),
-                ),
-            )
-            cleanedContent = cleanedContent.replace(fullMatch, "")
+    fun addCall(name: String, body: String): Boolean {
+        val args = parseBlockBody(body) ?: return false
+        toolCalls.add(
+            ParsedTextToolCall(
+                id = "text_toolcall_${System.currentTimeMillis()}_${uid.incrementAndGet()}",
+                name = name,
+                arguments = args.toString(),
+            ),
+        )
+        return true
+    }
+
+    // Hapus per-range hasil match (bukan replace teks penuh: blok identik dua
+    // kali ikut terhapus semua oleh replace padahal match-nya satu-satu).
+    fun scrub(re: Regex) {
+        val source = cleanedContent
+        val matches = re.findAll(source).toList()
+        val removed = BooleanArray(source.length)
+        var any = false
+        for (match in matches) {
+            if (addCall(match.groupValues[1], match.groupValues[2])) {
+                any = true
+                for (i in match.range) removed[i] = true
+            }
+        }
+        if (!any) return
+        cleanedContent = buildString(source.length) {
+            for (i in source.indices) if (!removed[i]) append(source[i])
         }
     }
 
-    for (match in BLOCK_RE.findAll(content)) {
-        addCall(match.groupValues[1], match.groupValues[2], match.value)
-    }
-    for (match in FENCE_TOOL_RE.findAll(cleanedContent)) {
-        addCall(match.groupValues[1], match.groupValues[2], match.value)
-    }
-    for (match in JSON_TOOL_RE.findAll(cleanedContent)) {
-        addCall(match.groupValues[1], match.groupValues[2], match.value)
-    }
-    for (match in INVOKE_RE.findAll(cleanedContent)) {
-        addCall(match.groupValues[1], match.groupValues[2], match.value)
-    }
+    scrub(BLOCK_RE)
+    scrub(FENCE_TOOL_RE)
+    scrub(JSON_TOOL_RE)
+    scrub(INVOKE_RE)
     return TextToolCallExtraction(toolCalls, cleanedContent.trim())
 }

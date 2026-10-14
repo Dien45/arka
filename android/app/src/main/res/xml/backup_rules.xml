@@ -8,4 +8,17 @@
     <exclude domain="file" path="workspace/" />
     <!-- File temp/backup internal. -->
     <exclude domain="file" path="proot-tmp/" />
+    <!-- Rootfs Alpine: berisi /root/.git-credentials (PAT GitHub plaintext)
+         dan /root/.gitconfig — TIDAK boleh ikut backup. -->
+    <exclude domain="file" path="distro/" />
+    <!-- Folder sesi lama (layout pre-migrasi, VirtualFs) + data virtual_fs:
+         berkas kerja sesi lama yang bisa memuat rahasia/kredensial tertinggal.
+         (Sesi baru di <filesDir>/workspace/ sudah tercakup eksklusi
+         workspace/ di atas.) -->
+    <exclude domain="file" path="sessions/" />
+    <exclude domain="file" path="virtual_fs/" />
+    <!-- Transkrip chat sebenarnya disimpan di DataStore arka_state
+         (datastore/), bukan di sessions/ — bisa memuat rahasia dari
+         percakapan, jadi ikut dieksklusi. -->
+    <exclude domain="file" path="datastore/" />
 </full-backup-content>

@@ -164,7 +164,9 @@ class AiClient(
     }
 
     private fun errorMessage(status: Int, element: JsonElement, fallback: String): String {
-        val nested = element.jsonObject["error"]?.jsonObject?.get("message")?.jsonPrimitive?.contentOrNull
+        val nested = runCatching {
+            element.jsonObject["error"]?.jsonObject?.get("message")?.jsonPrimitive?.contentOrNull
+        }.getOrNull()
         return nested ?: if (status !in 200..299) "$fallback (HTTP $status)" else fallback
     }
 
@@ -470,8 +472,11 @@ class AiClient(
         }
 
         val result = httpJson(
-            "${provider.baseUrl.removeSuffix("/")}/v1beta/models/${provider.model}:generateContent?key=${provider.apiKey}",
-            headers = mapOf("Content-Type" to "application/json"),
+            "${provider.baseUrl.removeSuffix("/")}/v1beta/models/${provider.model}:generateContent",
+            headers = mapOf(
+                "Content-Type" to "application/json",
+                "x-goog-api-key" to provider.apiKey,
+            ),
             bodyJson = body.toString(),
         )
         if (result.status !in 200..299) {

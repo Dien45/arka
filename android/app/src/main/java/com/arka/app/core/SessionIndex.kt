@@ -103,10 +103,12 @@ class SessionIndex private constructor(context: Context) :
                     arrayOf(ftsQuery, limit.toString()),
                 ).use { cursor -> while (cursor.moveToNext()) results.add(readResult(cursor)) }
             } else {
+                // Escape wildcard LIKE user (% _ \) supaya jadi literal, bukan pola.
+                val escaped = query.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
                 db.rawQuery(
                     "SELECT session_id, message_id, role, content, timestamp FROM $TABLE " +
-                        "WHERE content LIKE ? ORDER BY timestamp DESC LIMIT ?",
-                    arrayOf("%$query%", limit.toString()),
+                        "WHERE content LIKE ? ESCAPE '\\' ORDER BY timestamp DESC LIMIT ?",
+                    arrayOf("%$escaped%", limit.toString()),
                 ).use { cursor -> while (cursor.moveToNext()) results.add(readResult(cursor)) }
             }
         }

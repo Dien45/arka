@@ -11,6 +11,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
+import java.io.File
 
 private val Context.appDataStore by preferencesDataStore(name = "arka_state")
 
@@ -64,6 +65,16 @@ class Persistence(private val context: Context) {
 
     private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
 
+    private val stateBackup: File get() = File(context.filesDir, "arka_state.json.bak")
+
+    /**
+     * true = decode state terakhir gagal DAN backup tidak ada, jadi [saveState]
+     * dilarang menulis — kalau tidak, state kosong langsung menimpa berkas yang
+     * (mungkin) masih bisa dipulihkan dan data lenyap diam-diam.
+     */
+    @Volatile
+    private var stateLoadFailed = false
+
     private val secrets: SharedPreferences by lazy {
         val masterKey = MasterKey.Builder(context)
             .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
@@ -81,12 +92,23 @@ class Persistence(private val context: Context) {
 
     suspend fun loadState(): PersistedState {
         val key = stringPreferencesKey("state")
-        val raw = context.appDataStore.data.map { it[key] }.first() ?: return PersistedState()
+        val raw = context.appDataStore.data.map { it[key] }.first()
+        if (raw == null) {
+            stateLoadFailed = false
+            return PersistedState()
+        }
         val decoded = try {
             json.decodeFromString<PersistedState>(raw)
         } catch (t: Throwable) {
-            return PersistedState()
+            // State korup — pulihkan dari backup sebelum menyerah, dan blokir
+            // save supaya state kosong tidak menimpa data yang masih tersimpan.
+            val fromBackup = runCatching {
+                json.decodeFromString<PersistedState>(stateBackup.readText())
+            }.getOrNull()
+            stateLoadFailed = fromBackup == null
+            return fromBackup ?: PersistedState()
         }
+        stateLoadFailed = false
         // Migrasi satu kali: sebelum skema v1, Session.provider/model punya
         // default non-null (openai/gpt-4o) sehingga ikut tersimpan meski saat
         // itu belum pernah dipakai sebagai pin. Kini field itu dibaca sebagai
@@ -113,6 +135,7 @@ class Persistence(private val context: Context) {
     }
 
     suspend fun saveState(state: PersistedState) {
+        if (stateLoadFailed) return
         state.providers.forEach { p ->
             val k = apiKeyKey(p.id)
             val e = secrets.edit()
@@ -122,6 +145,7 @@ class Persistence(private val context: Context) {
         val key = stringPreferencesKey("state")
         val sanitized = state.copy(providers = state.providers.map { it.copy(apiKey = "") })
         context.appDataStore.edit { it[key] = json.encodeToString(sanitized) }
+        runCatching { stateBackup.writeText(json.encodeToString(sanitized)) }
     }
 
     fun saveGithubToken(token: String) {
@@ -132,23 +156,25 @@ class Persistence(private val context: Context) {
 
     fun loadGithubToken(): String = secrets.getString("github_token", null) ?: ""
 
-    suspend fun loadPrefs(): Prefs = Prefs(
-        language = runCatching { ArkaLanguage.valueOf(runBlockingGet("language") ?: "ID") }.getOrDefault(ArkaLanguage.ID),
-        theme = runBlockingGet("theme") ?: "light",
-        fontSize = runBlockingGet("font_size") ?: "medium",
-        execUrl = runBlockingGet("exec_url") ?: "http://localhost:3399/exec",
-        selectedModel = runBlockingGet("selected_model") ?: "gpt-4o",
-        selectedProvider = runBlockingGet("selected_provider"),
-        chatMode = runCatching { ChatMode.valueOf(runBlockingGet("chat_mode") ?: "build") }.getOrDefault(ChatMode.build),
-        execAllowlist = runBlockingGet("exec_allowlist") ?: "",
-        distroRootfsUrl = runBlockingGet("distro_rootfs_url") ?: DistroManager.DEFAULT_ROOTFS_URL,
-        prootNoSeccomp = (runBlockingGet("proot_no_seccomp") ?: "true").toBoolean(),
-        bindWorkspace = (runBlockingGet("bind_workspace") ?: "true").toBoolean(),
-        autoApproveTools = (runBlockingGet("auto_approve_tools") ?: "false").toBoolean(),
-    )
-
-    private suspend fun runBlockingGet(key: String): String? =
-        context.appDataStore.data.map { it[stringPreferencesKey(key)] }.first()
+    suspend fun loadPrefs(): Prefs {
+        // Satu koleksi DataStore untuk semua key (dulu ~11 koleksi terpisah).
+        val prefs = context.appDataStore.data.first()
+        fun get(key: String): String? = prefs[stringPreferencesKey(key)]
+        return Prefs(
+            language = runCatching { ArkaLanguage.valueOf(get("language") ?: "ID") }.getOrDefault(ArkaLanguage.ID),
+            theme = get("theme") ?: "light",
+            fontSize = get("font_size") ?: "medium",
+            execUrl = get("exec_url") ?: "http://localhost:3399/exec",
+            selectedModel = get("selected_model") ?: "gpt-4o",
+            selectedProvider = get("selected_provider"),
+            chatMode = runCatching { ChatMode.valueOf(get("chat_mode") ?: "build") }.getOrDefault(ChatMode.build),
+            execAllowlist = get("exec_allowlist") ?: "",
+            distroRootfsUrl = get("distro_rootfs_url") ?: DistroManager.DEFAULT_ROOTFS_URL,
+            prootNoSeccomp = (get("proot_no_seccomp") ?: "true").toBoolean(),
+            bindWorkspace = (get("bind_workspace") ?: "true").toBoolean(),
+            autoApproveTools = (get("auto_approve_tools") ?: "false").toBoolean(),
+        )
+    }
 
     suspend fun savePrefs(prefs: Prefs) {
         context.appDataStore.edit {

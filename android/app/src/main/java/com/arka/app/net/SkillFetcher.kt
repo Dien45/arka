@@ -83,6 +83,17 @@ object SkillFetcher {
     private fun rawUrl(repo: String, ref: String, path: String) =
         "https://raw.githubusercontent.com/$repo/$ref/" + path.split('/').joinToString("/") { encodeSegment(it) }
 
+    private val ALLOWED_HOSTS = setOf("github.com", "api.github.com", "raw.githubusercontent.com")
+
+    /** Hanya URL GitHub resmi yang boleh diunduh (tolak host lain yang mungkin muncul dari input). */
+    private fun requireGitHubUrl(url: String): String {
+        val host = runCatching { java.net.URI(url).host?.lowercase(java.util.Locale.ROOT) }.getOrNull()
+        if (host == null || host !in ALLOWED_HOSTS) {
+            throw IllegalStateException("Fetch ditolak: hanya URL github.com / raw.githubusercontent.com yang diizinkan.")
+        }
+        return url
+    }
+
     private fun encodeSegment(segment: String): String =
         java.net.URLEncoder.encode(segment, "UTF-8").replace("+", "%20")
 
@@ -97,7 +108,7 @@ object SkillFetcher {
     /** Unduh daftar berkas sebuah repo (sekali request tree API). */
     private suspend fun fetchTree(repo: String, token: String): List<RemoteFile> {
         val url = "https://api.github.com/repos/$repo/git/trees/HEAD?recursive=1"
-        val body = SimpleHttp.getAsString(client, url, headers(token, "application/vnd.github+json"))
+        val body = SimpleHttp.getAsString(client, requireGitHubUrl(url), headers(token, "application/vnd.github+json"))
         val root = json.parseToJsonElement(body).jsonObject
         if (root["tree"] == null) {
             val message = root["message"]?.jsonPrimitive?.contentOrNull ?: "respons tidak dikenali"
@@ -179,7 +190,7 @@ object SkillFetcher {
         withContext(Dispatchers.IO) {
             val q = java.net.URLEncoder.encode(query.trim(), "UTF-8")
             val url = "https://api.github.com/search/repositories?q=$q+in:name&sort=stars&order=desc&per_page=$limit"
-            val body = SimpleHttp.getAsString(client, url, headers(token, "application/vnd.github+json"))
+            val body = SimpleHttp.getAsString(client, requireGitHubUrl(url), headers(token, "application/vnd.github+json"))
             val root = json.parseToJsonElement(body).jsonObject
             root["items"]?.jsonArray?.mapNotNull { element ->
                 element.jsonObject["full_name"]?.jsonPrimitive?.contentOrNull
@@ -194,7 +205,7 @@ object SkillFetcher {
             val full = if (candidate.dir.isEmpty()) relativePath else "${candidate.dir}/$relativePath"
             SimpleHttp.getAsString(
                 client,
-                rawUrl(candidate.repo, candidate.ref, full),
+                requireGitHubUrl(rawUrl(candidate.repo, candidate.ref, full)),
                 headers(token, "text/plain"),
             )
         }

@@ -1,6 +1,7 @@
 package com.arka.app.core
 
 import android.content.Context
+import android.util.Log
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -125,7 +126,7 @@ fun toPersisted(state: AppState): PersistedState = PersistedState(
             val trimmedAtt = m.attachmentContent?.let {
                 if (it.length > MAX_PERSIST_ATTACHMENT_CHARS) it.take(MAX_PERSIST_ATTACHMENT_CHARS) + "\n...(dipotong saat simpan)" else it
             }
-            if (trimmedTools !== m.toolCalls || trimmedAtt !== m.attachmentContent) {
+            if (trimmedTools != m.toolCalls || trimmedAtt !== m.attachmentContent) {
                 m.copy(toolCalls = trimmedTools, attachmentContent = trimmedAtt)
             } else m
         })
@@ -160,6 +161,7 @@ class Store(
         _prefs.value = persistence.loadPrefs()
         // Backfill FTS index sekali saat startup (no-op kalau sudah terisi).
         runCatching { SessionIndex.getInstance(context).backfill(persisted.sessions) }
+            .onFailure { Log.w("Store", "SessionIndex backfill failed", it) }
         // Teruskan PAT GitHub (kalau ada) ke credential helper proot.
         scope.launch(Dispatchers.IO) {
             runCatching { GitCredentials.sync(context, token) }
@@ -180,8 +182,10 @@ class Store(
             }
             is Action.DeleteSession -> {
                 scope.launch(Dispatchers.IO) {
-                    VirtualFs(context).deleteSession(action.sessionId)
+                    runCatching { VirtualFs(context).deleteSession(action.sessionId) }
+                        .onFailure { Log.w("Store", "deleteSession files failed", it) }
                     runCatching { SessionIndex.getInstance(context).deleteSession(action.sessionId) }
+                        .onFailure { Log.w("Store", "deleteSession index failed", it) }
                 }
             }
             is Action.AddMessage -> {

@@ -9,6 +9,12 @@ import java.util.concurrent.TimeUnit
 
 /** Minimal GET helper untuk web_fetch / web_search / skill fetcher. */
 object SimpleHttp {
+    private val sharedClient: OkHttpClient by lazy { client() }
+
+    private val noFollowClient: OkHttpClient by lazy {
+        sharedClient.newBuilder().followRedirects(false).followSslRedirects(false).build()
+    }
+
     fun client(readTimeoutMs: Long = 30_000): OkHttpClient = OkHttpClient.Builder()
         .connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(readTimeoutMs, TimeUnit.MILLISECONDS)
@@ -17,7 +23,7 @@ object SimpleHttp {
     suspend fun get(
         url: String,
         headers: Map<String, String> = emptyMap(),
-        client: OkHttpClient = client(),
+        client: OkHttpClient = sharedClient,
     ): Pair<Int, String> {
         val req = Request.Builder().url(url).apply {
             headers.forEach { (k, v) -> if (v.isNotBlank()) this.header(k, v) }
@@ -31,16 +37,17 @@ object SimpleHttp {
     /**
      * GET dengan redirect manual: tiap hop (maks 5) divalidasi ulang lewat
      * [checkUrl] supaya redirect ke host internal ikut tertolak (anti-SSRF).
+     * Default-nya memakai validasi publik NetGuard (bukan no-op).
      */
     suspend fun getChecked(
         url: String,
         headers: Map<String, String> = emptyMap(),
         maxHops: Int = 5,
-        checkUrl: (String) -> Any? = {},
+        checkUrl: (String) -> Any? = { NetGuard.checkPublicUrl(it) },
     ): Pair<Int, String> {
         var current = url
         var hops = 0
-        val noFollow = client().newBuilder().followRedirects(false).followSslRedirects(false).build()
+        val noFollow = noFollowClient
         while (true) {
             checkUrl(current)
             val req = Request.Builder().url(current).apply {

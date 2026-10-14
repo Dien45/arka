@@ -1,6 +1,8 @@
 package com.arka.app.core
 
 import android.content.Context
+import android.system.Os
+import android.system.OsConstants
 import java.io.File
 
 /**
@@ -13,6 +15,27 @@ import java.io.File
  * store` di `/root/.gitconfig` global. Format tanpa username
  * (`x-access-token`) sehingga tidak perlu tahu login user. File diberi izin
  * owner-only; system prompt melarang AI mencetak/mengekspos isinya.
+ *
+ * **Penempatan & hardening izin:** file berada di `<filesDir>/distro/alpine/
+ * root/` — di LUAR workspace AI (`<filesDir>/workspace/`, yang di-bind ke
+ * `/root/workspace` di dalam proot), jadi tidak tampil di File Explorer dan
+ * tidak ikut ter-ekspos lewat bind workspace. Direktori `$HOME` rootfs
+ * dikunci 0700 dan file kredensial 0600 (bit eksak, dipasang sebelum token
+ * ditulis). Backup Auto Backup juga mengecualikan seluruh folder `distro/`.
+ *
+ * **RISIKO SISA (residual):** file tetap berada DI DALAM rootfs proot, jadi
+ * setiap perintah `run_command` (shell agent) secara teknis masih BISA
+ * membaca `/root/.git-credentials` — permission + larangan di system prompt
+ * hanyalah pertahanan berlapis, BUKAN isolasi. Egress juga wajib TLS
+ * (`network_security_config` memblokir cleartext) agar token tidak
+ * terkirim plaintext lewat jaringan.
+ *
+ * **PERBAIKAN ARSITEKTURAL YANG DITUNDA:** credential-helper `GIT_ASKPASS`
+ * yang membaca PAT dari EncryptedSharedPreferences pada saat runtime (PAT
+ * tidak pernah tersimpan plaintext di disk). Butuh dukungan di sisi launcher
+ * proot (bind/env helper — berkas DistroManager/ExecRunner, di luar cakupan
+ * berkas ini) dan berisiko memutus alur `git push/pull` bila tidak diuji
+ * menyeluruh, sehingga belum diterapkan.
  */
 object GitCredentials {
     private const val CRED_PATH = "root/.git-credentials"
@@ -35,13 +58,24 @@ object GitCredentials {
             }
             // Tolak token berkarakter aneh (baris baru dsb.) demi keamanan URL.
             if (clean.any { it.isWhitespace() || it < ' ' }) return
-            File(root, "root").mkdirs()
+            // Hardening (lihat KDoc object ini untuk risiko sisa):
+            //  - $HOME rootfs dikunci 0700, file kredensial 0600 — bit eksak
+            //    lewat Os.chmod (set* versi lama hanya toggle bit owner dan
+            //    bisa gagal diam-diam).
+            //  - File dibuat + di-chmod SEBELUM token ditulis, supaya token
+            //    tidak pernah tersentuh dengan permission default (0644).
+            //  - chmod dibungkus runCatching per langkah: kegagalan permission
+            //    TIDAK boleh menggagalkan sync, karena itu akan memutus alur
+            //    git push/pull (kredensial hilang).
+            val home = File(root, "root")
+            home.mkdirs()
+            runCatching { Os.chmod(home.path, OsConstants.S_IRWXU) } // 0700
+            if (!cred.exists()) runCatching { cred.createNewFile() }
+            runCatching { Os.chmod(cred.path, OsConstants.S_IRUSR or OsConstants.S_IWUSR) } // 0600
             cred.writeText("https://x-access-token:$clean@github.com\n")
-            cred.setReadable(false, false)
-            cred.setReadable(true, true)
-            cred.setWritable(false, false)
-            cred.setWritable(true, true)
-            cred.setExecutable(false, false)
+            // writeText bisa membuat ulang file (bila terhapus di tengah jalan)
+            // dengan mode default → ulangi chmod sebagai jaring pengaman.
+            runCatching { Os.chmod(cred.path, OsConstants.S_IRUSR or OsConstants.S_IWUSR) } // 0600
             ensureGitconfig(root)
         }
     }

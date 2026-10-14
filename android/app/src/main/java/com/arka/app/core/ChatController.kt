@@ -8,6 +8,7 @@ import com.arka.app.net.ToolCallData
 import com.arka.app.net.ToolDefinition
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
@@ -87,8 +88,16 @@ class ChatController(
         attachmentContent: String? = null,
     ) {
         if (jobs.containsKey(sessionId)) return
-        val job = scope.launch { run(text, sessionId, 0, attachments, attachmentContent) }
-        jobs[sessionId] = job
+        // LAZY supaya job tidak bisa selesai (dan finally-nya mengosongkan map)
+        // sebelum tercatat di jobs — kalau tidak, isRunning() bisa nyangkut true.
+        val job = scope.launch(start = CoroutineStart.LAZY) {
+            run(text, sessionId, 0, attachments, attachmentContent)
+        }
+        if (jobs.putIfAbsent(sessionId, job) != null) {
+            job.cancel()
+            return
+        }
+        job.start()
     }
 
     /** Stop button: auto-deny any pending approval, cancel in-flight HTTP + loop. */
@@ -496,9 +505,12 @@ Keep responses short and actionable.$modePrompt$skillsBlock
     private suspend fun requestApproval(sessionId: String, name: String, args: String): Boolean {
         if (store.prefs.value.autoApproveTools) return true
         return suspendCancellableCoroutine { cont ->
-            val existing = approvalResolvers.put(sessionId) { approved ->
+            val resolver: (Boolean) -> Unit = { approved ->
                 if (cont.isActive) cont.resume(approved) {}
             }
+            // putIfAbsent: resolver pertama TIDAK boleh ditimpa prompt kedua —
+            // kalau ditimpa, kontinuasi pertama tak pernah di-resolve → loop tool menggantung.
+            val existing = approvalResolvers.putIfAbsent(sessionId, resolver)
             if (existing != null) {
                 // A previous approval prompt is still up — collapse into it by
                 // auto-resuming this one as not-approved (the pending one will
@@ -508,7 +520,7 @@ Keep responses short and actionable.$modePrompt$skillsBlock
             }
             _pendingApprovals.value = _pendingApprovals.value + (sessionId to PendingToolApproval(sessionId, name, args))
             cont.invokeOnCancellation {
-                approvalResolvers.remove(sessionId)
+                approvalResolvers.remove(sessionId, resolver)
                 _pendingApprovals.value = _pendingApprovals.value - sessionId
             }
         }

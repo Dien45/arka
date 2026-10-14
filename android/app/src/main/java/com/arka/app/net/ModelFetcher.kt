@@ -25,6 +25,12 @@ data class ScanOutcome(
     val resolvedBaseUrl: String? = null,
 )
 
+/** Buang query string (mis. `?key=`) supaya API key tidak bocor ke pesan error/UI. */
+private fun sanitizeUrl(url: String): String {
+    val q = url.indexOf('?')
+    return if (q >= 0) url.substring(0, q) else url
+}
+
 /** Error HTTP yang membawa kode + URL + cuplikan body supaya bisa dijelaskan ke user. */
 class ProviderApiException(
     val code: Int,
@@ -33,15 +39,16 @@ class ProviderApiException(
 ) : Exception(humanMessage(code, url, bodySnippet)) {
     companion object {
         fun humanMessage(code: Int, url: String, bodySnippet: String): String {
+            val cleanUrl = sanitizeUrl(url)
             val base = when {
                 code == 401 -> "API key ditolak (HTTP 401). Periksa API Key di Settings."
                 code == 403 && bodySnippet.contains("rate limit", true) ->
                     "Kena rate limit GitHub/API (HTTP 403). Coba lagi nanti."
                 code == 403 -> "Akses ditolak (HTTP 403). API key mungkin kurang izin."
-                code == 404 -> "Endpoint tidak ditemukan (HTTP 404) di $url. Periksa Base URL."
+                code == 404 -> "Endpoint tidak ditemukan (HTTP 404) di $cleanUrl. Periksa Base URL."
                 code == 429 -> "Rate limit (HTTP 429). Coba lagi sebentar lagi."
                 code in 500..599 -> "Server provider error (HTTP $code). Coba lagi nanti."
-                else -> "HTTP $code dari $url"
+                else -> "HTTP $code dari $cleanUrl"
             }
             val extra = bodySnippet.trim().replace(Regex("\\s+"), " ").take(160)
             return if (extra.isEmpty() || code == 404) base else "$base — $extra"
@@ -61,7 +68,8 @@ class ProviderApiException(
  *  3. Kalau ternyata Base URL yang benar memakai `/v1`, hasil scan mengembalikan
  *     `resolvedBaseUrl` supaya UI bisa mengoreksi sendiri dan user tidak menebak.
  *  4. Header Authorization tidak dikirim kalau API key kosong (sebagian server
- *     menolak bearer kosong).
+ *     menolak bearer kosong). Google memakai header `x-goog-api-key` — API key
+ *     tidak pernah ditaruh di query string URL.
  */
 class ModelFetcher(
     private val client: OkHttpClient = OkHttpClient.Builder()
@@ -104,7 +112,7 @@ class ModelFetcher(
             withContext(Dispatchers.IO) { client.newCall(req).execute() }
         } catch (e: Exception) {
             throw IllegalStateException(
-                "Tidak bisa menghubungi $url (${e.message ?: e.javaClass.simpleName}). " +
+                "Tidak bisa menghubungi ${sanitizeUrl(url)} (${e.message ?: e.javaClass.simpleName}). " +
                     "Cek koneksi & Base URL — untuk server di PC, pakai IP LAN (mis. http://192.168.1.10:11434), " +
                     "bukan localhost.",
             )
@@ -112,7 +120,7 @@ class ModelFetcher(
         response.use { resp ->
             val body = resp.body?.string() ?: ""
             if (resp.code !in 200..299) {
-                throw ProviderApiException(resp.code, url, body)
+                throw ProviderApiException(resp.code, sanitizeUrl(url), body)
             }
             return body
         }
@@ -141,7 +149,7 @@ class ModelFetcher(
     }
 
     private suspend fun fetchGoogleModels(apiKey: String, baseUrl: String): List<ModelInfo> {
-        val root = parseElement(request("$baseUrl/v1beta/models?key=$apiKey"))
+        val root = parseElement(request("$baseUrl/v1beta/models", mapOf("x-goog-api-key" to apiKey)))
         val models = modelsFrom(root).map { it.copy(id = it.id.removePrefix("models/")) }
         return models.filter { it.id.contains("gemini") || it.id.contains("text") }.sortedBy { it.name.lowercase() }
     }

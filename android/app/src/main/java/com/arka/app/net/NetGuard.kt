@@ -58,17 +58,45 @@ object NetGuard {
             throw IllegalArgumentException("Host tidak bisa di-resolve: $host")
         }
         for (a in addrs) {
-            if (a.isLoopbackAddress || a.isSiteLocalAddress || a.isLinkLocalAddress || a.isMulticastAddress) {
+            if (a.isAnyLocalAddress || a.isLoopbackAddress || a.isSiteLocalAddress ||
+                a.isLinkLocalAddress || a.isMulticastAddress
+            ) {
                 throw IllegalArgumentException("Fetch ke alamat non-publik diblokir untuk mencegah SSRF.")
             }
-            val ip = (a.hostAddress ?: "").lowercase(Locale.ROOT)
-            if (ip.startsWith("100.64.") || ip.startsWith("192.0.0.") ||
-                ip.startsWith("::ffff:127.") || ip.startsWith("::ffff:10.") ||
-                ip.startsWith("::ffff:192.168.") || ip.startsWith("::ffff:169.254.")
-            ) {
+            val bytes = a.address
+            if ((bytes.size == 4 && isPrivateIpv4(bytes)) || (bytes.size == 16 && isPrivateIpv6(bytes))) {
                 throw IllegalArgumentException("Fetch ke alamat non-publik diblokir untuk mencegah SSRF.")
             }
         }
         return uri
+    }
+
+    private fun isPrivateIpv4(b: ByteArray): Boolean {
+        val a0 = b[0].toInt() and 0xFF
+        val a1 = b[1].toInt() and 0xFF
+        val a2 = b[2].toInt() and 0xFF
+        return a0 == 0 ||
+            a0 == 10 ||
+            a0 == 127 ||
+            (a0 == 172 && a1 in 16..31) ||
+            (a0 == 192 && a1 == 168) ||
+            (a0 == 169 && a1 == 254) ||
+            (a0 == 100 && a1 in 64..127) ||
+            (a0 == 192 && a1 == 0 && a2 == 0)
+    }
+
+    private fun isPrivateIpv6(b: ByteArray): Boolean {
+        val b0 = b[0].toInt() and 0xFF
+        // ULA fc00::/7
+        if (b0 == 0xFC || b0 == 0xFD) return true
+        val b1 = b[1].toInt() and 0xFF
+        // link-local fe80::/10
+        if (b0 == 0xFE && (b1 and 0xC0) == 0x80) return true
+        // IPv4-mapped ::ffff:a.b.c.d — cek turunan IPv4 privatnya
+        val mapped = b.sliceArray(0..9).all { it == 0.toByte() } &&
+            (b[10].toInt() and 0xFF) == 0xFF &&
+            (b[11].toInt() and 0xFF) == 0xFF
+        if (mapped) return isPrivateIpv4(b.copyOfRange(12, 16))
+        return false
     }
 }

@@ -50,9 +50,12 @@ class ToolRegistry(
     private val execRunner = ExecRunner(context)
     private val json = Json { ignoreUnknownKeys = true }
 
+    /** Sekali konstruksi (EncryptedSharedPreferences+MasterKey) supaya web_fetch tidak bikin baru tiap panggilan. */
+    private val persistence: Persistence by lazy { Persistence(context) }
+
     /** Token GitHub yang dihubungkan user di panel GitHub (kosong kalau belum). */
     private fun githubToken(): String =
-        runCatching { Persistence(context).loadGithubToken() }.getOrDefault("")
+        runCatching { persistence.loadGithubToken() }.getOrDefault("")
 
     fun isSensitive(name: String): Boolean = name in SENSITIVE_TOOLS
 
@@ -177,7 +180,13 @@ class ToolRegistry(
         kotlinx.serialization.json.buildJsonArray { values.forEach { add(kotlinx.serialization.json.JsonPrimitive(it)) } }
 
     suspend fun executeTool(name: String, rawArgs: String, sessionId: String?): String {
-        val args = runCatching { json.parseToJsonElement(rawArgs).jsonObject }.getOrElse { JsonObject(emptyMap()) }
+        val args = if (rawArgs.isBlank()) {
+            JsonObject(emptyMap())
+        } else {
+            runCatching { json.parseToJsonElement(rawArgs).jsonObject }.getOrElse {
+                return "Error: invalid tool arguments"
+            }
+        }
         fun str(key: String): String = args[key]?.jsonPrimitive?.contentOrNull ?: ""
         return try {
             when (name) {
@@ -474,13 +483,23 @@ class ToolRegistry(
                 ?.associate { it.path to it.content } ?: emptyMap()
             var skipped = 0
             val current = mutableMapOf<String, String>()
+            val unreadable = mutableListOf<String>()
             for (e in workspaceFs.listEntries(sid)) {
                 if (e.isDir) continue
                 if (isStageExcluded(e.path)) {
                     skipped++
                     continue
                 }
-                current[e.path] = workspaceFs.read(sid, e.path) ?: ""
+                val content = workspaceFs.read(sid, e.path)
+                if (content == null) {
+                    unreadable += e.path
+                } else {
+                    current[e.path] = content
+                }
+            }
+            if (unreadable.isNotEmpty()) {
+                return "❌ Gagal membaca file dari workspace: ${unreadable.joinToString(", ")}. " +
+                    "Checkpoint dibatalkan supaya file tidak ikut terhapus/tertimpa di GitHub. Coba lagi."
             }
             val added = current.filter { (path, _) -> path !in prev }.map { StagedCommitFile(it.key, it.value) }
             val updated = current.filter { (path, content) -> path in prev && prev[path] != content }.map { StagedCommitFile(it.key, it.value) }
