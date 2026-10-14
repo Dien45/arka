@@ -33,18 +33,15 @@ class StagedCommits(context: Context) {
         }.getOrDefault(emptyList())
     }
 
-    private fun save(commits: List<StagedCommit>) {
-        runCatching {
-            AtomicFile.backup(file)
-            AtomicFile.writeText(file, json.encodeToString(commits))
-        }
-    }
+    private fun save(commits: List<StagedCommit>): Boolean = runCatching {
+        AtomicFile.backup(file)
+        AtomicFile.writeText(file, json.encodeToString(commits))
+    }.isSuccess
 
     fun add(commit: StagedCommit): Boolean {
         val candidate = load() + commit
         if (json.encodeToString(candidate).length > MAX_STAGED_COMMITS_BYTES) return false
-        save(candidate)
-        return true
+        return save(candidate)
     }
 
     fun remove(id: String) {

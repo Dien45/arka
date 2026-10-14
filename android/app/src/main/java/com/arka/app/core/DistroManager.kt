@@ -3,6 +3,7 @@ package com.arka.app.core
 import android.content.Context
 import android.net.Uri
 import android.os.Build
+import android.util.Log
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.apache.commons.compress.archivers.tar.TarArchiveEntry
@@ -13,6 +14,7 @@ import java.io.File
 import java.io.FileOutputStream
 import java.io.InputStream
 import java.net.HttpURLConnection
+import java.net.URI
 import java.net.URL
 import java.nio.file.Files
 import java.nio.file.Paths
@@ -115,8 +117,10 @@ class DistroManager(private val context: Context) {
      * ada di perangkat), sehingga rootfs yang sudah terpasang dianggap belum ada.
      * Ini penyebab bug "sudah di-install tapi tidak terbaca".
      */
-    fun isInstalled(): Boolean =
-        File(rootfsDir, "etc/alpine-release").isFile || File(rootfsDir, "bin/busybox").isFile
+    fun isInstalled(): Boolean = isInstalledIn(rootfsDir)
+
+    private fun isInstalledIn(dir: File): Boolean =
+        File(dir, "etc/alpine-release").isFile || File(dir, "bin/busybox").isFile
 
     fun status(): DistroStatus {
         val proot = prootBinary()
@@ -172,15 +176,22 @@ class DistroManager(private val context: Context) {
                         onProgress(percent / 2, label)
                     }
                     onProgress(52, "Mengekstrak rootfs…")
-                    // Bersihkan sisa instalasi sebelumnya supaya tidak campur.
-                    rootfsDir.deleteRecursively()
-                    rootfsDir.mkdirs()
-                    extractTarGz(tmpArchive) { percent -> onProgress(52 + percent / 2, "Mengekstrak rootfs… $percent%") }
-                    tmpArchive.delete()
-                    check(isInstalled()) { "Ekstraksi selesai tapi etc/alpine-release tidak ada — arsip bukan rootfs Alpine." }
-                    onProgress(97, "Menyiapkan /root/workspace & resolv.conf…")
-                    postInstall()
-                    onProgress(100, "Alpine terpasang.")
+                    val staging = File(distroRoot, "$DISTRO_NAME.new")
+                    staging.deleteRecursively()
+                    if (!staging.mkdirs()) throw IllegalStateException("Gagal membuat folder staging rootfs.")
+                    try {
+                        extractTarGz(tmpArchive, staging) { percent -> onProgress(52 + percent / 2, "Mengekstrak rootfs… $percent%") }
+                        check(isInstalledIn(staging)) { "Ekstraksi selesai tapi etc/alpine-release tidak ada — arsip bukan rootfs Alpine." }
+                        onProgress(97, "Menyiapkan /root/workspace & resolv.conf…")
+                        swapIn(staging)
+                        postInstall()
+                        onProgress(100, "Alpine terpasang.")
+                    } catch (e: Exception) {
+                        staging.deleteRecursively()
+                        throw e
+                    } finally {
+                        tmpArchive.delete()
+                    }
                     return@runCatching
                 } catch (e: Exception) {
                     lastError = e
@@ -196,26 +207,49 @@ class DistroManager(private val context: Context) {
         return ROOTFS_MIRRORS.map { "$it/${path.removePrefix("alpine/")}" }
     }
 
+    /** Tukar rootfs lama dengan hasil staging; rootfs lama baru dihapus setelah terpasang sukses. */
+    private fun swapIn(staging: File) {
+        val backup = File(distroRoot, "$DISTRO_NAME.old")
+        backup.deleteRecursively()
+        val hadExisting = rootfsDir.exists()
+        if (hadExisting && !rootfsDir.renameTo(backup)) {
+            throw IllegalStateException("Gagal menyiapkan penggantian rootfs.")
+        }
+        if (!staging.renameTo(rootfsDir)) {
+            if (hadExisting) backup.renameTo(rootfsDir)
+            throw IllegalStateException("Gagal memasang rootfs baru.")
+        }
+        backup.deleteRecursively()
+    }
+
     /** Pasang dari file .tar.gz lokal hasil SAF (opsi offline). */
     suspend fun installFromStream(input: InputStream, onProgress: (Int, String) -> Unit = { _, _ -> }): Result<Unit> =
         withContext(Dispatchers.IO) {
             runCatching {
                 onProgress(5, "Menyiapkan…")
-                rootfsDir.deleteRecursively()
-                rootfsDir.mkdirs()
-                extractTarGz(input) { percent -> onProgress(5 + percent * 9 / 10, "Mengekstrak rootfs… $percent%") }
-                check(isInstalled()) { "Arsip bukan rootfs Alpine (etc/alpine-release tidak ditemukan)." }
-                postInstall()
-                onProgress(100, "Alpine terpasang dari file lokal.")
+                val staging = File(distroRoot, "$DISTRO_NAME.new")
+                staging.deleteRecursively()
+                if (!staging.mkdirs()) throw IllegalStateException("Gagal membuat folder staging rootfs.")
+                try {
+                    extractTarGz(input, staging) { percent -> onProgress(5 + percent * 9 / 10, "Mengekstrak rootfs… $percent%") }
+                    check(isInstalledIn(staging)) { "Arsip bukan rootfs Alpine (etc/alpine-release tidak ditemukan)." }
+                    swapIn(staging)
+                    postInstall()
+                    onProgress(100, "Alpine terpasang dari file lokal.")
+                } catch (e: Exception) {
+                    staging.deleteRecursively()
+                    throw e
+                }
             }
         }
 
     suspend fun installFromUri(uri: Uri, onProgress: (Int, String) -> Unit = { _, _ -> }): Result<Unit> =
         withContext(Dispatchers.IO) {
-            val stream = context.contentResolver.openInputStream(uri)
-                ?: return@withContext Result.failure(IllegalStateException("File tidak bisa dibuka"))
-            stream.use { installFromStream(it, onProgress).getOrThrow() }
-            Result.success(Unit)
+            runCatching {
+                val stream = context.contentResolver.openInputStream(uri)
+                    ?: throw IllegalStateException("File tidak bisa dibuka")
+                stream.use { installFromStream(it, onProgress).getOrThrow() }
+            }
         }
 
     private fun postInstall() {
@@ -242,47 +276,74 @@ class DistroManager(private val context: Context) {
         onProgress: (Int, Long, Long) -> Unit,
     ): File {
         val target = File(tmpDir, "rootfs.tar.gz")
-        val conn = (URL(url).openConnection() as HttpURLConnection).apply {
-            connectTimeout = 20_000
-            readTimeout = 60_000
-            instanceFollowRedirects = true
-            setRequestProperty("User-Agent", "Arka-Android")
-        }
-        try {
-            if (conn.responseCode !in 200..299) {
-                throw IllegalStateException("HTTP ${conn.responseCode} saat mengunduh rootfs")
+        var currentUrl = url
+        var hops = 0
+        while (true) {
+            val parsed = try {
+                URL(currentUrl)
+            } catch (e: Exception) {
+                throw IllegalStateException("URL rootfs tidak valid: $currentUrl")
             }
-            val total = conn.contentLengthLong
-            var read = 0L
-            var lastPercent = -1
-            conn.inputStream.use { input ->
-                FileOutputStream(target).use { out ->
-                    val buf = ByteArray(64 * 1024)
-                    while (true) {
-                        val n = input.read(buf)
-                        if (n < 0) break
-                        out.write(buf, 0, n)
-                        read += n
-                        val percent = if (total > 0) ((read * 100) / total).toInt() else 0
-                        if (percent != lastPercent) {
-                            lastPercent = percent
-                            onProgress(percent, read, if (total > 0) total else 0)
+            if (!parsed.protocol.equals("https", ignoreCase = true)) {
+                throw IllegalStateException("Unduhan rootfs ditolak: bukan https ($currentUrl).")
+            }
+            val conn = (parsed.openConnection() as HttpURLConnection).apply {
+                connectTimeout = 20_000
+                readTimeout = 60_000
+                instanceFollowRedirects = false
+                setRequestProperty("User-Agent", "Arka-Android")
+            }
+            var redirectTo: String? = null
+            try {
+                val code = conn.responseCode
+                if (code in 300..399) {
+                    val loc = conn.getHeaderField("Location")
+                        ?: throw IllegalStateException("Redirect tanpa Location saat mengunduh rootfs")
+                    redirectTo = try {
+                        URI(currentUrl).resolve(loc).toString()
+                    } catch (e: Exception) {
+                        throw IllegalStateException("Redirect tidak valid saat mengunduh rootfs")
+                    }
+                } else if (code !in 200..299) {
+                    throw IllegalStateException("HTTP $code saat mengunduh rootfs")
+                } else {
+                    Log.d("DistroManager", "rootfs final URL: $currentUrl")
+                    val total = conn.contentLengthLong
+                    var read = 0L
+                    var lastPercent = -1
+                    conn.inputStream.use { input ->
+                        FileOutputStream(target).use { out ->
+                            val buf = ByteArray(64 * 1024)
+                            while (true) {
+                                val n = input.read(buf)
+                                if (n < 0) break
+                                out.write(buf, 0, n)
+                                read += n
+                                val percent = if (total > 0) ((read * 100) / total).toInt() else 0
+                                if (percent != lastPercent) {
+                                    lastPercent = percent
+                                    onProgress(percent, read, if (total > 0) total else 0)
+                                }
+                            }
                         }
                     }
+                    return target
                 }
+            } finally {
+                conn.disconnect()
             }
-            return target
-        } finally {
-            conn.disconnect()
+            currentUrl = redirectTo ?: throw IllegalStateException("Respons unduhan rootfs tidak dikenali")
+            hops++
+            if (hops > 5) throw IllegalStateException("Terlalu banyak redirect saat mengunduh rootfs")
         }
     }
 
     /** Ekstraksi .tar.gz aman (menolak path keluar rootfs + menangani symlink/hardlink). */
-    private fun extractTarGz(source: File, onProgress: (Int) -> Unit = {}): Unit =
-        BufferedInputStream(source.inputStream()).use { extractTarGz(it, onProgress) }
+    private fun extractTarGz(source: File, targetDir: File, onProgress: (Int) -> Unit = {}): Unit =
+        BufferedInputStream(source.inputStream()).use { extractTarGz(it, targetDir, onProgress) }
 
-    private fun extractTarGz(input: InputStream, onProgress: (Int) -> Unit = {}) {
-        val root = rootfsDir.canonicalFile
+    private fun extractTarGz(input: InputStream, targetDir: File, onProgress: (Int) -> Unit = {}) {
+        val root = targetDir.canonicalFile
         var buffer = ByteArray(64 * 1024)
         TarArchiveInputStream(GzipCompressorInputStream(input, true)).use { tar ->
             var entryCount = 0

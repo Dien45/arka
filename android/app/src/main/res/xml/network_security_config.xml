@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<network-security-config>
+    <!-- Default: LARANG cleartext (http). API key / PAT GitHub / isi percakapan
+         hanya boleh dikirim lewat TLS. (Menggantikan android:usesCleartextTraffic
+         ="true" yang sebelumnya mengizinkan http global di seluruh aplikasi.) -->
+    <base-config cleartextTrafficPermitted="false">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+
+    <!-- Pengecualian loopback SAJA — bukan lalu lintas lintas-jaringan:
+         - layanan exec lokal aplikasi (http://localhost:3399/exec, lihat
+           Persistence.Prefs.execUrl), dan
+         - loopback host dari emulator Android (10.0.2.2).
+         Catatan: IP LAN arbitrer (mis. http://192.168.1.10:11434 untuk
+         server Ollama lokal yang bisa dikonfigurasi user) TIDAK bisa
+         di-allowlist di network security config (tidak ada dukungan
+         CIDR/wildcard IP, dan debug-overrides hanya mendukung
+         trust-anchors), sehingga cleartext ke LAN diblokir di rilis.
+         Bila fitur itu wajib: pakai https di sisi server, atau tambahkan
+         <domain> eksplisit untuk host LAN yang diketahui di bawah ini. -->
+    <domain-config cleartextTrafficPermitted="true">
+        <domain>localhost</domain>
+        <domain>127.0.0.1</domain>
+        <domain>::1</domain>
+        <domain>10.0.2.2</domain>
+    </domain-config>
+</network-security-config>

@@ -69,13 +69,16 @@ class MemoryManager private constructor(private val context: Context) {
         }.getOrDefault(MemoryStore())
     }
 
-    private fun save() {
-        runCatching {
-            AtomicFile.backup(file)
-            AtomicFile.writeText(file, json.encodeToString(store))
-            lastMtime = file.lastModified()
-        }
-    }
+    private fun save(): Boolean = runCatching {
+        AtomicFile.backup(file)
+        AtomicFile.writeText(file, json.encodeToString(store))
+        lastMtime = file.lastModified()
+    }.isSuccess
+
+    private fun saveFailed(): MemoryResult = MemoryResult(
+        success = false,
+        error = "Failed to persist memory to disk (I/O error) — the change was NOT saved.",
+    )
 
     private fun charCount(entries: List<MemoryEntry>): Int = entries.sumOf { it.content.length }
 
@@ -102,14 +105,16 @@ class MemoryManager private constructor(private val context: Context) {
             )
         }
 
+        val previous = store
         val updated = MemoryEntry(generateId(), content, System.currentTimeMillis())
         store = if (target == MemoryTarget.MEMORY) {
             store.copy(memory = store.memory + updated)
         } else {
             store.copy(user = store.user + updated)
         }
-        save()
-        return MemoryResult(success = true)
+        if (save()) return MemoryResult(success = true)
+        store = previous
+        return saveFailed()
     }
 
     fun replace(target: MemoryTarget, oldText: String, newContent: String): MemoryResult = synchronized(lock) {
@@ -132,14 +137,16 @@ class MemoryManager private constructor(private val context: Context) {
             )
         }
 
+        val previous = store
         val replaced = oldEntry.copy(content = newContent, timestamp = System.currentTimeMillis())
         store = if (target == MemoryTarget.MEMORY) {
             store.copy(memory = store.memory.map { if (it.id == oldEntry.id) replaced else it })
         } else {
             store.copy(user = store.user.map { if (it.id == oldEntry.id) replaced else it })
         }
-        save()
-        return MemoryResult(success = true)
+        if (save()) return MemoryResult(success = true)
+        store = previous
+        return saveFailed()
     }
 
     fun remove(target: MemoryTarget, oldText: String): MemoryResult = synchronized(lock) {
@@ -149,13 +156,15 @@ class MemoryManager private constructor(private val context: Context) {
         if (matches.isEmpty()) return MemoryResult(success = false, error = "No entry found containing \"$oldText\"")
         if (matches.size > 1) return MemoryResult(success = false, error = "Multiple entries match \"$oldText\". Please be more specific.")
 
+        val previous = store
         store = if (target == MemoryTarget.MEMORY) {
             store.copy(memory = store.memory.filterNot { it.id == matches[0].id })
         } else {
             store.copy(user = store.user.filterNot { it.id == matches[0].id })
         }
-        save()
-        return MemoryResult(success = true)
+        if (save()) return MemoryResult(success = true)
+        store = previous
+        return saveFailed()
     }
 
     fun getAll(): MemoryStore {
@@ -186,10 +195,12 @@ class MemoryManager private constructor(private val context: Context) {
         return sb.toString()
     }
 
-    fun clear() = synchronized(lock) {
-        reloadIfChanged()
-        store = MemoryStore()
-        save()
+    fun clear() {
+        synchronized(lock) {
+            reloadIfChanged()
+            store = MemoryStore()
+            save()
+        }
     }
 
     /** Cari entri yang mengandung kata kunci (case-insensitive). Target null = cari di keduanya. */

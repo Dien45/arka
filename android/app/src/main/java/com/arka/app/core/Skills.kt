@@ -67,8 +67,6 @@ class SkillsManager(private val context: Context) {
     private val cacheRoot: File = File(context.filesDir, "skills").apply { mkdirs() }
     private val legacyFile: File = File(context.filesDir, "custom_skills.json")
 
-    private var cached: SkillState? = null
-
     private fun load(): SkillState {
         val fromDisk = try {
             if (file.exists()) json.decodeFromString<SkillState>(file.readText()) else null
@@ -93,29 +91,25 @@ class SkillsManager(private val context: Context) {
         return SkillState(installedIds = legacy.map { it.id }, customSkills = legacy)
     }
 
-    private var lastWrite = 0L
-
-    fun state(): SkillState {
+    fun state(): SkillState = synchronized(stateLock) {
         val current = cached
         if (current == null) {
             val fresh = load()
             cached = fresh
             lastWrite = if (file.exists()) file.lastModified() else 0L
-            return fresh
+            return@synchronized fresh
         }
         // Muat ulang bila berkas berubah dari luar (mis. instance lain menulis).
         if (file.exists() && file.lastModified() > lastWrite) {
             val fresh = load()
             cached = fresh
             lastWrite = file.lastModified()
-            return fresh
+            return@synchronized fresh
         }
-        return current
+        current
     }
 
-    private val saveLock = Any()
-
-    private fun save(next: SkillState) = synchronized(saveLock) {
+    private fun save(next: SkillState) = synchronized(stateLock) {
         cached = next
         runCatching {
             AtomicFile.backup(file)
@@ -134,35 +128,43 @@ class SkillsManager(private val context: Context) {
 
     /** Skill bawaan (prompt-only). */
     fun install(id: String) {
-        val current = state()
-        if (id !in current.installedIds) save(current.copy(installedIds = current.installedIds + id))
+        synchronized(stateLock) {
+            val current = state()
+            if (id !in current.installedIds) save(current.copy(installedIds = current.installedIds + id))
+        }
     }
 
     fun uninstall(id: String) {
-        val current = state()
-        save(
-            current.copy(
-                installedIds = current.installedIds - id,
-                customSkills = current.customSkills.filterNot { it.id == id },
-            ),
-        )
+        synchronized(stateLock) {
+            val current = state()
+            save(
+                current.copy(
+                    installedIds = current.installedIds - id,
+                    customSkills = current.customSkills.filterNot { it.id == id },
+                ),
+            )
+        }
         runCatching { cacheDir(id).deleteRecursively() }
     }
 
     /** Skill hasil unduhan repo: berkas sudah ada di cache, tinggal didaftarkan. */
     fun addCustom(skill: Skill, markInstalled: Boolean = true) {
-        val current = state()
-        save(
-            current.copy(
-                customSkills = current.customSkills.filterNot { it.id == skill.id } + skill,
-                installedIds = if (markInstalled) (current.installedIds + skill.id).distinct() else current.installedIds,
-            ),
-        )
+        synchronized(stateLock) {
+            val current = state()
+            save(
+                current.copy(
+                    customSkills = current.customSkills.filterNot { it.id == skill.id } + skill,
+                    installedIds = if (markInstalled) (current.installedIds + skill.id).distinct() else current.installedIds,
+                ),
+            )
+        }
     }
 
     fun setConfig(skillId: String, mode: String) {
-        val current = state()
-        save(current.copy(configs = current.configs + (skillId to mode)))
+        synchronized(stateLock) {
+            val current = state()
+            save(current.copy(configs = current.configs + (skillId to mode)))
+        }
     }
 
     fun configOf(skillId: String): String? = state().configs[skillId]
@@ -222,7 +224,7 @@ class SkillsManager(private val context: Context) {
     fun readSkillFile(skill: Skill, relativePath: String): String? {
         val dir = cacheDir(skill.id)
         val target = File(dir, relativePath)
-        if (!target.canonicalPath.startsWith(dir.canonicalPath)) return null
+        if (!target.canonicalPath.startsWith(dir.canonicalPath + File.separator)) return null
         if (!target.isFile) return null
         return runCatching { target.readText() }.getOrNull()
     }
@@ -354,6 +356,18 @@ ATURAN SKILL:
     }
 
     companion object {
+        /**
+         * Kunci + cache KESELURUH PROSES: banyak SkillsManager bisa hidup
+         * bersamaan (per Composable/Controller) dan kalau cached per-instance,
+         * dua manager saling menimpa skills.json.
+         */
+        private val stateLock = Any()
+
+        @Volatile
+        private var cached: SkillState? = null
+
+        private var lastWrite = 0L
+
         /** Katalog 13 skill bawaan (paritas `availableSkills` di web). */
         val CATALOG: List<Skill> = listOf(
             Skill(
