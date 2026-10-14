@@ -4,6 +4,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -33,6 +34,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.arka.app.ui.clay.*
 
 /**
  * Self-contained, dependency-free Markdown renderer for chat bubbles
@@ -164,20 +166,20 @@ private fun parseBlocks(md: String): List<MdBlock> {
 private fun CodeBlock(text: String, background: Color) {
     val context = LocalContext.current
     var copied by remember { mutableStateOf(false) }
-    Surface(
-        color = background,
-        shape = RoundedCornerShape(8.dp),
+    ClayCard(
+        tone = ClayTone.Inset,
+        shape = RoundedCornerShape(16.dp),
+        contentPadding = PaddingValues(0.dp),
     ) {
-        Column {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.End,
             ) {
-                TextButton(onClick = {
+                ClayButton(onClick = {
                     val cm = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
                     cm.setPrimaryClip(android.content.ClipData.newPlainText("code", text))
                     copied = true
-                }) {
+                }, variant = ClayVariant.Ghost) {
                     Text(
                         if (copied) "Disalin ✓" else "Salin",
                         style = MaterialTheme.typography.labelSmall,
@@ -191,7 +193,6 @@ private fun CodeBlock(text: String, background: Color) {
                 modifier = Modifier
                     .padding(horizontal = 10.dp, vertical = 8.dp),
             )
-        }
     }
 }
 

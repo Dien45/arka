@@ -42,6 +42,7 @@ import com.arka.app.core.MessageRole
 import com.arka.app.core.providerFromName
 import com.arka.app.core.Session
 import com.arka.app.core.Store
+import com.arka.app.ui.clay.*
 
 /**
  * Menu sesi untuk sidebar (drawer): daftar sesi, pindah sesi, ganti nama,
@@ -91,7 +92,7 @@ fun SessionMenu(
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold,
             )
-            TextButton(onClick = { newSession() }) {
+            ClayButton(onClick = { newSession() }, variant = ClayVariant.Ghost) {
                 Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
                 Spacer(Modifier.width(4.dp))
                 Text(t(Key.NEW_SESSION))
@@ -139,13 +140,13 @@ fun SessionMenu(
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
-                        IconButton(onClick = {
+                        ClayIconButton(onClick = {
                             renameTarget = session
                             renameText = session.title
                         }) {
                             Icon(Icons.Default.Edit, contentDescription = "Rename")
                         }
-                        IconButton(onClick = { deleteTarget = session }) {
+                        ClayIconButton(onClick = { deleteTarget = session }) {
                             Icon(
                                 Icons.Default.Delete,
                                 contentDescription = "Delete",
@@ -164,7 +165,7 @@ fun SessionMenu(
             onDismissRequest = { renameTarget = null },
             title = { Text("Rename") },
             text = {
-                OutlinedTextField(
+                ClayTextField(
                     value = renameText,
                     onValueChange = { renameText = it },
                     singleLine = true,

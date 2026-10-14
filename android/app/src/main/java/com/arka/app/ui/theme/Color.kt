@@ -24,3 +24,19 @@ val DarkSurfaceVariant = Color(0xFF253040)
 val DarkBorder = Color(0xFF3A4A5F)
 val DarkPrimary = Color(0xFF9BB8D6)
 val DarkText = Color(0xFFE2E8F0)
+
+// Claymorphism tokens (light): soft pastel base + light/dark plates.
+val ClayBaseLight = Color(0xFFF6F9FC)
+val ClaySurfaceAccentLight = Color(0xFFE4EEF8)
+val ClayHighlightLight = Color(0xFFFFFFFF)
+val ClayShadowLight = Color(0xFFC3D3E4)
+val ClayPressedLight = Color(0xFFE9F0F7)
+val ClayRingLight = Color(0xFFDCE7F1)
+
+// Claymorphism tokens (dark).
+val ClayBaseDark = Color(0xFF1E2836)
+val ClaySurfaceAccentDark = Color(0xFF27364A)
+val ClayHighlightDark = Color(0xFF35435A)
+val ClayShadowDark = Color(0xFF0A0F17)
+val ClayPressedDark = Color(0xFF161E2A)
+val ClayRingDark = Color(0xFF2C3748)

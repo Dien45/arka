@@ -10,6 +10,7 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -69,6 +70,7 @@ import com.arka.app.core.FsEntry
 import com.arka.app.core.Store
 import com.arka.app.core.VirtualFs
 import com.arka.app.core.ZipUtil
+import com.arka.app.ui.clay.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -292,10 +294,10 @@ fun FileExplorerScreen(
                         .horizontalScroll(rememberScrollState()),
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
-                    TextButton(onClick = { showTree = true }) { Text("☰ File") }
+                    ClayButton(onClick = { showTree = true }, variant = ClayVariant.Ghost) { Text("☰ File") }
                     openTabs.forEach { tab ->
                         val isActive = tab == activeTab
-                        FilterChip(
+                        ClayChip(
                             selected = isActive,
                             onClick = { openFile(tab) },
                             label = { Text(tab.substringAfterLast('/'), maxLines = 1) },
@@ -322,11 +324,11 @@ fun FileExplorerScreen(
                             fontFamily = FontFamily.Monospace,
                             modifier = Modifier.weight(1f),
                         )
-                        IconButton(onClick = {
+                        ClayIconButton(onClick = {
                             renameTarget = path
                             renameDraft = path
                         }) { Icon(Icons.Default.Edit, contentDescription = "Rename") }
-                        IconButton(onClick = { deleteTarget = path }) {
+                        ClayIconButton(onClick = { deleteTarget = path }) {
                             Icon(Icons.Default.Delete, contentDescription = "Hapus", tint = MaterialTheme.colorScheme.error)
                         }
                     }
@@ -343,7 +345,7 @@ fun FileExplorerScreen(
                             }
                         }
                     } else {
-                        OutlinedTextField(
+                        ClayTextField(
                             value = draft,
                             onValueChange = {
                                 draft = it
@@ -488,9 +490,9 @@ private fun TreePane(
                 .padding(horizontal = 8.dp),
             horizontalArrangement = Arrangement.spacedBy(6.dp),
         ) {
-            FilterChip(selected = false, onClick = onNewFile, label = { Text("+ File") })
-            FilterChip(selected = false, onClick = onNewFolder, label = { Text("+ Folder") })
-            FilterChip(
+            ClayChip(selected = false, onClick = onNewFile, label = { Text("+ File") })
+            ClayChip(selected = false, onClick = onNewFolder, label = { Text("+ Folder") })
+            ClayChip(
                 selected = showAll,
                 onClick = onToggleScope,
                 label = { Text(if (showAll) "Semua sesi" else "Sesi ini") },
@@ -579,12 +581,12 @@ private fun FilePreview(path: String, content: String) {
 
 @Composable
 private fun WebPreview(html: String, height: androidx.compose.ui.unit.Dp) {
-    Card(
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+    ClayCard(
+        tone = ClayTone.Base,
+        contentPadding = PaddingValues(0.dp),
         modifier = Modifier
             .fillMaxWidth()
-            .height(height)
-            .clip(RoundedCornerShape(8.dp)),
+            .height(height),
     ) {
         AndroidView(
             modifier = Modifier.fillMaxSize(),

@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -58,6 +59,7 @@ import com.arka.app.core.PrdUtil
 import com.arka.app.core.ProviderConfig
 import com.arka.app.core.Store
 import com.arka.app.core.VirtualFs
+import com.arka.app.ui.clay.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -186,7 +188,7 @@ fun PrdScreen(
                 )
             }
 
-            OutlinedTextField(
+            ClayTextField(
                 value = idea,
                 onValueChange = { idea = it },
                 label = { Text("Ide produk") },
@@ -199,9 +201,10 @@ fun PrdScreen(
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier.padding(top = 6.dp),
             ) {
-                OutlinedButton(
+                ClayButton(
                     enabled = !busy,
                     onClick = { run(idea, null) },
+                    variant = ClayVariant.Secondary,
                 ) {
                     if (busy) {
                         CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
@@ -209,11 +212,11 @@ fun PrdScreen(
                     }
                     Text("Buat PRD")
                 }
-                TextButton(onClick = {
+                ClayButton(onClick = {
                     idea = ""
                     activeId = null
                     status = "Siap membuat dokumen baru."
-                }) { Text("Dokumen baru") }
+                }, variant = ClayVariant.Ghost) { Text("Dokumen baru") }
             }
 
             if (docs.isNotEmpty()) {
@@ -231,13 +234,13 @@ fun PrdScreen(
                                 .padding(vertical = 4.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
-                            FilterChip(
+                            ClayChip(
                                 selected = doc.id == activeId,
                                 onClick = { activeId = doc.id },
                                 label = { Text(doc.title.take(28), maxLines = 1) },
                                 modifier = Modifier.weight(1f),
                             )
-                            IconButton(onClick = {
+                            ClayIconButton(onClick = {
                                 prdStore.remove(doc.id)
                                 docs = prdStore.load().sortedByDescending { it.updatedAt }
                                 if (activeId == doc.id) activeId = docs.firstOrNull()?.id
@@ -252,11 +255,11 @@ fun PrdScreen(
 
             active?.let { doc ->
                 Spacer(Modifier.height(8.dp))
-                Card(
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh),
+                ClayCard(
+                    tone = ClayTone.Base,
                     modifier = Modifier.fillMaxWidth(),
+                    contentPadding = PaddingValues(12.dp),
                 ) {
-                    Column(Modifier.padding(12.dp)) {
                         Text(doc.title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
                         Text(
                             "${doc.latestContent.length} karakter · ${doc.messages.size} pesan",
@@ -264,20 +267,20 @@ fun PrdScreen(
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                         Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.padding(top = 6.dp)) {
-                            OutlinedButton(onClick = {
+                            ClayButton(onClick = {
                                 val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                                 clipboard.setPrimaryClip(ClipData.newPlainText("PRD", doc.latestContent))
                                 status = "PRD disalin ke clipboard."
-                            }) { Text("Salin") }
-                            OutlinedButton(onClick = {
+                            }, variant = ClayVariant.Secondary) { Text("Salin") }
+                            ClayButton(onClick = {
                                 val send = Intent(Intent.ACTION_SEND).apply {
                                     type = "text/markdown"
                                     putExtra(Intent.EXTRA_SUBJECT, doc.title)
                                     putExtra(Intent.EXTRA_TEXT, doc.latestContent)
                                 }
                                 context.startActivity(Intent.createChooser(send, "Bagikan PRD"))
-                            }) { Text("Bagikan") }
-                            OutlinedButton(onClick = {
+                            }, variant = ClayVariant.Secondary) { Text("Bagikan") }
+                            ClayButton(onClick = {
                                 scope.launch {
                                     val path = "prd/${PrdUtil.slugify(doc.title)}.md"
                                     val ok = withContext(Dispatchers.IO) {
@@ -285,26 +288,26 @@ fun PrdScreen(
                                     }
                                     status = if (ok) "Disimpan ke workspace: $path" else "Gagal menyimpan ke workspace."
                                 }
-                            }) { Text("Ke Workspace") }
+                            }, variant = ClayVariant.Secondary) { Text("Ke Workspace") }
                         }
-                    }
                 }
 
                 Spacer(Modifier.height(10.dp))
                 MarkdownText(markdown = doc.latestContent)
 
                 Spacer(Modifier.height(12.dp))
-                OutlinedTextField(
+                ClayTextField(
                     value = revision,
                     onValueChange = { revision = it },
                     label = { Text("Revisi (mis. \"tambahkan section monetisasi\")") },
                     minLines = 2,
                     modifier = Modifier.fillMaxWidth(),
                 )
-                OutlinedButton(
+                ClayButton(
                     enabled = !busy && revision.isNotBlank(),
                     onClick = { run(revision, doc) },
                     modifier = Modifier.padding(top = 6.dp),
+                    variant = ClayVariant.Secondary,
                 ) { Text("Kirim revisi") }
             }
 

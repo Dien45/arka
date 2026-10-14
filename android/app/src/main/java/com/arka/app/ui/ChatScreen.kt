@@ -11,7 +11,6 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -47,22 +46,17 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Send
 import androidx.compose.material.icons.filled.Stop
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -75,7 +69,8 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
@@ -100,6 +95,7 @@ import com.arka.app.core.Session
 import com.arka.app.core.Store
 import com.arka.app.core.ToolCallStatus
 import com.arka.app.core.VirtualFs
+import com.arka.app.ui.clay.*
 import java.io.ByteArrayOutputStream
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -326,7 +322,7 @@ private fun ChatTopBar(
         ?: providers.firstOrNull { it.enabled }
     val hasAnyModel = providers.any { it.enabled && (it.models.isNotEmpty() || it.effectiveModel.isNotBlank()) }
 
-    Surface(color = MaterialTheme.colorScheme.surface) {
+    ClaySurface(state = ClayState.Flat, tone = ClayTone.Base, shape = RectangleShape) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -345,13 +341,9 @@ private fun ChatTopBar(
                 modifier = Modifier.weight(1f, fill = false),
             )
             Spacer(Modifier.width(8.dp))
-            Surface(
-                shape = RoundedCornerShape(12.dp),
-                color = if (hasAnyModel) {
-                    MaterialTheme.colorScheme.secondaryContainer
-                } else {
-                    MaterialTheme.colorScheme.errorContainer
-                },
+            ClaySurface(
+                tone = if (hasAnyModel) ClayTone.Accent else ClayTone.Base,
+                shape = ClayShape.Chip,
                 modifier = Modifier.clickable(onClick = onOpenModelPicker),
             ) {
                 Row(
@@ -365,6 +357,7 @@ private fun ChatTopBar(
                         },
                         maxLines = 1,
                         style = MaterialTheme.typography.labelSmall,
+                        color = if (hasAnyModel) Color.Unspecified else MaterialTheme.colorScheme.error,
                     )
                     Text(" ▾", style = MaterialTheme.typography.labelSmall)
                 }
@@ -388,12 +381,10 @@ private fun MessageRow(language: ArkaLanguage, message: Message) {
 @Composable
 private fun UserBubble(content: String, attachments: List<Attachment>? = null) {
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-        Surface(
-            color = MaterialTheme.colorScheme.primaryContainer,
-            shape = RoundedCornerShape(16.dp, 16.dp, 4.dp, 16.dp),
-            modifier = Modifier
-                .widthIn(max = 300.dp)
-                .clip(RoundedCornerShape(16.dp, 16.dp, 4.dp, 16.dp)),
+        ClaySurface(
+            tone = ClayTone.Accent,
+            shape = RoundedCornerShape(18.dp, 18.dp, 6.dp, 18.dp),
+            modifier = Modifier.widthIn(max = 300.dp),
         ) {
             Column(Modifier.padding(12.dp, 8.dp)) {
                 attachments?.forEach { att ->
@@ -419,9 +410,9 @@ private fun AssistantBubble(content: String) {
     val context = LocalContext.current
     var copied by remember { mutableStateOf(false) }
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Start) {
-        Surface(
-            color = MaterialTheme.colorScheme.surfaceVariant,
-            shape = RoundedCornerShape(4.dp, 16.dp, 16.dp, 16.dp),
+        ClaySurface(
+            tone = ClayTone.Base,
+            shape = RoundedCornerShape(6.dp, 18.dp, 18.dp, 18.dp),
             modifier = Modifier.widthIn(max = 340.dp),
         ) {
             Column(Modifier.padding(12.dp, 8.dp)) {
@@ -430,11 +421,11 @@ private fun AssistantBubble(content: String) {
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                    TextButton(onClick = {
+                    ClayButton(onClick = {
                         val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                         cm.setPrimaryClip(ClipData.newPlainText("chat", content))
                         copied = true
-                    }) {
+                    }, variant = ClayVariant.Ghost) {
                         Text(
                             if (copied) "Disalin ✓" else "Salin",
                             style = MaterialTheme.typography.labelSmall,
@@ -459,13 +450,12 @@ private fun ToolResultCard(message: Message) {
         }.getOrElse { rawOutput }
     }
 
-    Card(
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh),
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(12.dp)),
+    ClayCard(
+        tone = ClayTone.Base,
+        shape = RoundedCornerShape(12.dp),
+        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
+        modifier = Modifier.fillMaxWidth(),
     ) {
-        Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
                     when (toolCall.status) {
@@ -482,17 +472,17 @@ private fun ToolResultCard(message: Message) {
                     fontWeight = FontWeight.SemiBold,
                 )
                 Spacer(Modifier.weight(1f))
-                TextButton(onClick = {
+                ClayButton(onClick = {
                     val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                     cm.setPrimaryClip(ClipData.newPlainText("tool_output", output))
                     copiedOut = true
-                }) {
+                }, variant = ClayVariant.Ghost) {
                     Text(
                         if (copiedOut) "Disalin ✓" else "Salin",
                         style = MaterialTheme.typography.labelSmall,
                     )
                 }
-                TextButton(onClick = { expanded = !expanded }) {
+                ClayButton(onClick = { expanded = !expanded }, variant = ClayVariant.Ghost) {
                     Text(if (expanded) "Sembunyikan" else "Lihat")
                 }
             }
@@ -506,7 +496,6 @@ private fun ToolResultCard(message: Message) {
                         .padding(top = 4.dp),
                 )
             }
-        }
     }
 }
 
@@ -553,7 +542,7 @@ private fun Greeting(language: ArkaLanguage, onQuickPrompt: (String) -> Unit) {
             Key.EXPLAIN_CODE,
             Key.OPTIMIZE_PERFORMANCE,
         ).forEach { key ->
-            FilterChip(
+            ClayChip(
                 selected = false,
                 onClick = { onQuickPrompt(t(key)) },
                 label = { Text(t(key)) },
@@ -610,9 +599,9 @@ private fun InputBar(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 attachments.forEach { att ->
-                    Surface(
-                        shape = RoundedCornerShape(12.dp),
-                        color = MaterialTheme.colorScheme.secondaryContainer,
+                    ClaySurface(
+                        tone = ClayTone.Accent,
+                        shape = ClayShape.Chip,
                     ) {
                         Row(
                             Modifier.padding(start = 10.dp, end = 2.dp, top = 2.dp, bottom = 2.dp),
@@ -649,10 +638,10 @@ private fun InputBar(
                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
-            Surface(
+            ClaySurface(
+                state = ClayState.Pressed,
+                tone = ClayTone.Base,
                 shape = RoundedCornerShape(24.dp),
-                color = MaterialTheme.colorScheme.surface,
-                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
                 modifier = Modifier.weight(1f),
             ) {
                 Row(
@@ -660,8 +649,9 @@ private fun InputBar(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Box {
-                        TextButton(
+                        ClayButton(
                             onClick = { modeMenuExpanded = true },
+                            variant = ClayVariant.Ghost,
                             contentPadding = PaddingValues(0.dp),
                         ) {
                             Text(modeLabel(mode), style = MaterialTheme.typography.labelSmall)
@@ -707,13 +697,14 @@ private fun InputBar(
             }
             Spacer(Modifier.width(8.dp))
             if (isLoading) {
-                IconButton(onClick = onStop) {
+                ClayIconButton(onClick = onStop, variant = ClayVariant.Destructive) {
                     Icon(Icons.Default.Stop, contentDescription = "Stop", tint = MaterialTheme.colorScheme.error)
                 }
             } else {
-                IconButton(
+                ClayIconButton(
                     onClick = { onSend(input) },
                     enabled = input.isNotBlank() || attachments.isNotEmpty(),
+                    variant = ClayVariant.Primary,
                 ) {
                     Icon(Icons.Default.Send, contentDescription = "Send", tint = MaterialTheme.colorScheme.primary)
                 }
@@ -747,10 +738,10 @@ private fun ApprovalSheet(
                 fontWeight = FontWeight.Bold,
             )
             Spacer(Modifier.height(12.dp))
-            Card(
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh),
+            ClayCard(
+                tone = ClayTone.Base,
+                contentPadding = PaddingValues(12.dp),
             ) {
-                Column(Modifier.padding(12.dp)) {
                     Text(approval.name, style = MaterialTheme.typography.titleSmall)
                     Spacer(Modifier.height(6.dp))
                     val prettyParams = remember(approval.paramsJson) {
@@ -763,13 +754,12 @@ private fun ApprovalSheet(
                         style = MaterialTheme.typography.bodySmall,
                         fontFamily = FontFamily.Monospace,
                     )
-                }
             }
             Spacer(Modifier.height(16.dp))
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                TextButton(onClick = onReject) { Text(t(Key.REJECT)) }
-                TextButton(onClick = onApproveAll) { Text(t(Key.ALLOW_ALL)) }
-                TextButton(onClick = onApprove) { Text(t(Key.APPROVE)) }
+                ClayButton(onClick = onReject, variant = ClayVariant.Ghost) { Text(t(Key.REJECT)) }
+                ClayButton(onClick = onApproveAll, variant = ClayVariant.Ghost) { Text(t(Key.ALLOW_ALL)) }
+                ClayButton(onClick = onApprove, variant = ClayVariant.Ghost) { Text(t(Key.APPROVE)) }
             }
         }
     }
