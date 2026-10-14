@@ -1,0 +1,11 @@
+artifacts/
+node_modules/
+test-results/
+playwright-report/
+*.png
+*.mp4
+*.webm
+*.log
+knip.json
+cspell.json
+*.tsbuildinfo
