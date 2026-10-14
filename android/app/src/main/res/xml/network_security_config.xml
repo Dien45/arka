@@ -13,13 +13,13 @@
          - layanan exec lokal aplikasi (http://localhost:3399/exec, lihat
            Persistence.Prefs.execUrl), dan
          - loopback host dari emulator Android (10.0.2.2).
-         Catatan: IP LAN arbitrer (mis. http://192.168.1.10:11434 untuk
-         server Ollama lokal yang bisa dikonfigurasi user) TIDAK bisa
-         di-allowlist di network security config (tidak ada dukungan
-         CIDR/wildcard IP, dan debug-overrides hanya mendukung
-         trust-anchors), sehingga cleartext ke LAN diblokir di rilis.
-         Bila fitur itu wajib: pakai https di sisi server, atau tambahkan
-         <domain> eksplisit untuk host LAN yang diketahui di bawah ini. -->
+         Catatan: IP LAN/Tailscale arbitrer (mis. http://100.x.x.x:11434 untuk
+         server Ollama) TIDAK bisa di-allowlist di sini (tidak ada dukungan
+         CIDR/wildcard IP). Untuk tetap MEMPERTAHANKAN kebijakan ketat ini,
+         http ke host privat di-relay lewat loopback oleh net/LocalForwarder
+         (socket TCP mentah ke IP asli — kebijakan cleartext hanya ditegakkan
+         oleh stack HTTP, bukan kernel), jadi cleartext langsung ke IP privat
+         tidak perlu diizinkan di sini. http ke host PUBLIK tetap diblokir. -->
     <domain-config cleartextTrafficPermitted="true">
         <domain>localhost</domain>
         <domain>127.0.0.1</domain>

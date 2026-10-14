@@ -135,7 +135,7 @@ class AiClient(
         bodyJson: String? = null,
     ): HttpResult {
         ensureActive()
-        val reqBuilder = Request.Builder().url(url)
+        val reqBuilder = Request.Builder().url(LocalForwarder.localize(url))
         headers.forEach { (k, v) -> reqBuilder.header(k, v) }
         reqBuilder.method(if (bodyJson != null) "POST" else "GET", if (bodyJson != null) bodyJson.toRequestBody("application/json".toMediaType()) else null)
 
