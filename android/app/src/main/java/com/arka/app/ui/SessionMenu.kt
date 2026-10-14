@@ -39,6 +39,7 @@ import com.arka.app.core.ArkaLanguage
 import com.arka.app.core.I18n
 import com.arka.app.core.Key
 import com.arka.app.core.MessageRole
+import com.arka.app.core.providerFromName
 import com.arka.app.core.Session
 import com.arka.app.core.Store
 
@@ -69,7 +70,7 @@ fun SessionMenu(
                     id = "sess_${System.currentTimeMillis()}",
                     title = "Sesi Baru",
                     createdAt = System.currentTimeMillis(),
-                    provider = defaultProviderName?.let { runCatching { com.arka.app.core.Provider.valueOf(it) }.getOrNull() },
+                    provider = providerFromName(defaultProviderName),
                     model = defaultModel.takeIf { it.isNotBlank() },
                 ),
             ),

@@ -6,6 +6,10 @@ import kotlinx.serialization.Serializable
 @Serializable
 enum class Provider { openai, anthropic, google, ollama, groq, openrouter, custom }
 
+/** Parse nama provider (mis. dari prefs) jadi enum; null kalau tak dikenal. */
+fun providerFromName(name: String?): Provider? =
+    name?.let { runCatching { Provider.valueOf(it) }.getOrNull() }
+
 @Serializable
 data class ProviderConfig(
     val id: Provider,

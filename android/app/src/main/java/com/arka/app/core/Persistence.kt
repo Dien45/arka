@@ -14,6 +14,9 @@ import kotlinx.serialization.json.Json
 
 private val Context.appDataStore by preferencesDataStore(name = "arka_state")
 
+/** Versi skema [PersistedState] untuk migrasi satu kali saat boot. */
+internal const val CURRENT_SCHEMA_VERSION = 1
+
 /**
  * Non-secret persisted app state (mirrors the web app's `arka-state` blob
  * minus the secrets). apiKeys and the GitHub token are stripped and stored in
@@ -27,6 +30,8 @@ data class PersistedState(
     val providers: List<ProviderConfig> = defaultProviders,
     val githubRepos: List<GitHubRepo> = emptyList(),
     val githubConnected: Boolean = false,
+    /** 0 = belum pernah dimigrasi. Lihat [CURRENT_SCHEMA_VERSION]. */
+    val schemaVersion: Int = 0,
 )
 
 /** Non-secret preferences, one DataStore key each. */
@@ -77,11 +82,29 @@ class Persistence(private val context: Context) {
     suspend fun loadState(): PersistedState {
         val key = stringPreferencesKey("state")
         val raw = context.appDataStore.data.map { it[key] }.first() ?: return PersistedState()
-        val base = try {
+        val decoded = try {
             json.decodeFromString<PersistedState>(raw)
         } catch (t: Throwable) {
             return PersistedState()
         }
+        // Migrasi satu kali: sebelum skema v1, Session.provider/model punya
+        // default non-null (openai/gpt-4o) sehingga ikut tersimpan meski saat
+        // itu belum pernah dipakai sebagai pin. Kini field itu dibaca sebagai
+        // pin aktif, jadi sesi lama salah terkunci ke openai/gpt-4o. Reset ke null.
+        val base = if (decoded.schemaVersion < CURRENT_SCHEMA_VERSION) {
+            val migrated = decoded.copy(
+                schemaVersion = CURRENT_SCHEMA_VERSION,
+                sessions = decoded.sessions.map { it.copy(provider = null, model = null) },
+            )
+            runCatching {
+                context.appDataStore.edit {
+                    it[key] = json.encodeToString(
+                        migrated.copy(providers = migrated.providers.map { p -> p.copy(apiKey = "") }),
+                    )
+                }
+            }
+            migrated
+        } else decoded
         val providers = base.providers.map { p ->
             val k = secrets.getString(apiKeyKey(p.id), null)
             if (k != null) p.copy(apiKey = k) else p
