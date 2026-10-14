@@ -62,6 +62,7 @@ import com.arka.app.core.saveScanResult
 import com.arka.app.core.Store
 import kotlinx.coroutines.launch
 import androidx.compose.runtime.rememberCoroutineScope
+import com.arka.app.ui.clay.*
 
 /**
  * Model picker untuk Chat (pengganti dropdown lama).
@@ -163,7 +164,7 @@ fun ModelPickerSheet(
             )
 
             Spacer(Modifier.height(8.dp))
-            OutlinedTextField(
+            ClayTextField(
                 value = query,
                 onValueChange = { query = it },
                 label = { Text("Cari model…") },
@@ -171,7 +172,7 @@ fun ModelPickerSheet(
                 leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
                 trailingIcon = {
                     if (query.isNotEmpty()) {
-                        IconButton(onClick = { query = "" }) {
+                        ClayIconButton(onClick = { query = "" }) {
                             Icon(Icons.Default.Clear, contentDescription = "Bersihkan")
                         }
                     }
@@ -180,10 +181,10 @@ fun ModelPickerSheet(
             )
 
             Row(verticalAlignment = Alignment.CenterVertically) {
-                TextButton(onClick = { relevant.forEach { scan(it, force = true) } }) {
+                ClayButton(onClick = { relevant.forEach { scan(it, force = true) } }, variant = ClayVariant.Ghost) {
                     Text("Scan ulang semua")
                 }
-                TextButton(onClick = onOpenSettings) { Text("Kelola provider") }
+                ClayButton(onClick = onOpenSettings, variant = ClayVariant.Ghost) { Text("Kelola provider") }
             }
 
             error?.let {
@@ -198,7 +199,7 @@ fun ModelPickerSheet(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 Spacer(Modifier.height(8.dp))
-                Button(onClick = onOpenSettings, modifier = Modifier.fillMaxWidth()) {
+                ClayButton(onClick = onOpenSettings, modifier = Modifier.fillMaxWidth(), variant = ClayVariant.Primary) {
                     Text(I18n.t(language, Key.OPEN_SETTINGS))
                 }
             } else {
@@ -262,7 +263,7 @@ fun ModelPickerSheet(
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
                     relevant.forEach { p ->
-                        FilterChip(
+                        ClayChip(
                             selected = (manualProvider ?: relevant.first().id) == p.id,
                             onClick = { manualProvider = p.id },
                             label = { Text("${p.icon} ${p.name}", maxLines = 1) },
@@ -271,7 +272,7 @@ fun ModelPickerSheet(
                 }
             }
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 4.dp)) {
-                OutlinedTextField(
+                ClayTextField(
                     value = manualModel,
                     onValueChange = { manualModel = it },
                     label = { Text("Model id") },
@@ -279,7 +280,7 @@ fun ModelPickerSheet(
                     modifier = Modifier.weight(1f),
                 )
                 Spacer(Modifier.width(8.dp))
-                Button(
+                ClayButton(
                     onClick = {
                         // Provider yang tampak terpilih di chip = yang dipakai (bukan tebakan).
                         val id = manualProvider
@@ -291,6 +292,7 @@ fun ModelPickerSheet(
                         }
                     },
                     enabled = manualModel.isNotBlank(),
+                    variant = ClayVariant.Primary,
                 ) { Text("Pakai") }
             }
         }
@@ -332,7 +334,7 @@ private fun ProviderSectionHeader(
             CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
             Spacer(Modifier.width(8.dp))
         }
-        IconButton(onClick = onRescan) {
+        ClayIconButton(onClick = onRescan) {
             Icon(Icons.Default.Refresh, contentDescription = "Scan ulang ${provider.name}")
         }
     }
@@ -344,16 +346,12 @@ private fun ModelRow(
     selected: Boolean,
     onClick: () -> Unit,
 ) {
-    Row(
-        Modifier
+    ClayRow(
+        selected = selected,
+        onClick = onClick,
+        modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(8.dp))
-            .clickable(onClick = onClick)
-            .background(
-                if (selected) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surface,
-            )
             .padding(horizontal = 8.dp, vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(Modifier.weight(1f)) {
             Text(model.id, style = MaterialTheme.typography.bodyMedium, maxLines = 1)

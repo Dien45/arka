@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -42,6 +43,7 @@ import com.arka.app.core.DistroManager
 import com.arka.app.core.DistroStatus
 import com.arka.app.core.ExecRunner
 import com.arka.app.core.Store
+import com.arka.app.ui.clay.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -123,11 +125,11 @@ fun DistroSection(store: Store) {
         modifier = Modifier.padding(top = 8.dp),
     )
 
-    Card(
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh),
+    ClayCard(
+        tone = ClayTone.Base,
         modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+        contentPadding = PaddingValues(12.dp),
     ) {
-        Column(Modifier.padding(12.dp)) {
             Text(
                 "Distro: Alpine · ${status?.abi ?: "..."}",
                 style = MaterialTheme.typography.bodyMedium,
@@ -152,7 +154,7 @@ fun DistroSection(store: Store) {
             }
             Spacer(Modifier.height(8.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(
+                ClayButton(
                     onClick = {
                         busy = true
                         message = null
@@ -171,6 +173,7 @@ fun DistroSection(store: Store) {
                         }
                     },
                     enabled = !busy,
+                    variant = ClayVariant.Primary,
                 ) {
                     if (busy) {
                         CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
@@ -178,16 +181,16 @@ fun DistroSection(store: Store) {
                     }
                     Text(if (status?.installed == true) "Perbarui rootfs" else "Unduh & pasang (±3,6 MB)")
                 }
-                OutlinedButton(onClick = { filePicker.launch(arrayOf("*/*")) }, enabled = !busy) {
+                ClayButton(onClick = { filePicker.launch(arrayOf("*/*")) }, enabled = !busy, variant = ClayVariant.Secondary) {
                     Text("Impor .tar.gz")
                 }
             }
             Spacer(Modifier.height(6.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedButton(onClick = { runDiagnostics() }, enabled = !busy) {
+                ClayButton(onClick = { runDiagnostics() }, enabled = !busy, variant = ClayVariant.Secondary) {
                     Text("Tes distro")
                 }
-                OutlinedButton(onClick = { showRemove = true }, enabled = status?.installed == true && !busy) {
+                ClayButton(onClick = { showRemove = true }, enabled = status?.installed == true && !busy, variant = ClayVariant.Secondary) {
                     Text("Hapus rootfs")
                 }
             }
@@ -199,11 +202,10 @@ fun DistroSection(store: Store) {
                     fontFamily = FontFamily.Monospace,
                 )
             }
-        }
     }
 
     Spacer(Modifier.height(8.dp))
-    OutlinedTextField(
+    ClayTextField(
         value = rootfsUrl,
         onValueChange = {
             rootfsUrl = it
@@ -214,7 +216,7 @@ fun DistroSection(store: Store) {
         modifier = Modifier.fillMaxWidth(),
     )
     Spacer(Modifier.height(8.dp))
-    OutlinedTextField(
+    ClayTextField(
         value = allowlist,
         onValueChange = {
             allowlist = it

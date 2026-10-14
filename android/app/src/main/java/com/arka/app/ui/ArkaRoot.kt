@@ -56,6 +56,7 @@ import com.arka.app.core.MemoryManager
 import com.arka.app.core.Persistence
 import com.arka.app.core.SkillsManager
 import com.arka.app.core.Store
+import com.arka.app.ui.clay.*
 import com.arka.app.ui.theme.ArkaTheme
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -164,7 +165,7 @@ fun ArkaRoot() {
                 Scaffold(
                     bottomBar = {
                         if (!imeVisible) {
-                            Surface(tonalElevation = 3.dp) {
+                            ClaySurface(tone = ClayTone.Base) {
                                 Row(
                                     Modifier
                                         .fillMaxWidth()

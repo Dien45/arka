@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -51,6 +52,7 @@ import com.arka.app.core.MemoryTarget
 import com.arka.app.core.SkillsManager
 import com.arka.app.core.Store
 import com.arka.app.core.USER_CHAR_LIMIT
+import com.arka.app.ui.clay.*
 
 /**
  * M4 — Settings screen: AI providers (reuses ProvidersSheet), memory browser
@@ -87,7 +89,7 @@ fun SettingsScreen(
             .padding(horizontal = 16.dp, vertical = 8.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            IconButton(onClick = onOpenDrawer) {
+            ClayIconButton(onClick = onOpenDrawer) {
                 Icon(Icons.Default.Menu, contentDescription = "Menu")
             }
             Text(t(Key.SETTINGS), style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
@@ -104,35 +106,32 @@ fun SettingsScreen(
         }
 
         SectionHeader(t(Key.AI_PROVIDERS))
-        Card(
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh),
-            modifier = Modifier
-                .fillMaxWidth()
-                .clickable { showProviders = true },
+        ClayCard(
+            tone = ClayTone.Base,
+            modifier = Modifier.fillMaxWidth(),
+            onClick = { showProviders = true },
         ) {
-            Column(Modifier.padding(12.dp)) {
-                state.providers.forEach { provider ->
-                    Row(
-                        Modifier.fillMaxWidth().padding(vertical = 4.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Text("${provider.icon} ", style = MaterialTheme.typography.bodyMedium)
-                        Text(
-                            provider.name,
-                            style = MaterialTheme.typography.bodyMedium,
-                            fontWeight = FontWeight.SemiBold,
-                            modifier = Modifier.weight(1f),
-                        )
-                        Text(
-                            if (provider.enabled) t(Key.ACTIVE) else t(Key.NOT_CONFIGURED),
-                            style = MaterialTheme.typography.labelSmall,
-                            color = if (provider.enabled) {
-                                MaterialTheme.colorScheme.tertiary
-                            } else {
-                                MaterialTheme.colorScheme.onSurfaceVariant
-                            },
-                        )
-                    }
+            state.providers.forEach { provider ->
+                Row(
+                    Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text("${provider.icon} ", style = MaterialTheme.typography.bodyMedium)
+                    Text(
+                        provider.name,
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier.weight(1f),
+                    )
+                    Text(
+                        if (provider.enabled) t(Key.ACTIVE) else t(Key.NOT_CONFIGURED),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = if (provider.enabled) {
+                            MaterialTheme.colorScheme.tertiary
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        },
+                    )
                 }
             }
         }
@@ -145,7 +144,7 @@ fun SettingsScreen(
 
         Row(Modifier.padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             MemoryTarget.entries.forEach { target ->
-                FilterChip(
+                ClayChip(
                     selected = memTarget == target,
                     onClick = { memTarget = target },
                     label = { Text(if (target == MemoryTarget.MEMORY) "Memory" else "Profil") },
@@ -154,7 +153,7 @@ fun SettingsScreen(
         }
         Spacer(Modifier.height(6.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {
-            OutlinedTextField(
+            ClayTextField(
                 value = memText,
                 onValueChange = { memText = it },
                 placeholder = { Text("Catatan baru untuk ${if (memTarget == MemoryTarget.MEMORY) "memory" else "profil"}...") },
@@ -163,7 +162,7 @@ fun SettingsScreen(
                 modifier = Modifier.weight(1f),
             )
             Spacer(Modifier.width(8.dp))
-            IconButton(
+            ClayIconButton(
                 onClick = {
                     val result = memory.add(memTarget, memText.trim())
                     memStatus = if (result.success) null else (result.error
@@ -195,9 +194,10 @@ fun SettingsScreen(
                     modifier = Modifier.padding(top = 12.dp, bottom = 4.dp),
                 )
                 entries.forEach { entry ->
-                    Card(
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh),
+                    ClayCard(
+                        tone = ClayTone.Base,
                         modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
+                        contentPadding = PaddingValues(0.dp),
                     ) {
                         Row(
                             Modifier.padding(start = 12.dp, top = 6.dp, bottom = 6.dp, end = 4.dp),
@@ -209,13 +209,13 @@ fun SettingsScreen(
                                 maxLines = 2,
                                 modifier = Modifier.weight(1f),
                             )
-                            IconButton(onClick = {
+                            ClayIconButton(onClick = {
                                 editing = entry
                                 editText = entry.content
                             }) {
                                 Icon(Icons.Default.Edit, contentDescription = t(Key.EDIT))
                             }
-                            IconButton(onClick = {
+                            ClayIconButton(onClick = {
                                 memory.remove(
                                     if (label.startsWith("👤")) MemoryTarget.USER else MemoryTarget.MEMORY,
                                     entry.content,
@@ -238,11 +238,11 @@ fun SettingsScreen(
             Modifier.fillMaxWidth().padding(top = 8.dp),
             horizontalArrangement = Arrangement.End,
         ) {
-            TextButton(onClick = {
+            ClayButton(onClick = {
                 memory.clear()
                 memRefresh++
                 memStatus = null
-            }) {
+            }, variant = ClayVariant.Ghost) {
                 Text(t(Key.DELETE) + " semua memory", color = MaterialTheme.colorScheme.error)
             }
         }
@@ -317,7 +317,7 @@ fun SettingsScreen(
             onDismissRequest = { editing = null },
             title = { Text("Edit memory") },
             text = {
-                OutlinedTextField(
+                ClayTextField(
                     value = editText,
                     onValueChange = { editText = it },
                     minLines = 3,
@@ -388,7 +388,7 @@ private fun ChoiceRow(
         }
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             options.forEach { (display, value) ->
-                FilterChip(
+                ClayChip(
                     selected = selected == value,
                     onClick = { onSelect(value) },
                     label = { Text(display) },

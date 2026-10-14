@@ -5,6 +5,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -69,6 +70,7 @@ import com.arka.app.core.VirtualFs
 import com.arka.app.net.GitHubApi
 import com.arka.app.net.GitHubFilePayload
 import com.arka.app.net.SyncManifest
+import com.arka.app.ui.clay.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -268,8 +270,9 @@ fun GitHubScreen(
                 .padding(horizontal = 16.dp),
         ) {
             status?.let {
-                Card(
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh),
+                ClayCard(
+                    tone = ClayTone.Base,
+                    contentPadding = PaddingValues(0.dp),
                     modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
                 ) {
                     Text(it, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(10.dp))
@@ -293,7 +296,7 @@ fun GitHubScreen(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 Spacer(Modifier.height(8.dp))
-                OutlinedTextField(
+                ClayTextField(
                     value = tokenInput,
                     onValueChange = { tokenInput = it },
                     label = { Text("Personal Access Token") },
@@ -304,38 +307,38 @@ fun GitHubScreen(
                         PasswordVisualTransformation()
                     },
                     trailingIcon = {
-                        TextButton(onClick = { showToken = !showToken }) { Text(if (showToken) "🙈" else "👁") }
+                        ClayButton(onClick = { showToken = !showToken }, variant = ClayVariant.Ghost) { Text(if (showToken) "🙈" else "👁") }
                     },
                     modifier = Modifier.fillMaxWidth(),
                 )
                 Spacer(Modifier.height(8.dp))
-                Button(
+                ClayButton(
                     onClick = { connect(tokenInput.trim()) },
                     enabled = tokenInput.isNotBlank() && !busy,
+                    variant = ClayVariant.Primary,
                     modifier = Modifier.fillMaxWidth(),
                 ) { Text(t(Key.CONNECT)) }
             } else {
-                Card(
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer),
+                ClayCard(
+                    tone = ClayTone.Accent,
+                    contentPadding = PaddingValues(12.dp),
                     modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
                 ) {
-                    Column(Modifier.padding(12.dp)) {
-                        Text(t(Key.CONNECTED_SHORT), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
-                        Text(
-                            "${state.githubRepos.size} repository tersedia",
-                            style = MaterialTheme.typography.bodySmall,
-                        )
-                    }
+                    Text(t(Key.CONNECTED_SHORT), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                    Text(
+                        "${state.githubRepos.size} repository tersedia",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 8.dp)) {
-                    OutlinedButton(onClick = { showCreateRepo = true }, enabled = !busy) { Text(t(Key.NEW_REPO)) }
-                    OutlinedButton(onClick = {
+                    ClayButton(onClick = { showCreateRepo = true }, enabled = !busy, variant = ClayVariant.Secondary) { Text(t(Key.NEW_REPO)) }
+                    ClayButton(onClick = {
                         store.dispatch(Action.SetGithubToken(""))
                         store.dispatch(Action.SetGithubRepos(emptyList()))
                         store.dispatch(Action.SetGithubConnected(false))
                         selectedRepo = null
                         status = "Token dihapus."
-                    }) { Text(t(Key.DISCONNECT)) }
+                    }, variant = ClayVariant.Secondary) { Text(t(Key.DISCONNECT)) }
                 }
 
                 // ------------------------------------------------------ repos
@@ -345,7 +348,7 @@ fun GitHubScreen(
                     fontWeight = FontWeight.SemiBold,
                     modifier = Modifier.padding(top = 12.dp, bottom = 4.dp),
                 )
-                OutlinedTextField(
+                ClayTextField(
                     value = search,
                     onValueChange = { search = it },
                     label = { Text(t(Key.SEARCH_REPO)) },
@@ -355,13 +358,12 @@ fun GitHubScreen(
                 LazyColumn(Modifier.fillMaxWidth().heightIn(max = 220.dp)) {
                     items(filteredRepos, key = { it.id }) { repo ->
                         val active = repo.fullName == selectedRepo?.fullName
-                        Row(
-                            Modifier
+                        ClayRow(
+                            selected = active,
+                            onClick = { loadBranches(repo) },
+                            modifier = Modifier
                                 .fillMaxWidth()
-                                .clip(androidx.compose.foundation.shape.RoundedCornerShape(8.dp))
-                                .clickable { loadBranches(repo) }
                                 .padding(vertical = 8.dp, horizontal = 4.dp),
-                            verticalAlignment = Alignment.CenterVertically,
                         ) {
                             Text(if (repo.isPrivate) "🔒" else "🌍")
                             Spacer(Modifier.width(8.dp))
@@ -399,14 +401,14 @@ fun GitHubScreen(
                         horizontalArrangement = Arrangement.spacedBy(6.dp),
                     ) {
                         items(branches, key = { it }) { branch ->
-                            FilterChip(
+                            ClayChip(
                                 selected = branch == selectedBranch,
                                 onClick = { selectedBranch = branch },
                                 label = { Text(branch, maxLines = 1) },
                             )
                         }
                     }
-                    OutlinedTextField(
+                    ClayTextField(
                         value = selectedBranch ?: "",
                         onValueChange = { selectedBranch = it },
                         label = { Text(t(Key.TARGET_BRANCH)) },
@@ -423,9 +425,9 @@ fun GitHubScreen(
                     modifier = Modifier.padding(top = 12.dp, bottom = 4.dp),
                 )
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    TextButton(onClick = { selectedFiles = files.map { it.first }.toSet() }) { Text(t(Key.SELECT_ALL)) }
-                    TextButton(onClick = { selectedFiles = emptySet() }) { Text(t(Key.CLEAR)) }
-                    TextButton(onClick = { refreshKey++ }) { Text(t(Key.RELOAD_FILES)) }
+                    ClayButton(onClick = { selectedFiles = files.map { it.first }.toSet() }, variant = ClayVariant.Ghost) { Text(t(Key.SELECT_ALL)) }
+                    ClayButton(onClick = { selectedFiles = emptySet() }, variant = ClayVariant.Ghost) { Text(t(Key.CLEAR)) }
+                    ClayButton(onClick = { refreshKey++ }, variant = ClayVariant.Ghost) { Text(t(Key.RELOAD_FILES)) }
                 }
                 if (files.isEmpty()) {
                     Text(
@@ -436,14 +438,14 @@ fun GitHubScreen(
                 }
                 LazyColumn(Modifier.fillMaxWidth().heightIn(max = 260.dp)) {
                     items(files, key = { it.first }) { (path, size) ->
-                        Row(
-                            Modifier
+                        ClayRow(
+                            selected = path in selectedFiles,
+                            onClick = {
+                                selectedFiles = if (path in selectedFiles) selectedFiles - path else selectedFiles + path
+                            },
+                            modifier = Modifier
                                 .fillMaxWidth()
-                                .clickable {
-                                    selectedFiles = if (path in selectedFiles) selectedFiles - path else selectedFiles + path
-                                }
                                 .padding(vertical = 2.dp),
-                            verticalAlignment = Alignment.CenterVertically,
                         ) {
                             Checkbox(checked = path in selectedFiles, onCheckedChange = {
                                 selectedFiles = if (path in selectedFiles) selectedFiles - path else selectedFiles + path
@@ -453,14 +455,14 @@ fun GitHubScreen(
                         }
                     }
                 }
-                OutlinedTextField(
+                ClayTextField(
                     value = commitMessage,
                     onValueChange = { commitMessage = it },
                     label = { Text(t(Key.COMMIT_MESSAGE)) },
                     placeholder = { Text("feat: tambah fitur X") },
                     modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
                 )
-                Button(
+                ClayButton(
                     onClick = {
                         val payload = files
                             .filter { it.first in selectedFiles }
@@ -468,6 +470,7 @@ fun GitHubScreen(
                         push(commitMessage, payload)
                     },
                     enabled = !busy && selectedRepo != null && selectedFiles.isNotEmpty() && commitMessage.isNotBlank(),
+                    variant = ClayVariant.Primary,
                     modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
                 ) { Text("Push ${selectedFiles.size} file") }
 
@@ -492,25 +495,24 @@ fun GitHubScreen(
                     )
                 }
                 staged.forEach { commit ->
-                    Card(
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh),
+                    ClayCard(
+                        tone = ClayTone.Base,
+                        contentPadding = PaddingValues(10.dp),
                         modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
                     ) {
-                        Column(Modifier.padding(10.dp)) {
-                            Text(commit.message, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
-                            Text(
-                                "${commit.files.size} file · ${java.text.SimpleDateFormat("dd MMM HH:mm", java.util.Locale("id", "ID")).format(java.util.Date(commit.createdAt))}",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 6.dp)) {
-                                TextButton(onClick = { stagedPushTarget = commit }) { Text("Push") }
-                                TextButton(onClick = {
-                                    stagedStore.remove(commit.id)
-                                    staged = stagedStore.load()
-                                    status = "Checkpoint dihapus."
-                                }) { Text(t(Key.DISCARD), color = MaterialTheme.colorScheme.error) }
-                            }
+                        Text(commit.message, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                        Text(
+                            "${commit.files.size} file · ${java.text.SimpleDateFormat("dd MMM HH:mm", java.util.Locale("id", "ID")).format(java.util.Date(commit.createdAt))}",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 6.dp)) {
+                            ClayButton(onClick = { stagedPushTarget = commit }, variant = ClayVariant.Ghost) { Text("Push") }
+                            ClayButton(onClick = {
+                                stagedStore.remove(commit.id)
+                                staged = stagedStore.load()
+                                status = "Checkpoint dihapus."
+                            }, variant = ClayVariant.Ghost) { Text(t(Key.DISCARD), color = MaterialTheme.colorScheme.error) }
                         }
                     }
                 }
@@ -523,16 +525,16 @@ fun GitHubScreen(
                     modifier = Modifier.padding(top = 12.dp, bottom = 4.dp),
                 )
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedButton(onClick = {
+                    ClayButton(onClick = {
                         manifestExporter.launch("arka-sync-manifest.json")
-                    }) { Text(t(Key.EXPORT)) }
-                    OutlinedButton(onClick = { manifestImporter.launch(arrayOf("application/json", "*/*")) }) {
+                    }, variant = ClayVariant.Secondary) { Text(t(Key.EXPORT)) }
+                    ClayButton(onClick = { manifestImporter.launch(arrayOf("application/json", "*/*")) }, variant = ClayVariant.Secondary) {
                         Text(t(Key.IMPORT))
                     }
-                    OutlinedButton(onClick = {
+                    ClayButton(onClick = {
                         staged = stagedStore.load()
                         refreshKey++
-                    }) { Text(t(Key.RELOAD)) }
+                    }, variant = ClayVariant.Secondary) { Text(t(Key.RELOAD)) }
                 }
             }
 

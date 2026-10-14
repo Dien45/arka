@@ -60,6 +60,7 @@ import com.arka.app.core.canScan
 import com.arka.app.core.modelsAreStale
 import com.arka.app.core.saveScanError
 import com.arka.app.core.saveScanResult
+import com.arka.app.ui.clay.*
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -159,7 +160,7 @@ fun ProvidersSheet(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Spacer(Modifier.height(4.dp))
-            OutlinedTextField(
+            ClayTextField(
                 value = query,
                 onValueChange = { query = it },
                 label = { Text("Cari model (semua provider)") },
@@ -167,7 +168,7 @@ fun ProvidersSheet(
                 leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
                 trailingIcon = {
                     if (query.isNotEmpty()) {
-                        IconButton(onClick = { query = "" }) { Icon(Icons.Default.Clear, contentDescription = "Bersihkan") }
+                        ClayIconButton(onClick = { query = "" }) { Icon(Icons.Default.Clear, contentDescription = "Bersihkan") }
                     }
                 },
                 modifier = Modifier.fillMaxWidth(),
@@ -210,7 +211,7 @@ fun ProvidersSheet(
                             onValueChange = { apiKeys = apiKeys + (provider.id to it) },
                         )
                         Spacer(Modifier.height(8.dp))
-                        OutlinedTextField(
+                        ClayTextField(
                             value = draftUrl,
                             onValueChange = { baseUrls = baseUrls + (provider.id to it) },
                             label = { Text("Base URL") },
@@ -220,7 +221,7 @@ fun ProvidersSheet(
                         Spacer(Modifier.height(8.dp))
                         val useTypedInput = provider.models.isEmpty() || provider.id in manualEntry
                         if (useTypedInput) {
-                            OutlinedTextField(
+                            ClayTextField(
                                 value = draftModel,
                                 onValueChange = { modelInputs = modelInputs + (provider.id to it) },
                                 label = { Text("Model aktif (ketik manual)") },
@@ -228,7 +229,7 @@ fun ProvidersSheet(
                                 modifier = Modifier.fillMaxWidth(),
                             )
                             if (provider.models.isNotEmpty()) {
-                                TextButton(onClick = { manualEntry = manualEntry - provider.id }) {
+                                ClayButton(onClick = { manualEntry = manualEntry - provider.id }, variant = ClayVariant.Ghost) {
                                     Text("Pilih dari daftar")
                                 }
                             }
@@ -239,16 +240,17 @@ fun ProvidersSheet(
                                 style = MaterialTheme.typography.bodyMedium,
                                 fontWeight = FontWeight.SemiBold,
                             )
-                            TextButton(onClick = { manualEntry = manualEntry + provider.id }) {
+                            ClayButton(onClick = { manualEntry = manualEntry + provider.id }, variant = ClayVariant.Ghost) {
                                 Text("Ketik manual")
                             }
                         }
 
                         Spacer(Modifier.height(8.dp))
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Button(
+                            ClayButton(
                                 onClick = { scan(provider, force = true) },
                                 enabled = provider.id !in detecting,
+                                variant = ClayVariant.Primary,
                             ) {
                                 if (provider.id in detecting) {
                                     CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
@@ -259,7 +261,7 @@ fun ProvidersSheet(
                                 }
                             }
                             Spacer(Modifier.width(8.dp))
-                            TextButton(
+                            ClayButton(
                                 onClick = {
                                     // Simpan tanpa menunggu scan (draft ditulis ke state terkini).
                                     val cleanUrl = normalizeBaseUrl(draftUrl)
@@ -270,6 +272,7 @@ fun ProvidersSheet(
                                     store.selectModel(provider.id, draftModel, enableIfReady = false)
                                     detectError = null
                                 },
+                                variant = ClayVariant.Ghost,
                             ) { Text("Simpan") }
                         }
 
@@ -361,7 +364,7 @@ private fun ApiKeyField(
     onValueChange: (String) -> Unit,
 ) {
     var visible by remember { mutableStateOf(false) }
-    OutlinedTextField(
+    ClayTextField(
         value = value,
         onValueChange = onValueChange,
         label = { Text(if (isCustom) "API Key (opsional)" else "API Key") },
@@ -372,7 +375,7 @@ private fun ApiKeyField(
             androidx.compose.ui.text.input.PasswordVisualTransformation()
         },
         trailingIcon = {
-            IconButton(onClick = { visible = !visible }) {
+            ClayIconButton(onClick = { visible = !visible }) {
                 Icon(
                     if (visible) Icons.Default.VisibilityOff else Icons.Default.Visibility,
                     contentDescription = if (visible) "Sembunyikan" else "Tampilkan",
@@ -421,15 +424,13 @@ private fun DetectedModelRow(
     selected: Boolean,
     onClick: () -> Unit,
 ) {
-    Row(
-        Modifier
+    ClayRow(
+        selected = selected,
+        onClick = onClick,
+        modifier = Modifier
             .fillMaxWidth()
             .padding(vertical = 2.dp)
-            .clip(RoundedCornerShape(8.dp))
-            .clickable(onClick = onClick)
-            .background(if (selected) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surface)
             .padding(horizontal = 8.dp, vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically,
     ) {
         Box(Modifier.weight(1f)) {
             Column {

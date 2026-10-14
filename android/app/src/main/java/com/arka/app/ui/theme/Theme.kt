@@ -1,11 +1,15 @@
 package com.arka.app.ui.theme
 
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Shapes
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.dp
+import com.arka.app.ui.clay.ProvideClayColors
 
 private val LightColors = lightColorScheme(
     primary = ArkaPrimary,
@@ -43,6 +47,14 @@ private val DarkColors = darkColorScheme(
     tertiary = ArkaSuccess,
 )
 
+private val ArkaShapes = Shapes(
+    extraSmall = RoundedCornerShape(10.dp),
+    small = RoundedCornerShape(14.dp),
+    medium = RoundedCornerShape(18.dp),
+    large = RoundedCornerShape(22.dp),
+    extraLarge = RoundedCornerShape(28.dp),
+)
+
 @Composable
 fun ArkaTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
@@ -51,6 +63,8 @@ fun ArkaTheme(
     MaterialTheme(
         colorScheme = if (darkTheme) DarkColors else LightColors,
         typography = ArkaTypography,
-        content = content,
-    )
+        shapes = ArkaShapes,
+    ) {
+        ProvideClayColors(dark = darkTheme, content = content)
+    }
 }

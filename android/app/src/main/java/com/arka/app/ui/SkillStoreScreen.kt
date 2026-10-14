@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -60,6 +61,7 @@ import com.arka.app.core.SkillsManager
 import com.arka.app.core.Store
 import com.arka.app.net.SkillCandidate
 import com.arka.app.net.SkillFetcher
+import com.arka.app.ui.clay.*
 import kotlinx.coroutines.launch
 
 /** Batas skill yang dipasang otomatis dari satu repo; di atas ini daftar ditampilkan untuk dipilih manual. */
@@ -257,11 +259,11 @@ fun SkillStoreScreen(
             }
 
             // ------------------------------------------------ pasang dari GitHub
-            Card(
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh),
+            ClayCard(
+                tone = ClayTone.Base,
+                contentPadding = PaddingValues(10.dp),
                 modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
             ) {
-                Column(Modifier.padding(10.dp)) {
                     Text(t(Key.INSTALL_FROM_GITHUB), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
                     Text(
                         "Masukkan repo berisi skill (folder dengan SKILL.md, atau skill.json/prompt.md). " +
@@ -270,7 +272,7 @@ fun SkillStoreScreen(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 6.dp)) {
-                        OutlinedTextField(
+                        ClayTextField(
                             value = repoInput,
                             onValueChange = { repoInput = it },
                             label = { Text("user/repo atau URL GitHub") },
@@ -278,7 +280,7 @@ fun SkillStoreScreen(
                             modifier = Modifier.weight(1f),
                         )
                         Spacer(Modifier.width(8.dp))
-                        Button(onClick = { scanRepo() }, enabled = repoInput.isNotBlank() && !scanning && !installing) {
+                        ClayButton(onClick = { scanRepo() }, enabled = repoInput.isNotBlank() && !scanning && !installing, variant = ClayVariant.Primary) {
                             if (scanning) {
                                 CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
                             } else {
@@ -288,7 +290,7 @@ fun SkillStoreScreen(
                     }
 
                     if (candidates.isNotEmpty()) {
-                        OutlinedTextField(
+                        ClayTextField(
                             value = candidateQuery,
                             onValueChange = { candidateQuery = it },
                             label = { Text("Cari di ${candidates.size} skill…") },
@@ -322,7 +324,7 @@ fun SkillStoreScreen(
                                             maxLines = 1,
                                         )
                                     }
-                                    TextButton(onClick = {
+                                    ClayButton(onClick = {
                                         previewLoading = true
                                         preview = candidate
                                         scope.launch {
@@ -330,16 +332,16 @@ fun SkillStoreScreen(
                                                 .getOrDefault(candidate)
                                             previewLoading = false
                                         }
-                                    }) { Text(t(Key.DETAIL)) }
-                                    TextButton(
+                                    }, variant = ClayVariant.Ghost) { Text(t(Key.DETAIL)) }
+                                    ClayButton(
                                         onClick = { installCandidate(candidate) },
                                         enabled = !installing,
+                                        variant = ClayVariant.Ghost,
                                     ) { Text(t(Key.INSTALL)) }
                                 }
                             }
                         }
                     }
-                }
             }
 
             // ------------------------------------------------ terpasang
@@ -358,11 +360,11 @@ fun SkillStoreScreen(
             }
             installedSkills.forEach { skill ->
                 val fileCount = remember(refresh, skill.id) { skills.cachedFiles(skill).size }
-                Card(
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer),
+                ClayCard(
+                    tone = ClayTone.Accent,
+                    contentPadding = PaddingValues(10.dp),
                     modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp),
                 ) {
-                    Column(Modifier.padding(10.dp)) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(skill.icon)
                             Spacer(Modifier.width(8.dp))
@@ -390,20 +392,19 @@ fun SkillStoreScreen(
                         }
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 4.dp)) {
                             if (fileCount > 0) {
-                                TextButton(onClick = {
+                                ClayButton(onClick = {
                                     val copied = skills.syncSkills()
                                     status = "Disinkron ke proot workspace: $copied berkas baru."
                                     refresh++
-                                }) { Text(t(Key.RESYNC)) }
+                                }, variant = ClayVariant.Ghost) { Text(t(Key.RESYNC)) }
                             }
-                            TextButton(onClick = {
+                            ClayButton(onClick = {
                                 skills.uninstall(skill.id)
                                 skills.removeFromSkills(skill.id)
                                 refresh++
                                 status = "\"${skill.name}\" dilepas."
-                            }) { Text(t(Key.REMOVE), color = MaterialTheme.colorScheme.error) }
+                            }, variant = ClayVariant.Ghost) { Text(t(Key.REMOVE), color = MaterialTheme.colorScheme.error) }
                         }
-                    }
                 }
             }
 
@@ -414,7 +415,7 @@ fun SkillStoreScreen(
                 fontWeight = FontWeight.SemiBold,
                 modifier = Modifier.padding(top = 14.dp, bottom = 4.dp),
             )
-            OutlinedTextField(
+            ClayTextField(
                 value = search,
                 onValueChange = { search = it },
                 label = { Text(t(Key.SEARCH_SKILLS)) },
@@ -425,9 +426,9 @@ fun SkillStoreScreen(
                 Modifier.fillMaxWidth().padding(vertical = 6.dp),
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
             ) {
-                FilterChip(selected = category == null, onClick = { category = null }, label = { Text(t(Key.ALL)) })
+                ClayChip(selected = category == null, onClick = { category = null }, label = { Text(t(Key.ALL)) })
                 categories.forEach { cat ->
-                    FilterChip(
+                    ClayChip(
                         selected = category == cat,
                         onClick = { category = if (category == cat) null else cat },
                         label = { Text(cat, maxLines = 1) },
@@ -436,17 +437,11 @@ fun SkillStoreScreen(
             }
             visibleCatalog.forEach { skill ->
                 val installed = skill.id in skills.installedIds()
-                Card(
-                    colors = CardDefaults.cardColors(
-                        containerColor = if (installed) {
-                            MaterialTheme.colorScheme.secondaryContainer
-                        } else {
-                            MaterialTheme.colorScheme.surfaceContainerHigh
-                        },
-                    ),
+                ClayCard(
+                    tone = if (installed) ClayTone.Accent else ClayTone.Base,
+                    contentPadding = PaddingValues(10.dp),
                     modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp),
                 ) {
-                    Column(Modifier.padding(10.dp)) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(skill.icon)
                             Spacer(Modifier.width(8.dp))
@@ -458,17 +453,17 @@ fun SkillStoreScreen(
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
                             }
-                            TextButton(onClick = {
+                            ClayButton(onClick = {
                                 if (installed) skills.uninstall(skill.id) else skills.install(skill.id)
                                 refresh++
                                 status = if (installed) "Skill \"${skill.name}\" dinonaktifkan." else "Skill \"${skill.name}\" aktif."
-                            }) { Text(if (installed) "Buang" else "Install") }
+                            }, variant = ClayVariant.Ghost) { Text(if (installed) "Buang" else "Install") }
                         }
                         Text(skill.description, style = MaterialTheme.typography.bodySmall)
                         if (installed && skill.modes.isNotEmpty()) {
                             FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                                 skill.modes.forEach { mode ->
-                                    FilterChip(
+                                    ClayChip(
                                         selected = (skills.configOf(skill.id) ?: skill.modes.first()) == mode,
                                         onClick = {
                                             skills.setConfig(skill.id, mode)
@@ -479,7 +474,6 @@ fun SkillStoreScreen(
                                 }
                             }
                         }
-                    }
                 }
             }
 
@@ -531,16 +525,20 @@ fun SkillStoreScreen(
                             fontWeight = FontWeight.SemiBold,
                             modifier = Modifier.padding(top = 8.dp),
                         )
-                        Text(
-                            candidate.instructions.take(1200),
-                            style = MaterialTheme.typography.bodySmall,
-                            fontFamily = FontFamily.Monospace,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(6.dp))
-                                .background(MaterialTheme.colorScheme.surfaceVariant)
-                                .padding(8.dp),
-                        )
+                        ClayCard(
+                            tone = ClayTone.Inset,
+                            contentPadding = PaddingValues(0.dp),
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Text(
+                                candidate.instructions.take(1200),
+                                style = MaterialTheme.typography.bodySmall,
+                                fontFamily = FontFamily.Monospace,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(8.dp),
+                            )
+                        }
                     }
                 }
             },
