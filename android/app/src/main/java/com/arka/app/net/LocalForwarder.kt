@@ -58,7 +58,10 @@ object LocalForwarder {
     private fun ensure(host: String, port: Int): Int {
         val key = Target(host, port)
         forwards[key]?.let { return it }
-        val server = ServerSocket(0, 50, InetAddress.getLoopbackAddress())
+        // Bind ke IPv4 loopback EKSPLISIT. `getLoopbackAddress()` bisa
+        // mengembalikan `::1` (IPv6) di sebagian perangkat, sehingga relay hanya
+        // mendengarkan di `[::1]` dan gagal saat OkHttp menyambung ke `127.0.0.1`.
+        val server = ServerSocket(0, 50, InetAddress.getByName("127.0.0.1"))
         forwards[key] = server.localPort
         thread(name = "arka-relay-$host:$port", isDaemon = true) {
             while (!server.isClosed) {
