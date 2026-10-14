@@ -38,7 +38,7 @@ Aplikasi Android native (Kotlin + Jetpack Compose, **bukan WebView wrapper**) �
 - Unduh rootfs sekali dari Settings (atau impor `.tar.gz` offline)
 
 ### ⚙️ Multi-Provider
-OpenAI, Anthropic, Google, Groq, OpenRouter, Ollama, Custom (OpenAI-compatible) — scan model otomatis, base URL dirapikan otomatis (`100.x:11434` → `http://…`, cocok untuk Ollama via Tailscale/LAN)
+OpenAI, Anthropic, Google, Groq, OpenRouter, Ollama, Custom (OpenAI-compatible) — scan model otomatis, base URL dirapikan otomatis (`100.x:11434` → `http://…`, cocok untuk Ollama via Tailscale/LAN). Server http di IP privat (Tailscale `100.x`, LAN, `*.local`/`*.ts.net`) otomatis di-relay lewat loopback (`LocalForwarder`) sehingga tetap jalan tanpa melonggarkan kebijakan cleartext aplikasi; http ke host publik tetap diblokir.
 
 ## 🚀 Pakai
 
