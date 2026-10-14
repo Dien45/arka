@@ -105,17 +105,19 @@ class ModelFetcher(
     // ------------------------------------------------------------------ HTTP
 
     private suspend fun request(url: String, headers: Map<String, String> = emptyMap()): String {
-        val req = Request.Builder().url(url).apply {
+        val req = Request.Builder().url(LocalForwarder.localize(url)).apply {
             headers.forEach { (k, v) -> if (v.isNotBlank()) header(k, v) }
         }.build()
         val response: Response = try {
             withContext(Dispatchers.IO) { client.newCall(req).execute() }
         } catch (e: Exception) {
-            throw IllegalStateException(
-                "Tidak bisa menghubungi ${sanitizeUrl(url)} (${e.message ?: e.javaClass.simpleName}). " +
-                    "Cek koneksi & Base URL — untuk server di PC, pakai IP LAN (mis. http://192.168.1.10:11434), " +
-                    "bukan localhost.",
-            )
+            val detail = e.message ?: e.javaClass.simpleName
+            val hint = if (detail.contains("CLEARTEXT", ignoreCase = true)) {
+                "Android memblokir http ke host publik ini. Pakai https, atau arahkan ke IP privat/LAN/Tailscale."
+            } else {
+                "Cek koneksi & Base URL — untuk server di PC, pakai IP LAN (mis. http://192.168.1.10:11434), bukan localhost."
+            }
+            throw IllegalStateException("Tidak bisa menghubungi ${sanitizeUrl(url)} ($detail). $hint")
         }
         response.use { resp ->
             val body = resp.body?.string() ?: ""
