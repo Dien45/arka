@@ -356,7 +356,7 @@ fun GitHubScreen(
                     modifier = Modifier.fillMaxWidth(),
                 )
                 LazyColumn(Modifier.fillMaxWidth().heightIn(max = 220.dp)) {
-                    items(filteredRepos, key = { it.id }) { repo ->
+                    items(filteredRepos.distinctBy { it.fullName }, key = { it.fullName }) { repo ->
                         val active = repo.fullName == selectedRepo?.fullName
                         ClayRow(
                             selected = active,
@@ -400,7 +400,7 @@ fun GitHubScreen(
                         Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(6.dp),
                     ) {
-                        items(branches, key = { it }) { branch ->
+                        items(branches.distinct(), key = { it }) { branch ->
                             ClayChip(
                                 selected = branch == selectedBranch,
                                 onClick = { selectedBranch = branch },
@@ -437,7 +437,7 @@ fun GitHubScreen(
                     )
                 }
                 LazyColumn(Modifier.fillMaxWidth().heightIn(max = 260.dp)) {
-                    items(files, key = { it.first }) { (path, size) ->
+                    items(files.distinctBy { it.first }, key = { it.first }) { (path, size) ->
                         ClayRow(
                             selected = path in selectedFiles,
                             onClick = {

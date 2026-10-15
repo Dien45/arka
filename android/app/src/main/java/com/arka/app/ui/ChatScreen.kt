@@ -73,6 +73,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -583,12 +584,19 @@ private fun InputBar(
 ) {
     var modeMenuExpanded by remember { mutableStateOf(false) }
 
+    val insetsDensity = LocalDensity.current
+    val imeVisible = WindowInsets.ime.getBottom(insetsDensity) > 0
+    val bottomInsets = if (imeVisible) {
+        WindowInsets.ime.union(WindowInsets.navigationBars)
+    } else {
+        WindowInsets(0, 0, 0, 0)
+    }
     Column(
         Modifier
             .fillMaxWidth()
             .background(MaterialTheme.colorScheme.surface)
             .padding(horizontal = 12.dp, vertical = 8.dp)
-            .windowInsetsPadding(WindowInsets.ime.union(WindowInsets.navigationBars)),
+            .windowInsetsPadding(bottomInsets),
     ) {
         if (attachments.isNotEmpty()) {
             Row(

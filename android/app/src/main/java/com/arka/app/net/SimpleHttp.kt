@@ -26,6 +26,9 @@ object SimpleHttp {
         client: OkHttpClient = sharedClient,
     ): Pair<Int, String> {
         val req = Request.Builder().url(url).apply {
+            if (headers.none { it.key.equals("User-Agent", true) }) {
+                header("User-Agent", "Arka/1.0 (opencode-mobile-android)")
+            }
             headers.forEach { (k, v) -> if (v.isNotBlank()) this.header(k, v) }
         }.build()
         val response: Response = withContext(Dispatchers.IO) { client.newCall(req).execute() }
@@ -51,6 +54,9 @@ object SimpleHttp {
         while (true) {
             checkUrl(current)
             val req = Request.Builder().url(current).apply {
+                if (headers.none { it.key.equals("User-Agent", true) }) {
+                    header("User-Agent", "Arka/1.0 (opencode-mobile-android)")
+                }
                 headers.forEach { (k, v) -> if (v.isNotBlank()) this.header(k, v) }
             }.build()
             val response: Response = withContext(Dispatchers.IO) { noFollow.newCall(req).execute() }

