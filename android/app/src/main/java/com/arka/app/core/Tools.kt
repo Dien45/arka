@@ -75,6 +75,7 @@ class ToolRegistry(
     private fun availableToolDescriptors(): List<Pair<String, String>> = listOf(
         "web_fetch" to "Fetch content from a URL. Returns the text content of the webpage. Automatically handles GitHub repositories (uses the user's connected GitHub token when available, so private repos work); external sites are fetched directly from the device. Requires user approval before running.",
         "web_search" to "Search GitHub repositories and the web. Returns relevant results with descriptions.",
+        "github" to "Read-only GitHub CI/Actions & Checks (ci_status, ci_logs). Use when user asks build/CI status or wants to see failing logs.",
         "read_file" to "Read the content of a file from the proot workspace (/root/workspace/sessions/<session-id>/).",
         "write_file" to "Write content to a file in the proot workspace (/root/workspace/sessions/<session-id>/). Files are scoped to this chat session and can be viewed in the Workspace tab. Requires user approval before running.",
         "list_files" to "List files AND folders. Scope session (default): this session’s workspace (/root/workspace/sessions/<session-id>/). Scope workspace: the whole /root/workspace (other sessions, skills) — use when hunting files outside this session. Params: path (subfolder filter), scope (session|workspace).",
