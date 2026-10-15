@@ -202,8 +202,10 @@ class DistroManager(private val context: Context) {
     }
 
     private fun mirrorCandidates(url: String): List<String> {
-        val path = url.substringAfter("alpine.org/", "")
-        if (path.isBlank() || !path.startsWith("alpine/")) return emptyList()
+        // Ambil path dari URI (bukan substring marker "alpine.org/" yang tidak
+        // pernah cocok dengan host "alpinelinux.org" — fallback jadi mati).
+        val path = runCatching { URI(url).path.orEmpty() }.getOrDefault("").removePrefix("/")
+        if (!path.startsWith("alpine/")) return emptyList()
         return ROOTFS_MIRRORS.map { "$it/${path.removePrefix("alpine/")}" }
     }
 
