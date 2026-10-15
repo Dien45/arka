@@ -173,6 +173,24 @@ class ToolRegistry(
                     })
                     put("required", strArray("query"))
                 }
+                "github" -> {
+                    put("action", buildJsonObject {
+                        put("type", "string")
+                        put("enum", strArray("ci_status", "ci_logs"))
+                        put("description", "ci_status = list runs/checks; ci_logs = get logs for run/job")
+                    })
+                    put("repo", p("Repository owner/name (e.g. Dien45/arka)"))
+                    put("branch", p("Branch/filter for ci_status (optional)"))
+                    put("ref", p("Git ref for ci_status (optional)"))
+                    put("run_id", p("Run ID for ci_logs/ci_status context (optional)"))
+                    put("job_id", p("Job ID for ci_logs (optional)"))
+                    put("limit", buildJsonObject {
+                        put("type", "integer")
+                        put("description", "Max runs to show (default 10)")
+                        put("required", false)
+                    })
+                    put("required", strArray("action", "repo"))
+                }
             }
         }
     }
@@ -201,6 +219,7 @@ class ToolRegistry(
                 "run_command" -> runCommand(str("command"), sessionId)
                 "memory" -> memoryTool(args)
                 "session_search" -> sessionSearchTool(args)
+                "github" -> githubTool(args)
                 else -> "Error: Tool \"$name\" not found"
             }
         } catch (e: Exception) {
@@ -338,6 +357,167 @@ class ToolRegistry(
 
     private fun String.withThousands(): String {
         return try { String.format("%,d", this.toLong()) } catch (e: Exception) { this }
+    }
+
+    // ------------------------------------------------------- github tools
+
+    /**
+     * Tool `github` (read-only) - status CI/Actions & Checks + log job gagal.
+     * Butuh token GitHub yang dihubungkan user (Actions/Checks API wajib auth).
+     */
+    private suspend fun githubTool(args: JsonObject): String {
+        fun str(key: String): String = args[key]?.jsonPrimitive?.contentOrNull ?: ""
+        val action = str("action").ifBlank { "ci_status" }.lowercase()
+        val repo = str("repo").trim().trim('/', ' ').removeSuffix(".git")
+        if (repo.count { it == '/' } != 1 || repo.startsWith("/")) {
+            return "❌ Parameter \"repo\" harus format owner/nama (contoh: Dien45/arka)."
+        }
+        val token = githubToken()
+        if (token.isBlank()) {
+            return "❌ GitHub belum terhubung. Actions/Checks API butuh autentikasi - minta user menghubungkan Personal Access Token di panel GitHub (scope \"repo\" untuk repo privat, atau \"public_repo\"), lalu coba lagi."
+        }
+        return try {
+            when (action) {
+                "ci_status" -> githubCiStatus(repo, str("branch").ifBlank { null }, str("ref").ifBlank { null }, token, str("limit").toIntOrNull() ?: 5)
+                "ci_logs" -> githubCiLogs(repo, args, token)
+                else -> "❌ action tidak dikenal: \"$action\". Gunakan ci_status | ci_logs."
+            }
+        } catch (e: Exception) {
+            "❌ Error GitHub CI: ${e.message ?: "Unknown error"}"
+        }
+    }
+
+    private suspend fun githubCiStatus(repo: String, branch: String?, ref: String?, token: String, limit: Int): String {
+        val perPage = limit.coerceIn(1, 20)
+        val (code, body) = com.arka.app.net.GitHubApi.listRuns(repo, branch, token, perPage)
+        when (code) {
+            401 -> return "❌ Token GitHub tidak valid / expired (401). Minta user menyambung ulang token di panel GitHub."
+            403 -> return "❌ GitHub menolak (403): kemungkinan rate-limit atau scope token kurang (perlu \"repo\" untuk privat / baca Actions untuk publik)."
+            404 -> return "❌ Repo \"$repo\" tidak ditemukan atau token tidak punya akses (404)."
+        }
+        if (code !in 200..299) return "❌ GitHub API error (HTTP $code)."
+
+        val obj = runCatching { json.parseToJsonElement(body).jsonObject }.getOrNull() ?: JsonObject(emptyMap())
+        val runs = obj["workflow_runs"]?.let { runCatching { it.jsonArray }.getOrNull() } ?: emptyList()
+
+        val sb = StringBuilder("$UNTRUSTED_CONTENT_BANNER# GitHub CI — $repo")
+        if (!branch.isNullOrBlank()) sb.append(" (branch: $branch)")
+        sb.append("\n\n")
+        if (runs.isEmpty()) {
+            sb.append("Tidak ada workflow run ditemukan.\n")
+        } else {
+            val total = obj["total_count"]?.jsonPrimitive?.contentOrNull ?: "?"
+            sb.append("Menampilkan ${runs.size} run terbaru (total $total):\n\n")
+            runs.forEach { r ->
+                val o = r.jsonObject
+                val id = o["id"]?.jsonPrimitive?.contentOrNull ?: "?"
+                val name = o["name"]?.jsonPrimitive?.contentOrNull ?: "(workflow)"
+                val status = o["status"]?.jsonPrimitive?.contentOrNull ?: "?"
+                val concl = o["conclusion"]?.jsonPrimitive?.contentOrNull
+                val head = o["head_branch"]?.jsonPrimitive?.contentOrNull ?: "?"
+                val event = o["event"]?.jsonPrimitive?.contentOrNull ?: "?"
+                val num = o["run_number"]?.jsonPrimitive?.contentOrNull ?: ""
+                val title = o["display_title"]?.jsonPrimitive?.contentOrNull ?: ""
+                val url = o["html_url"]?.jsonPrimitive?.contentOrNull ?: ""
+                sb.append("${statusEmoji(status, concl)} #$num $name [$head · $event]")
+                if (title.isNotBlank()) sb.append(" — $title")
+                sb.append("\n    status=$status")
+                if (concl != null) sb.append(" conclusion=$concl")
+                sb.append(" · run_id=$id\n")
+                if (url.isNotBlank()) sb.append("    $url\n")
+            }
+        }
+        if (!ref.isNullOrBlank()) {
+            val (ccode, cbody) = com.arka.app.net.GitHubApi.getCheckRuns(repo, ref, token)
+            if (ccode in 200..299) {
+                val checks = runCatching { json.parseToJsonElement(cbody).jsonObject["check_runs"]?.jsonArray }.getOrNull()
+                if (!checks.isNullOrEmpty()) {
+                    sb.append("\nCheck-runs @ $ref:\n")
+                    checks.forEach { c ->
+                        val o = c.jsonObject
+                        val cname = o["name"]?.jsonPrimitive?.contentOrNull ?: "?"
+                        val cstatus = o["status"]?.jsonPrimitive?.contentOrNull ?: "?"
+                        val cconcl = o["conclusion"]?.jsonPrimitive?.contentOrNull
+                        sb.append("  ${statusEmoji(cstatus, cconcl)} $cname — status=$cstatus")
+                        if (cconcl != null) sb.append(" conclusion=$cconcl")
+                        sb.append("\n")
+                    }
+                }
+            }
+        }
+        sb.append("\nUntuk log kegagalan, panggil action=\"ci_logs\" dengan run_id (dan job_id bila perlu).")
+        return sb.toString().take(MAX_FETCH_CHARS)
+    }
+
+    private suspend fun githubCiLogs(repo: String, args: JsonObject, token: String): String {
+        fun str(key: String): String = args[key]?.jsonPrimitive?.contentOrNull ?: ""
+        val jobId = str("job_id").toLongOrNull()
+
+        if (jobId != null) {
+            val logs = com.arka.app.net.GitHubApi.getJobLogs(repo, jobId, token)
+            if (logs.isBlank()) return "❌ Tidak ada log untuk job_id=$jobId (mungkin job belum selesai, log kedaluwarsa, atau job bukan milik repo \"$repo\")."
+            return "$UNTRUSTED_CONTENT_BANNER# CI logs — $repo (job_id=$jobId)\n\n${logs.take(MAX_FETCH_CHARS)}"
+        }
+
+        val runId = str("run_id").toLongOrNull()
+            ?: return "❌ action=\"ci_logs\" butuh \"run_id\" (opsional \"job_id\"). Panggil action=\"ci_status\" dulu untuk mendapatkan run_id."
+
+        val (code, body) = com.arka.app.net.GitHubApi.getRunJobs(repo, runId, token)
+        if (code !in 200..299) return "❌ Gagal mengambil job untuk run_id=$runId (HTTP $code)."
+        val jobs = runCatching { json.parseToJsonElement(body).jsonObject["jobs"]?.jsonArray }.getOrNull() ?: emptyList()
+        if (jobs.isEmpty()) return "❌ Tidak ada job untuk run_id=$runId."
+
+        val failed = jobs.filter {
+            val c = it.jsonObject["conclusion"]?.jsonPrimitive?.contentOrNull
+            c != null && c != "success" && c != "skipped" && c != "neutral"
+        }
+        val targets = failed.ifEmpty { jobs }
+
+        if (targets.size == 1) {
+            val o = targets.first().jsonObject
+            val jid = o["id"]?.jsonPrimitive?.contentOrNull?.toLongOrNull()
+            val jname = o["name"]?.jsonPrimitive?.contentOrNull ?: "job"
+            if (jid == null) return "❌ Job tanpa id untuk run_id=$runId."
+            val logs = com.arka.app.net.GitHubApi.getJobLogs(repo, jid, token)
+            if (logs.isBlank()) return "❌ Tidak ada log untuk job \"$jname\" (job_id=$jid)."
+            return "$UNTRUSTED_CONTENT_BANNER# CI logs — $repo (run_id=$runId, job \"$jname\", job_id=$jid)\n\n${logs.take(MAX_FETCH_CHARS)}"
+        }
+
+        val sb = StringBuilder("$UNTRUSTED_CONTENT_BANNER# CI jobs — $repo (run_id=$runId)\n\n")
+        sb.append("Ada ${targets.size} job. Pilih satu job_id lalu panggil action=\"ci_logs\" dengan job_id=<id>.\n\n")
+        targets.forEach { j ->
+            val o = j.jsonObject
+            val jid = o["id"]?.jsonPrimitive?.contentOrNull ?: "?"
+            val jname = o["name"]?.jsonPrimitive?.contentOrNull ?: "?"
+            val jstatus = o["status"]?.jsonPrimitive?.contentOrNull ?: "?"
+            val jconcl = o["conclusion"]?.jsonPrimitive?.contentOrNull
+            sb.append("${statusEmoji(jstatus, jconcl)} \"$jname\" job_id=$jid status=$jstatus")
+            if (jconcl != null) sb.append(" conclusion=$jconcl")
+            sb.append("\n")
+        }
+        return sb.toString().take(MAX_FETCH_CHARS)
+    }
+
+    private fun statusEmoji(status: String?, conclusion: String?): String {
+        if (conclusion != null) {
+            return when (conclusion.lowercase()) {
+                "success" -> "✅"
+                "failure" -> "❌"
+                "cancelled" -> "🚫"
+                "timed_out" -> "⏱️"
+                "action_required" -> "⚠️"
+                "skipped" -> "⏭️"
+                "neutral" -> "➖"
+                else -> "❔"
+            }
+        }
+        return when {
+            status == null -> "•"
+            status.equals("in_progress", true) -> "🔄"
+            status.equals("queued", true) || status.equals("requested", true) || status.equals("waiting", true) -> "🕐"
+            status.equals("completed", true) -> "✔️"
+            else -> "•"
+        }
     }
 
     // ------------------------------------------------------- workspace tools
