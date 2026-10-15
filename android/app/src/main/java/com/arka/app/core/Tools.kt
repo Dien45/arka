@@ -218,17 +218,51 @@ class ToolRegistry(
     private suspend fun webFetch(rawUrl: String, sessionId: String?): String {
         try {
             val url = assertSafeFetchTarget(rawUrl).toString()
-
-            // GitHub repository handling — served straight from api.github.com.
-            // Token user dipakai kalau ada (repo private + limit 5000/jam vs 60 anonim).
-            val repoMatch = Regex("github\\.com/([^/?#]+/[^/?#]+)").find(url)
-            if (repoMatch != null) {
+            val gh = com.arka.app.net.GitHubUrl.parse(url)
+            if (gh != null) {
                 val ghToken = githubToken()
                 fun ghHeaders(accept: String): Map<String, String> = buildMap {
                     put("Accept", accept)
                     if (ghToken.isNotBlank()) put("Authorization", "Bearer $ghToken")
+                    put("User-Agent", "Arka/1.0 (opencode-mobile-android)")
                 }
-                val repoPath = repoMatch.groupValues[1].trim().removeSuffix(".git").trimEnd('/').trimEnd(')', '.', ',', ';', '!')
+                val repoPath = "${gh.owner}/${gh.repo}".trim().removeSuffix(".git")
+                when (gh.kind) {
+                    com.arka.app.net.GitHubFetch.Kind.FILE_BLOB,
+                    com.arka.app.net.GitHubFetch.Kind.RAW -> {
+                        val path = gh.path ?: ""
+                        if (path.isNotBlank()) {
+                            val (code, body) = SimpleHttp.get(
+                                "https://api.github.com/repos/$repoPath/contents/$path?ref=${gh.ref ?: "main"}",
+                                ghHeaders("application/vnd.github.raw"),
+                            )
+                            if (code in 200..299) {
+                                return "# $repoPath/$path\n\n$UNTRUSTED_CONTENT_BANNER${body.take(MAX_FETCH_CHARS)}"
+                            }
+                        }
+                    }
+                    com.arka.app.net.GitHubFetch.Kind.TREE -> {
+                        val path = gh.path ?: ""
+                        val api = if (path.isBlank()) "https://api.github.com/repos/$repoPath/contents/?ref=${gh.ref ?: "main"}"
+                        else "https://api.github.com/repos/$repoPath/contents/$path?ref=${gh.ref ?: "main"}"
+                        val (code, body) = SimpleHttp.get(api, ghHeaders("application/vnd.github.v3+json"))
+                        if (code in 200..299) {
+                            val arr = runCatching { json.parseToJsonElement(body).jsonArray }.getOrNull()
+                            val sb = StringBuilder("# $repoPath/tree/${gh.ref}:${path}\n\n$UNTRUSTED_CONTENT_BANNER")
+                            if (arr != null) {
+                                arr.forEach { it ->
+                                    val o = it.jsonObject
+                                    val type = o["type"]?.jsonPrimitive?.contentOrNull
+                                    val name = o["name"]?.jsonPrimitive?.contentOrNull ?: ""
+                                    sb.append("- ${if (type == "dir") "📁" else "📄"} $name\n")
+                                }
+                            }
+                            return sb.toString().take(MAX_FETCH_CHARS)
+                        }
+                    }
+                    else -> {}
+                }
+                // fallback: README if bare or others
                 try {
                     val (readmeStatus, readmeBody) = SimpleHttp.get(
                         "https://api.github.com/repos/$repoPath/readme",
@@ -237,57 +271,33 @@ class ToolRegistry(
                     if (readmeStatus in 200..299) {
                         return "# GitHub Repository: $repoPath\n\n$UNTRUSTED_CONTENT_BANNER${readmeBody.take(MAX_FETCH_CHARS)}"
                     }
-                } catch (t: Throwable) {
-                    // fall through to repo info + listing
-                }
-
+                } catch (_: Throwable) {}
+                // repo info
                 try {
                     val repoInfo = SimpleHttp.get("https://api.github.com/repos/$repoPath", ghHeaders("application/vnd.github.v3+json"))
                     if (repoInfo.first in 200..299) {
                         val info = runCatching { json.parseToJsonElement(repoInfo.second).jsonObject }.getOrNull() ?: JsonObject(emptyMap())
-                        val contents = try {
-                            SimpleHttp.get("https://api.github.com/repos/$repoPath/contents/", ghHeaders("application/vnd.github.v3+json")).second
-                        } catch (t: Throwable) { "" }
                         val sb = StringBuilder("# GitHub Repository: $repoPath\n\n$UNTRUSTED_CONTENT_BANNER")
                         sb.append("**${info["full_name"]?.jsonPrimitive?.contentOrNull ?: repoPath}**")
                         if (info["private"]?.jsonPrimitive?.contentOrNull == "true") sb.append(" (private)")
                         sb.append("\n${info["description"]?.jsonPrimitive?.contentOrNull ?: "(tidak ada deskripsi)"}\n\n")
                         sb.append("⭐ ${info["stargazers_count"]?.jsonPrimitive?.contentOrNull ?: 0} | 🍴 ${info["forks_count"]?.jsonPrimitive?.contentOrNull ?: 0} | Bahasa: ${info["language"]?.jsonPrimitive?.contentOrNull ?: "N/A"} | Default branch: ${info["default_branch"]?.jsonPrimitive?.contentOrNull}\n")
                         sb.append("URL: ${info["html_url"]?.jsonPrimitive?.contentOrNull}\n")
-                        val itemsArr = runCatching { json.parseToJsonElement(contents).jsonArray }.getOrNull()
-                        if (!itemsArr.isNullOrEmpty()) {
-                            sb.append("\nIsi folder root:\n")
-                            itemsArr.forEach { it ->
-                                val o = it.jsonObject
-                                val type = o["type"]?.jsonPrimitive?.contentOrNull
-                                val name = o["name"]?.jsonPrimitive?.contentOrNull ?: ""
-                                sb.append("- ${if (type == "dir") "📁" else "📄"} $name\n")
-                            }
-                        }
                         return sb.toString().take(MAX_FETCH_CHARS)
                     }
-                    if (repoInfo.first == 404) {
-                        val hint = if (ghToken.isBlank()) {
-                            "Kalau repo ini private, hubungkan token GitHub di panel GitHub lalu coba lagi. Kalau publik, cek ejaan owner/nama persis (contoh: github.com/<owner>/<repo>)."
-                        } else {
-                            "Token GitHub sudah terpasang tapi tetap 404: cek ejaan owner/nama persis, pastikan repo ada dan token punya akses ke repo tersebut."
-                        }
-                        return "❌ Repository \"$repoPath\" tidak ditemukan (404). $hint"
-                    }
-                    if (repoInfo.first == 403) {
-                        return "❌ GitHub API rate-limited (403) saat mengakses \"$repoPath\". Coba lagi beberapa menit lagi, atau hubungkan GitHub token di panel GitHub untuk limit yang lebih tinggi."
-                    }
-                } catch (t: Throwable) {
-                    // fall through to direct fetch
-                }
+                } catch (_: Throwable) {}
             }
 
-            // General URLs: fetch LANGSUNG dari device.
-            // Native app tidak punya same-origin policy, jadi CORS proxy tidak perlu.
-            // Tiap redirect hop divalidasi ulang via NetGuard (anti-SSRF).
             val res = SimpleHttp.getChecked(url) { com.arka.app.net.NetGuard.checkPublicUrl(it) }
             if (res.first in 200..299) {
-                return "$UNTRUSTED_CONTENT_BANNER\n\n${res.second.take(MAX_FETCH_CHARS)}"
+                val body = res.second
+                return if (com.arka.app.net.HtmlText.isProbablyEmpty(body)) {
+                    val stripped = com.arka.app.net.HtmlText.stripCompat(body)
+                    if (stripped.isBlank()) "$UNTRUSTED_CONTENT_BANNER\n\n(tidak ada teks yang bisa dibaca; halaman kemungkinan butuh JavaScript)"
+                    else "$UNTRUSTED_CONTENT_BANNER\n\n${stripped.take(MAX_FETCH_CHARS)}"
+                } else {
+                    "$UNTRUSTED_CONTENT_BANNER\n\n${body.take(MAX_FETCH_CHARS)}"
+                }
             }
             return "Error fetching URL: HTTP ${res.first}"
         } catch (e: Exception) {
@@ -298,28 +308,30 @@ class ToolRegistry(
     private suspend fun webSearch(query: String): String {
         return try {
             val encoded = URLEncoder.encode(query, "UTF-8")
-            val url = "https://api.github.com/search/repositories?q=$encoded&sort=stars&order=desc&per_page=10"
-            val res = SimpleHttp.get(url, mapOf("Accept" to "application/vnd.github.v3+json"))
-            if (res.first !in 200..299) throw IllegalStateException("GitHub API error: ${res.first}")
-
-            val data = runCatching { json.parseToJsonElement(res.second).jsonObject }.getOrNull() ?: JsonObject(emptyMap())
-            val items = data["items"]?.let { runCatching { it.jsonArray }.getOrNull() } ?: emptyList()
-            if (items.isEmpty()) return "Tidak ada hasil untuk \"$query\" di GitHub."
-
-            val sb = StringBuilder()
-            items.forEachIndexed { index, it ->
-                val o = it.jsonObject
-                val stars = o["stargazers_count"]?.jsonPrimitive?.contentOrNull ?: "0"
-                sb.append("${index + 1}. **${o["full_name"]?.jsonPrimitive?.contentOrNull}** ⭐ ${stars.withThousands()}\n")
-                sb.append("   ${o["description"]?.jsonPrimitive?.contentOrNull ?: "No description"}\n")
-                sb.append("   URL: ${o["html_url"]?.jsonPrimitive?.contentOrNull}\n")
-                sb.append("   Language: ${o["language"]?.jsonPrimitive?.contentOrNull ?: "N/A"} | Forks: ${o["forks_count"]?.jsonPrimitive?.contentOrNull} | Issues: ${o["open_issues_count"]?.jsonPrimitive?.contentOrNull}")
-                if (index < items.lastIndex) sb.append("\n\n")
+            val headers = mapOf("User-Agent" to "Arka/1.0 (opencode-mobile-android)")
+            val url = "https://html.duckduckgo.com/html/?q=$encoded"
+            val res = SimpleHttp.get(url, headers)
+            if (res.first !in 200..299) {
+                // fallback GitHub
+                val gh = "https://api.github.com/search/repositories?q=$encoded&sort=stars&order=desc&per_page=5"
+                val gres = SimpleHttp.get(gh, mapOf("Accept" to "application/vnd.github.v3+json", "User-Agent" to "Arka/1.0"))
+                if (gres.first in 200..299) {
+                    val data = runCatching { json.parseToJsonElement(gres.second).jsonObject }.getOrNull() ?: JsonObject(emptyMap())
+                    val items = data["items"]?.let { runCatching { it.jsonArray }.getOrNull() } ?: emptyList()
+                    val sb = StringBuilder("$UNTRUSTED_CONTENT_BANNER🔍 Hasil (GitHub fallback):\n\n")
+                    items.take(5).forEachIndexed { i, it ->
+                        val o = it.jsonObject
+                        sb.append("${i+1}. ${o["full_name"]?.jsonPrimitive?.contentOrNull}\n   ${o["html_url"]?.jsonPrimitive?.contentOrNull}\n\n")
+                    }
+                    return sb.toString()
+                }
+                throw IllegalStateException("Search error: ${res.first}")
             }
-            val total = data["total_count"]?.jsonPrimitive?.contentOrNull
-            "$UNTRUSTED_CONTENT_BANNER🔍 Hasil pencarian GitHub untuk \"$query\":\n\n$sb\n\nTotal: ${total?.withThousands() ?: "0"} repositories ditemukan."
+            val html = res.second
+            val stripped = com.arka.app.net.HtmlText.stripCompat(html)
+            if (stripped.length > MAX_FETCH_CHARS) stripped.take(MAX_FETCH_CHARS) else stripped
         } catch (e: Exception) {
-            "❌ Error searching: ${e.message ?: "Unknown error"}\n\nNote: GitHub API mungkin rate-limited. Coba lagi nanti."
+            "❌ Error searching web: ${e.message ?: "Unknown error"}"
         }
     }
 
