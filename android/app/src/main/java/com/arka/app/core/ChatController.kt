@@ -36,7 +36,7 @@ const val AGENT_AUTO_CONTINUE_PROMPT =
 // Tools a Plan-mode AI is allowed to touch — read-only, nothing that writes
 // files, runs commands, or persists anything, so "just planning" can never
 // quietly turn into "already built it".
-private val PLAN_MODE_ALLOWED_TOOLS = setOf("read_file", "list_files", "skill", "web_fetch", "web_search", "session_search")
+private val PLAN_MODE_ALLOWED_TOOLS = setOf("read_file", "list_files", "skill", "web_fetch", "web_search", "session_search", "github")
 
 private val CHAT_MODE_SYSTEM_PROMPTS: Map<ChatMode, String> = mapOf(
     ChatMode.plan to "\n\n🗺️ MODE SAAT INI: PLAN\nUser sedang dalam mode perencanaan, BUKAN mode eksekusi. Tugasmu:\n- Diskusikan idenya, ajukan pertanyaan klarifikasi kalau perlu\n- Susun rencana / breakdown langkah kerja yang jelas (mis. daftar bernomor, tahapan)\n- JANGAN memanggil write_file, run_command, memory, atau stage_commit di mode ini — tool-tool itu bahkan tidak tersedia sekarang\n- Kalau user sudah setuju dengan rencananya dan minta mulai dikerjakan, beri tahu mereka untuk pindah ke mode Build atau Agent",
