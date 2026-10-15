@@ -254,4 +254,49 @@ object GitHubApi {
 
     fun getExcessiveScopes(scopes: List<String>): List<String> =
         scopes.filter { it !in REQUIRED_GITHUB_SCOPES && it != "public_repo" && it != "workflow" && it != "gist" }
+
+    // ---------------------------------------------------------------- actions/checks
+
+    suspend fun listRuns(repo: String, branch: String?, token: String, perPage: Int = 10): Pair<Int, String> {
+        val q = if (branch.isNullOrBlank()) "?per_page=$perPage" else "?branch=$branch&per_page=$perPage"
+        val url = "$GITHUB_API/repos/$repo/actions/runs$q"
+        val res = call("GET", url, token)
+        return Pair(res.code, res.body)
+    }
+
+    suspend fun getRunJobs(repo: String, runId: Long, token: String): Pair<Int, String> {
+        val res = call("GET", "$GITHUB_API/repos/$repo/actions/runs/$runId/jobs", token)
+        return Pair(res.code, res.body)
+    }
+
+    suspend fun getCheckRuns(repo: String, ref: String, token: String): Pair<Int, String> {
+        val res = call("GET", "$GITHUB_API/repos/$repo/commits/$ref/check-runs", token)
+        return Pair(res.code, res.body)
+    }
+
+    suspend fun getJobLogs(repo: String, jobId: Long, token: String): String {
+        // Ambil redirect URL log
+        val url = "$GITHUB_API/repos/$repo/actions/jobs/$jobId/logs"
+        val ghToken = token
+        val headers = buildMap {
+            put("Accept", "application/vnd.github+json")
+            if (ghToken.isNotBlank()) put("Authorization", "Bearer $ghToken")
+            put("User-Agent", "Arka/1.0 (opencode-mobile-android)")
+        }
+        // follow manual redirect, allow logs host
+        val allowLogHost: (String) -> Unit = { loc ->
+            try {
+                val h = java.net.URI(loc).host?.lowercase() ?: ""
+                if (h.endsWith("githubusercontent.com") || h.endsWith("blob.core.windows.net")) {
+                    // allowed
+                } else {
+                    com.arka.app.net.NetGuard.checkPublicUrl(loc)
+                }
+            } catch (e: Exception) {
+                com.arka.app.net.NetGuard.checkPublicUrl(loc)
+            }
+        }
+        val res = SimpleHttp.getChecked(url, headers) { u -> allowLogHost(u); Unit }
+        return if (res.first in 200..299) res.second else ""
+    }
 }
